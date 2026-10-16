@@ -1,0 +1,15 @@
+# games/scus_97316_sly2_band_of_thieves/lint_denylist.txt -- the tokens LintEnginePurity treats as THIS title's.
+# (tests/lint/lint_engine_purity.py: engine/ and verify/ must name no game. Directives, one per line:
+#  text_lo/text_hi = the ELF's PT_LOAD range -> any hex literal inside it is a game address;
+#  a bare hex literal = a data/VRAM base; anything else = a case-insensitive regex.)
+text_lo = 0x00100000
+text_hi = 0x00452200
+0x00472200          # the embedded .irx section (PT_LOAD #1) -- IOP module images inside the ELF
+Sly ?2
+Sly 2
+SCUS[_-]?973\.?16
+Sucker ?Punch
+Band of Thieves
+spiop
+989snd
+lgAud

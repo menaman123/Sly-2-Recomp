@@ -1,0 +1,1478 @@
+// games/scus_97316_sly2_band_of_thieves/hle/boot_leg.cpp -- the title's play composition, step 2:
+// the headless boot leg WITH the IOP arm. It arms the engine's title-neutral mechanisms (memory +
+// MMIO sink, INTC + timers, the SIF register block, the emulated time domain and boundary owner,
+// the kernel syscalls and the SDK binding manifest), hosts the title's three embedded IOP modules
+// on the engine's cooperative IOP kernel (iop_host.cpp: lgAud, 989snd, spiop recompiled at build
+// time; the stock Sony modules are the engine's HLE; the EE's SIF RPCs into 989snd reach its own
+// handlers), loads the ELF image, installs the generated dispatch table, runs the recompiled code
+// from the ELF entry on the engine's FALLBACKS (every MMIO page the sink answers idle; no
+// GS/VU/DMAC models yet) and reports where it parks: run.meta park= / park_pc= / park_tid= /
+// park_detail= (LegCloser) plus a `census:` block on stdout. No per-title HLE: hle/sdk_bindings.tsv
+// is the only title data consulted at run time (iop/iop_modules.h is layout data); the disc image
+// (--iso, else <game_files>/<disc_image_file>) feeds the engine's libcdvd rows (Sly 2 reads raw
+// sectors with sceCdRead).
+//
+// Shape: the first title's EeBootstrap cold-boot composition (private app/host/ee_bootstrap*.cpp),
+// reduced to its title-neutral phases, in the same construction order so object lifetimes nest
+// the same way. Entered from app/host/main.cpp through engine/title/title_play.h.
+#include "engine/title/title_play.h"
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <exception>
+#include <functional>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "app/host/build_id.h"
+#include "app/host/leg_closer.h"
+#include "app/host/platform_input.h"
+#include "app/host/session_runtime.h"
+#include "app/host/tick_thread.h"
+#include "app/host/user_data.h"
+#include "engine/cdvd/hle/libcdvd_bindings.h"
+#include "engine/cdvd/iso_fs.h"
+#include "engine/cdvd/read_engine.h"
+#include "engine/cdvd/stream_reader.h"
+#include "engine/core/config/config.h"
+#include "engine/core/config/config_loader.h"
+#include "engine/core/log/log.h"
+#include "engine/core/log/logger.h"
+#include "engine/core/log/ring_log.h"
+#include "engine/core/triage/triage_bundle.h"
+#include "engine/core/verify/frame_cap.h"
+#include "engine/core/verify/memory_checkpointer.h"
+#include "engine/core/verify/run_meta.h"
+#include "engine/core/verify/verify_host.h"
+#include "engine/ee/cpu/cpu_context_init.h"
+#include "engine/ee/cpu/cpu_state.h"
+#include "engine/ee/cpu/dispatch_table.h"
+#include "engine/ee/cpu/guest_park.h"
+#include "engine/ee/cpu/ps2_float.h"
+#include "engine/ee/cpu/shadow_call_stack.h"
+#include "engine/ee/hle/alarms.h"
+#include "engine/ee/hle/boot_env.h"
+#include "engine/ee/hle/sdk_binding_manifest.h"
+#include "engine/ee/hle/syscall_table.h"
+#include "engine/ee/hle/thread_manager.h"
+#include "engine/ee/intc/ee_timers.h"
+#include "engine/ee/intc/intc.h"
+#include "engine/ee/mem/address_map.h"
+#include "engine/ee/mem/elf_loader.h"
+#include "engine/ee/mem/fast_mem.h"
+#include "engine/ee/mem/main_memory.h"
+#include "engine/ee/mem/mmio_router.h"
+#include "engine/ee/mem/mmio_sink.h"
+#include "engine/ee/mem/scratchpad.h"
+#include "engine/ee/recomp_abi/host_app/memory.h"
+#include "engine/ee/recomp_abi/recomp_abi.h"
+#include "engine/ee/sched/ee_event_queue.h"
+#include "engine/ee/sched/ee_run_token.h"
+#include "engine/ee/sched/ee_yield_point.h"
+#include "engine/ee/timing/boundary_protocol.h"
+#include "engine/ee/timing/boundary_sequencer.h"
+#include "engine/ee/timing/derived_clocks.h"
+#include "engine/ee/timing/emu_domain.h"
+#include "engine/ee/timing/frame_rendezvous.h"
+#include "engine/ee/timing/game_boundary.h"
+#include "engine/ee/timing/tick_source.h"
+#include "engine/dmac/dmac.h"
+#include "engine/dmac/dmac_channel.h"
+#include "engine/dmac/dmac_handler_registry.h"
+#include "engine/gif/gif_arbiter.h"
+#include "engine/gif/gif_parser.h"
+#include "engine/gif/gif_regs.h"
+#include "engine/gif/hle/gs_sink_fanout.h"
+#include "engine/gif/hle/gs_state_sink.h"
+#include "engine/gs/hle/ir/counting_draw_ir_sink.h"
+#include "engine/gs/hle/ir/job_rec.h"
+#include "engine/gs/hle/present/crtc_classifier.h"
+#include "engine/gs/hle/present/scanout_composer.h"
+#include "engine/gs/hle/queue/draw_ir_queue_consumer.h"
+#include "engine/gs/hle/queue/draw_ir_thread_queue.h"
+#include "engine/gs/hle/sce/gs_sync.h"
+#include "engine/gs/state/gs_mmio_handler.h"
+#include "engine/gs/state/gs_priv_regs.h"
+#include "engine/gs/state/gs_state.h"
+#include "engine/gs/state/vertex_kick.h"
+#include "engine/ipu/ipu_device.h"
+#include "engine/ipu/ipu_fifo_port.h"
+#include "engine/mc/hle/libmc_bindings.h"
+#include "engine/mc/hle/mc_command_model.h"
+#include "engine/mc/hle/mc_host_store.h"
+#include "engine/mc/hle/mcserv_module.h"
+#include "engine/pad/hle/pad_protocol.h"
+#include "engine/pad/hle/padman_module.h"
+#include "engine/platform/host/platform.h"
+#include "engine/platform/posix/crash_handler.h"
+#include "engine/sif/hle/rpc_router.h"
+#include "engine/sif/hle/sce_sif.h"
+#include "engine/sif/sif_state.h"
+#include "engine/sound/hle/sd_block_trans.h"
+#include "engine/sound/hle/sdr_remote.h"
+#include "engine/sound/mixer.h"
+#include "engine/sound/spu_core.h"
+#include "engine/title/title_profile.h"
+#include "engine/vif/vif.h"
+#include "engine/vif/vif_mmio_gate.h"
+#include "engine/vu/macro/vu_macro_bridge.h"
+#include "engine/vu/tiers/vu_tier_dispatch.h"
+#include "engine/vu/vu0/vu0_registry.h"
+#include "engine/vu/vu_unit.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/frame_dump.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/iop_host.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/video_stack.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/vu1_probe.h"
+#include "games/scus_97316_sly2_band_of_thieves/iop/iop_modules.h"
+
+#ifndef PS2R_SLY2_SHA_FILEIO
+#define PS2R_SLY2_SHA_FILEIO ""
+#endif
+#ifndef PS2R_SLY2_SHA_LGAUD
+#define PS2R_SLY2_SHA_LGAUD ""
+#endif
+#ifndef PS2R_SLY2_SHA_SND989
+#define PS2R_SLY2_SHA_SND989 ""
+#endif
+#ifndef PS2R_SLY2_SHA_SPIOP
+#define PS2R_SLY2_SHA_SPIOP ""
+#endif
+
+namespace {
+
+using ps2r::Config;
+using ps2r::ConfigLoader;
+using ps2r::LogLevelSetting;
+using ps2r::log::Logger;
+using ps2r::ringlog::RingLog;
+
+constexpr int kMainThreadPriority = 0;   // KernlBoot adopts tid 1 at priority 0
+
+std::string Hex(uint64_t v) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "0x%llx", static_cast<unsigned long long>(v));
+    return buf;
+}
+
+ps2r::log::Level ToLoggerLevel(LogLevelSetting s) {
+    switch (s) {
+        case LogLevelSetting::Quiet: return ps2r::log::Level::Quiet;
+        case LogLevelSetting::Error: return ps2r::log::Level::Error;
+        case LogLevelSetting::Warn: return ps2r::log::Level::Warn;
+        case LogLevelSetting::Info: return ps2r::log::Level::Info;
+        case LogLevelSetting::Narrate: return ps2r::log::Level::Narrate;
+    }
+    return ps2r::log::Level::Quiet;
+}
+
+bool FileExists(const std::string& path) {
+    if (std::FILE* f = std::fopen(path.c_str(), "rb")) {
+        std::fclose(f);
+        return true;
+    }
+    return false;
+}
+
+// Where the ELF comes from, in order: --game-files <dir>/<elf_dir>/<elf_path> (the shipped
+// layout), else the build's SHA-gated copy under <build>/generated/.../inputs (PS2R_TITLE_ELF_PATH,
+// a compile definition from hle/CMakeLists.txt: this is a development build running from its tree).
+std::string ResolveElf(const Config& cfg, const TitleProfile& title) {
+    const std::string shipped = cfg.paths.game_files + "/" + title.elf_dir + "/" + title.elf_path;
+    if (FileExists(shipped)) return shipped;
+#ifdef PS2R_TITLE_ELF_PATH
+    if (FileExists(PS2R_TITLE_ELF_PATH)) return PS2R_TITLE_ELF_PATH;
+#endif
+    return shipped;
+}
+
+// The leg proper. Every object lives on this frame in construction order (the first title's
+// phase order); a park / the frames cap leave through std::_Exit after LegCloser::Close.
+int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::FrameCap& cap, const TitleProfile& title,
+           const std::string& elf_path, const std::string& title_dir) {
+    // --- memory + MMIO (the sink answers every unmodelled page idle; INTC/timers/SIF displace it) --
+    MainMemory ram;
+    Scratchpad spad;
+    AddressMap map(ram, spad);
+    MmioSink sink;
+    MmioRouter mmio(sink);
+    FastMem fast_mem(ram, map, mmio);
+    RecompAbi::BindMemory(&fast_mem);
+    // NATIVEEE_WATCH=<hexaddr>,<bytes>[;<hexaddr>,<bytes>...][;max=<n>][;val=<hex>]: print every EE store that
+    // overlaps one of the guest ranges (thread, innermost shadow-stack frame + its ra, the caller
+    // frame, address, width, old -> new bits). Boot triage only; needs a non-NDEBUG engine build
+    // (FastMem's observer is compiled out of Release). DMA writes (fromSPR / IPU / VIF) do not pass
+    // through FastMem: a watched quadword that changes without a line here was written by a device
+    // or never written at all. The observer sees the hull of the ranges; the callback filters.
+    struct WatchState {
+        std::vector<std::pair<uint32_t, uint32_t>> ranges;   // [lo, hi) physical
+        uint64_t printed = 0, max = 2000;
+        std::vector<uint64_t> vals;                          // val=<hex> (repeatable): only stores of these values
+    } watch_state;
+    if (const char* env = std::getenv("NATIVEEE_WATCH")) {
+        std::string spec(env);
+        uint32_t hull_lo = 0xFFFFFFFFu, hull_hi = 0;
+        size_t pos = 0;
+        while (pos < spec.size()) {
+            size_t semi = spec.find(';', pos);
+            if (semi == std::string::npos) semi = spec.size();
+            const std::string item = spec.substr(pos, semi - pos);
+            pos = semi + 1;
+            if (item.rfind("max=", 0) == 0) { watch_state.max = std::strtoull(item.c_str() + 4, nullptr, 0); continue; }
+            if (item.rfind("val=", 0) == 0) { watch_state.vals.push_back(std::strtoull(item.c_str() + 4, nullptr, 16)); continue; }
+            char* end = nullptr;
+            const uint32_t lo = static_cast<uint32_t>(std::strtoul(item.c_str(), &end, 16)) & 0x1FFFFFFFu;
+            const uint32_t bytes = (end && *end == ',') ? static_cast<uint32_t>(std::strtoul(end + 1, nullptr, 0)) : 16u;
+            watch_state.ranges.emplace_back(lo, lo + bytes);
+            hull_lo = std::min(hull_lo, lo);
+            hull_hi = std::max(hull_hi, lo + bytes);
+        }
+        if (!watch_state.ranges.empty() && !FastMem::HasWriteObserver()) {
+            FastMem::SetWriteObserver([](void* user, uint32_t addr, unsigned width, uint64_t old_bits, uint64_t new_bits) {
+                auto* st = static_cast<WatchState*>(user);
+                const uint32_t phys = addr & 0x1FFFFFFFu;
+                bool hit = false;
+                for (const auto& r : st->ranges) hit = hit || (phys < r.second && phys + width > r.first);
+                if (!hit) return;
+                if (!st->vals.empty()) {
+                    const uint64_t mask = width >= 8 ? ~0ull : ((1ull << (8 * width)) - 1);
+                    bool match = false;
+                    for (uint64_t v : st->vals) match = match || (new_bits & mask) == (v & mask);
+                    if (!match) return;
+                }
+                if (st->printed++ >= st->max) return;
+                ShadowCallStack::Frame f0{}, f1{};
+                ShadowCallStack::Top(0, f0);
+                ShadowCallStack::Top(1, f1);
+                std::fprintf(stderr, "watch: tid=%d fn=0x%08x ra=0x%08x caller=0x%08x addr=0x%08x w=%u old=0x%016llx new=0x%016llx\n",
+                             ThreadManager::Instance().CurrentTid(), f0.func_addr, f0.ra, f1.func_addr, addr, width,
+                             (unsigned long long)old_bits, (unsigned long long)new_bits);
+            }, &watch_state, hull_lo, hull_hi);
+            std::fprintf(stderr, "watch: %zu range(s), hull [0x%08x, 0x%08x) max=%llu\n", watch_state.ranges.size(), hull_lo, hull_hi,
+                         (unsigned long long)watch_state.max);
+        }
+#ifdef NDEBUG
+        std::fprintf(stderr, "watch: NDEBUG build -- FastMem compiles the observer out; use a RelWithDebInfo/-UNDEBUG build\n");
+#endif
+    }
+
+    // --- time domain, boundary owner, INTC + timers, SIF registers -------------------------------
+    Intc& intc = Intc::Instance();
+    intc.Register(mmio);
+    EmuDomain domain;
+    if (cfg.time.tick_deterministic) domain.SetRegimePin(1);
+    DerivedClocks clocks(domain);
+    clocks.SetRtcFixed(cfg.game.rtc_fixed);
+    SetLibscfClocks(&clocks);
+    EeTimers timers(clocks, intc);
+    timers.Register(mmio);
+    SifState sif_state;
+    sif_state.Register(mmio);
+    timers.SetCtxProvider([] {
+        return ThreadManager::Instance().Current() ? ThreadManager::Instance().Current()->ctx : nullptr;
+    });
+    TickSource tick_source;
+    tick_source.SetPolicy(cfg.time.tick_deterministic ? TickSource::Policy::Deterministic : TickSource::Policy::Play);
+    tick_source.SetMode(cfg.harness.headless ? TickSource::Mode::Freerun : TickSource::Mode::Realtime);
+    FrameRendezvous rendezvous;
+    std::atomic<bool> running{true};
+    // Play mode = a window exists and the boundary is wall-paced (neither --headless nor
+    // time.tick_sync): the SessionRuntime's window on main, the live pad, the GS pipeline over GL.
+    // Headless with --dump-frames <dir>: the same GS pipeline into a hidden GL window, every
+    // present written as <dir>/f<key>.ppm (the grab) + p<key>.ppm (the presented image). Headless
+    // without a dump dir is the boot leg exactly as before: a counting sink, no GL.
+    const bool play_mode = !cfg.harness.headless && !cfg.time.tick_sync;
+    const std::string dump_frames_dir = ConfigLoader::Request().dump_frames_dir;
+    const bool want_video = play_mode || !dump_frames_dir.empty();
+
+    // --- the boundary: sequencer + the game-thread boundary owner + the Phase-3 steps ------------
+    BoundarySequencer sequencer;
+    GameBoundary game_boundary(ThreadManager::Instance(), sequencer);
+    if (!game_boundary.Attached()) {
+        std::fprintf(stderr, "nativeee: the game boundary did not attach\n");
+        return 2;
+    }
+    BoundarySequencer::Phase3Deps deps;
+    deps.source = &tick_source;
+    deps.domain = &domain;
+    deps.rendezvous = &rendezvous;
+    deps.intc = &intc;
+    deps.alarms = &Alarms::Instance();
+    deps.timers = &timers;
+    deps.queue = &EeEventQueue::Instance();
+    deps.running = &running;
+    sequencer.InstallPhase3Steps(deps);   // slots 0-3: rendezvous ticket, tick advance, event drain
+    BoundaryProtocol protocol(tick_source, sequencer.Ticks());
+    protocol.SetRunahead(static_cast<uint32_t>(cfg.engine.ee_runahead));
+
+    // --- kernel clocks + seams --------------------------------------------------------------------
+    clocks.InstallKernelClocks(SyscallTable::Instance(), protocol.WaitHook());
+    GsSync::Bind(&sequencer, &clocks);
+    auto guest_call = [](uint32_t addr, CpuContext& ctx) {
+        DispatchTable::Invoke(addr, ctx);
+        return true;
+    };
+    SyscallTable::Instance().SetGuestCall(guest_call);
+    std::string first_syscalls;
+    uint64_t syscall_count = 0;
+    SyscallTable::Instance().SetTrace([&](int num, const char* name) {
+        constexpr uint64_t kKeep = 40;
+        if (syscall_count++ < kKeep)
+            first_syscalls += (first_syscalls.empty() ? "" : ",") + std::string(name ? name : "?") + "(" +
+                              std::to_string(num) + ")";
+    });
+    SyscallTable::Instance().BindIntcMask(intc.MaskWord());
+    intc.SetGuestCall(guest_call);
+    ThreadManager::Instance().InstallEventApplier();
+    ThreadManager::Instance().SetGuestBody([](int, CpuContext& ctx) { DispatchTable::Invoke(ctx.cpuRegs.pc, ctx); });
+
+    // --- the hardware fallbacks: GS / GIF / VU / VIF / DMAC / IPU (the first title's construction
+    // order, app/host/ee_bootstrap_{devices,services}.cpp), each displacing its MmioSink row ----
+    // GsState's DrawIR goes to a counting sink (run.meta gs_draws=) which, when a video stack is
+    // wanted (play mode / --dump-frames), chains to the DrawIR thread queue -> the queue consumer
+    // -> the generic DrawPipeline over GL (hle/video_stack.h: no class renderers, an empty
+    // VramLayout). The GS privileged page (CSR / IMR / DISPFB ...) is the real register file, so
+    // the game's FINISH handshake (CSR |= 2 W1C, GsPutIMR, GIF chain, WaitSema signalled by the GS
+    // INTC handler) is driven by the modelled transfer: Dmac::StartChannel(GIF) -> ChainWalker ->
+    // GifParser -> GsState::WriteRegister(FINISH) -> GsPrivRegs::Finish() -> the observer below ->
+    // Intc kGs.
+    ps2r::gs::GsState gs_state;
+    gs_state.SetQuirks(ps2r::gs::VertexKickQuirks{title.quirks.round_sprite_mode});
+    ps2r::title::sly2::VideoStack video;
+    const bool video_live = want_video && cfg.video.backend == ps2r::VideoBackend::Gl &&
+                            video.Create(cfg.video, "Sly 2 -- NativeEE (GS)", gs_state.Vram());
+    if (want_video && !video_live) std::fprintf(stderr, "nativeee: no GL video stack (video=stub; see the log)\n");
+    std::unique_ptr<ps2r::gs::DrawIrQueueConsumer> consumer;
+    std::unique_ptr<ps2r::gs::DrawIrThreadQueue> gs_queue;
+    // gs.queue=inline: the consumer runs on the pushing EE thread (the context re-bound per
+    // thread); otherwise the DrawIR ring carries the stream to the consumer on its own host
+    // thread, which owns the GL context -- LOCKSTEP for both `thread` and `pipelined` in this
+    // first cut (every push returns once consumed; the shared VramImage interleaving is the
+    // inline one). The split-image pipelined mode is a follow-up.
+    const bool gs_queue_thread = video_live && cfg.gs.queue != ps2r::GsQueue::Inline;
+    if (video_live) {
+        // The display grab when no target sits at the scanout base: the CRTC's own read --
+        // decode the DISPFB tuple out of local memory (an uploaded movie frame the title points
+        // DISPFB at without drawing shows); the most-recently-drawn target only when the tuple
+        // is unknown.
+        video.Pipe()->Scanout().SetGrabPolicy(ps2r::gs::ScanoutComposer::GrabPolicy::LocalMemory);
+        auto crtc_now = [&gs_state] {
+            using P = ps2r::gs::GsPrivRegs;
+            const P& p = gs_state.Priv();
+            return ps2r::gs::CrtcClassifier::Classify(p.Read(P::kPmode), p.Read(P::kDispfb1), p.Read(P::kDispfb2),
+                                                      p.Read(P::kDisplay1), p.Read(P::kDisplay2));
+        };
+        ps2r::gs::DrawIrQueueConsumer::Hooks hooks;
+        hooks.enter = [&video] { video.EnsureCurrent(); };
+        if (gs_queue_thread) {
+            hooks.upload_pixels = [&gs_queue] { return gs_queue->LastUploadPayload(); };
+            hooks.crtc = [&gs_queue] { return gs_queue->CurrentFrameCrtc(); };
+        } else {
+            hooks.upload_pixels = [&gs_state] { return &gs_state.Xfer().LastUploadPixels(); };
+            hooks.crtc = crtc_now;
+        }
+        hooks.window_resized = [&video](int w, int h) { video.OnWindowResized(w, h); };
+        consumer = std::make_unique<ps2r::gs::DrawIrQueueConsumer>(*video.Pipe(), std::move(hooks));
+        if (gs_queue_thread) {
+            ps2r::gs::DrawIrThreadQueue::Hooks qh;
+            qh.upload_pixels = [&gs_state] { return &gs_state.Xfer().LastUploadPixels(); };
+            qh.crtc = crtc_now;
+            gs_queue = std::make_unique<ps2r::gs::DrawIrThreadQueue>(*consumer, std::move(qh),
+                                                                     ps2r::gs::DrawIrThreadQueue::Policy::Lockstep, 4096);
+            video.ReleaseCurrent();
+            gs_queue->Start([&video] {
+                ps2r::platform::host::PinCurrentThreadInteractive("ps2r-gs");
+                video.EnsureCurrent();
+            });
+            PS2R_LOG(HOST, Info, "GS queue: consumer thread started (lockstep, shared VRAM image)");
+        }
+    }
+    ps2r::gs::DrawIrSink* gs_sink_head =
+        gs_queue ? static_cast<ps2r::gs::DrawIrSink*>(gs_queue.get()) : static_cast<ps2r::gs::DrawIrSink*>(consumer.get());
+    // NATIVEEE_GS_VERTS=<key>: every draw of the frame that ENDS at present key <key> (the draws
+    // between boundaries key-1 and key) to stderr with its raster state and vertices (boot triage).
+    // NATIVEEE_GS_SKIP_FROM=<n> (boot triage, with NATIVEEE_GS_VERTS): the traced frame's draws
+    // from index n on are NOT forwarded to the renderer (a draw-order bisect of that frame's picture).
+    struct VertTraceSink : ps2r::gs::DrawIrSink {
+        ps2r::gs::DrawIrSink* next = nullptr;
+        std::atomic<bool> on{false};
+        uint32_t skip_from = 0, index = 0;
+        // NATIVEEE_GS_SKIP_CLASS=<c>[,<c>...] (boot triage, every frame): drop draws of a class --
+        // m16 (a 16-bit FRAME over the buffers), fbmsk (a partial FBMSK other than alpha-only),
+        // t8h (a PSMT8H / PSMT4HH / PSMT4HL read), rtblend (a textured sprite blending a buffer
+        // with FIX), date (DATE-tested draws).
+        bool skip_m16 = false, skip_fbmsk = false, skip_t8h = false, skip_rtblend = false, skip_date = false;
+        bool Skipped(const ps2r::gs::DrawIr& d) const {
+            if (skip_m16 && (d.raster.frame.psm == 2 || d.raster.frame.psm == 10)) return true;
+            if (skip_fbmsk && d.raster.frame.fbmsk != 0 && d.raster.frame.fbmsk != 0xff000000u) return true;
+            if (skip_t8h && d.tex_enabled && (d.tex.psm == 0x1b || d.tex.psm == 0x24 || d.tex.psm == 0x2c)) return true;
+            if (skip_rtblend && d.tex_enabled && d.prim_type == 6 && d.alpha_blend && d.raster.alpha.c == 2 && d.tex.psm == 0) return true;
+            if (skip_date && d.raster.test.date) return true;
+            return false;
+        }
+        void OnDraw(const ps2r::gs::DrawIr& d) override {
+            if (Skipped(d)) return;
+            if (on.load(std::memory_order_relaxed)) {
+                const uint32_t idx = index++;
+                if (skip_from && idx >= skip_from) return;
+                std::fprintf(stderr, "verts: seq=%u prim=%u tme=%d abe=%d fbp=0x%x fbw=%u psm=%u fbmsk=0x%x zbp=0x%x zpsm=%u zmsk=%d zte=%d ztst=%u ate=%d atst=%u aref=%u afail=%u scissor=%u,%u-%u,%u off=%.1f,%.1f tbp=0x%x tbw=%u tpsm=%u tw=%u th=%u tcc=%u tfx=%u cbp=0x%x cpsm=%u csm=%u csa=%u cld=%u fst=%d texa=%u/%u/%d alpha=%u%u%u%u/%u n=%u\n",
+                             d.seq, d.prim_type, d.tex_enabled ? 1 : 0, d.alpha_blend ? 1 : 0, d.raster.frame.fbp, d.raster.frame.fbw,
+                             d.raster.frame.psm, d.raster.frame.fbmsk, d.raster.zbuf.zbp, d.raster.zbuf.psm, d.raster.zbuf.zmsk ? 1 : 0,
+                             d.raster.test.zte ? 1 : 0, d.raster.test.ztst, d.raster.test.ate ? 1 : 0, d.raster.test.atst, d.raster.test.aref,
+                             d.raster.test.afail, d.raster.scissor.x0, d.raster.scissor.y0, d.raster.scissor.x1, d.raster.scissor.y1, d.off_x,
+                             d.off_y, d.tex.tbp, d.tex.tbw, d.tex.psm, d.tex.tw, d.tex.th, d.tex.tcc, d.tex.tfx, d.tex.cbp, d.tex.cpsm, d.tex.csm,
+                             d.tex.csa, d.tex.cld, d.tex.fst ? 1 : 0, d.tex.texa_ta0, d.tex.texa_ta1, d.tex.texa_aem ? 1 : 0, d.raster.alpha.a,
+                             d.raster.alpha.b, d.raster.alpha.c, d.raster.alpha.d, d.raster.alpha.fix, d.vertex_count);
+                for (size_t i = 0; i < d.verts.size() && i < 8; ++i)
+                    std::fprintf(stderr, "verts:   v%zu xyz=%.1f,%.1f,%.0f stq=%g,%g,%g uv=%u,%u rgba=%02x%02x%02x%02x\n", i, d.verts[i].x, d.verts[i].y,
+                                 d.verts[i].z, d.verts[i].s, d.verts[i].t, d.verts[i].q, d.verts[i].uv_u, d.verts[i].uv_v, d.verts[i].r, d.verts[i].g,
+                                 d.verts[i].b, d.verts[i].a);
+            }
+            if (next) next->OnDraw(d);
+        }
+        void OnJob(const ps2r::gs::JobRec& j) override {
+            if (on.load(std::memory_order_relaxed))
+                std::fprintf(stderr, "verts: job type=%u a1=0x%x a2=0x%x a3=0x%x a4=0x%x\n", j.type, j.arg1, j.arg2, j.arg3, j.arg4);
+            if (next) next->OnJob(j);
+        }
+        void OnFrame(const ps2r::gs::JobRec& v) override { if (next) next->OnFrame(v); }
+    } vert_trace;
+    const uint32_t vert_trace_key = std::getenv("NATIVEEE_GS_VERTS") ? static_cast<uint32_t>(std::strtoul(std::getenv("NATIVEEE_GS_VERTS"), nullptr, 10)) : 0;
+    const char* skip_class_env = std::getenv("NATIVEEE_GS_SKIP_CLASS");
+    if ((vert_trace_key || skip_class_env) && gs_sink_head) {
+        vert_trace.next = gs_sink_head;
+        if (const char* env = std::getenv("NATIVEEE_GS_SKIP_FROM")) vert_trace.skip_from = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
+        if (skip_class_env) {
+            const std::string c = std::string(",") + skip_class_env + ",";
+            vert_trace.skip_m16 = c.find(",m16,") != std::string::npos;
+            vert_trace.skip_fbmsk = c.find(",fbmsk,") != std::string::npos;
+            vert_trace.skip_t8h = c.find(",t8h,") != std::string::npos;
+            vert_trace.skip_rtblend = c.find(",rtblend,") != std::string::npos;
+            vert_trace.skip_date = c.find(",date,") != std::string::npos;
+        }
+        gs_sink_head = &vert_trace;
+    }
+    ps2r::gs::CountingDrawIrSink draw_sink(gs_sink_head);
+    gs_state.SetSink(&draw_sink);
+    // The queue stops (drains, joins) before the consumer and the video stack it draws into go
+    // (the frame unwinds in reverse order; this guard runs first).
+    struct GsQueueStop {
+        std::unique_ptr<ps2r::gs::DrawIrThreadQueue>& q;
+        ~GsQueueStop() { if (q) q->Stop(); }
+    } gs_queue_stop{gs_queue};
+    // --dump-frames <dir>: the Verify slot writes f<key>.ppm / p<key>.ppm there (hle/frame_dump.h).
+    ps2r::title::sly2::FrameDump frame_dump;
+    if (video_live && !frame_dump.Open(dump_frames_dir))
+        std::fprintf(stderr, "nativeee: --dump-frames %s: cannot create the directory (no dumps)\n", dump_frames_dir.c_str());
+    uint64_t grab_local_memory = 0, grab_fallback = 0, grabs = 0;   // census gs_grab_sources=
+    // NATIVEEE_DUMP_EVERY=N (boot triage): write only every Nth present key (1 = all; long runs).
+    uint32_t dump_every = 1;
+    if (const char* env = std::getenv("NATIVEEE_DUMP_EVERY")) dump_every = std::max(1u, static_cast<uint32_t>(std::strtoul(env, nullptr, 10)));
+    ps2r::gs::GsMmioHandler gs_mmio(gs_state);
+    mmio.Register(MmioRouter::kGsPrivBase, MmioRouter::kGsPrivEnd - MmioRouter::kGsPrivBase, gs_mmio, "GS_PRIV");
+    GifRegs gif_regs;
+    mmio.Register(GifRegs::kBase, GifRegs::kSize, gif_regs, "GIF");
+    GsStateSink gs_state_sink(gs_state);
+    // NATIVEEE_GIF_TRACE=1: every GIF tag / register write to stderr (boot triage only).
+    struct GifTraceSink : GsSink {
+        void BeginTag(const GifTag& tag, GifPath path) override {
+            std::fprintf(stderr, "gif: tag path=%u nloop=%u flg=%u nreg=%u eop=%u prim=%u pre=%u\n", unsigned(path),
+                         unsigned(tag.nloop), unsigned(tag.flg), unsigned(tag.nregs), unsigned(tag.eop), unsigned(tag.prim), unsigned(tag.pre));
+        }
+        void WriteRegister(uint8_t reg, uint64_t value) override { std::fprintf(stderr, "gif:   reg 0x%02x = 0x%016llx\n", reg, (unsigned long long)value); }
+        void PackedRgbaq(uint8_t, uint8_t, uint8_t, uint8_t) override {}
+        void PackedSt(float, float, float) override {}
+        void PackedUv(uint16_t, uint16_t) override {}
+        void PackedFog(uint8_t) override {}
+        void KickVertex(float, float, float, uint8_t, bool) override { ++kicks; }
+        void ImageData(uint64_t, uint64_t) override { ++image; }
+        void EndOfPacket() override { std::fprintf(stderr, "gif:   eop (kicks=%llu image=%llu)\n", (unsigned long long)kicks, (unsigned long long)image); kicks = image = 0; }
+        void FinishPath3() override { std::fprintf(stderr, "gif:   path3 finish\n"); }
+        unsigned long long kicks = 0, image = 0;
+    } gif_trace;
+    GsSinkFanout gif_sink({&gs_state_sink});
+    if (std::getenv("NATIVEEE_GIF_TRACE")) gif_sink.Add(&gif_trace);
+    GifParser gif_parser(gif_sink, gif_regs);
+    GifArbiter gif_arbiter(gif_parser, nullptr);
+    VuUnit vu0(0);
+    VuUnit vu1(1, &gif_arbiter, title.quirks.xgkick_defer);
+    Vu0Registry vu0_registry;
+    Vif vif(vu0, vu1, gif_arbiter, gif_regs);
+    VifMmioGate vif_gate(vif);
+    mmio.Register(Vif::kVif0Base, Vif::kRegsSize, vif_gate, "VIF0");
+    mmio.Register(Vif::kVif1Base, Vif::kRegsSize, vif_gate, "VIF1");
+    mmio.Register(Vif::kVif1FifoBase, Vif::kFifoSize, vif_gate, "VIF1_FIFO");
+    map.RegisterHwWindow(0x11000000u, 0x1000u, vu0.state().micro, "VU0_MICRO");
+    map.RegisterHwWindow(0x11004000u, 0x1000u, vu0.state().data, "VU0_DATA");
+    map.RegisterHwWindow(0x11008000u, 0x4000u, vu1.state().micro, "VU1_MICRO");
+    map.RegisterHwWindow(0x1100C000u, 0x4000u, vu1.state().data, "VU1_DATA");
+    Dmac dmac(ram, spad, vif, gif_arbiter);
+    mmio.Register(0x10008000u, 0x6064u, dmac, "DMAC");
+    mmio.Register(0x1000F520u, 0x10u, dmac, "D_ENABLER");
+    mmio.Register(0x1000F590u, 0x10u, dmac, "D_ENABLEW");
+    dmac.SetGuestCall(guest_call);
+    uint64_t dmac_int1_raises = 0;
+    dmac.SetInterruptRaise([&dmac_int1_raises] { ++dmac_int1_raises; });
+    // _EnableDmac / _DisableDmac are D_STAT.CIM on the hardware: the kernel word and the
+    // register are one state (libmpeg enables channel 3 for its fromIPU completion handler).
+    SyscallTable::Instance().SetDmacMaskSink([&dmac](int ch, bool enable) { dmac.SetChannelInterruptMask(ch, enable); });
+    // The IPU register window + its two DMAC channels (ch4 RAM -> input FIFO, ch3 output FIFO ->
+    // RAM; a short drain retries when output appears): the hardware the title's libmpeg drives.
+    ps2r::ipu::IpuDevice ipu;
+    mmio.Register(0x10002000u, ps2r::ipu::IpuDevice::kWindowBytes, ipu, "IPU");
+    // The FIFO ports (IPU_out_FIFO 0x10007000 read, IPU_in_FIFO 0x10007010 write): libipu pushes
+    // the quantiser matrices (sceIpuSetIQ/SetVQ) through the write port, not the DMAC.
+    ps2r::ipu::IpuFifoPort ipu_fifo(ipu);
+    mmio.Register(0x10007000u, ps2r::ipu::IpuFifoPort::kWindowBytes, ipu_fifo, "IPU_FIFO");
+    // NATIVEEE_IPU_DUMP=<file>: every byte the toIPU channel feeds, appended (boot triage only).
+    std::FILE* ipu_dump = nullptr;
+    if (const char* dump = std::getenv("NATIVEEE_IPU_DUMP")) ipu_dump = std::fopen(dump, "wb");
+    struct IpuDumpClose { std::FILE*& f; ~IpuDumpClose() { if (f) std::fclose(f); } } ipu_dump_close{ipu_dump};
+    dmac.SetIpuFeedInput([&ipu, &ipu_dump](uint8_t* host, size_t bytes) {
+        if (ipu_dump) std::fwrite(host, 1, bytes, ipu_dump);
+        ipu.FeedInputFifo(host, bytes);
+    });
+    // NATIVEEE_IPU_OUT_DUMP=<file>: every byte the fromIPU channel drains (BDEC RAW16 / CSC RGB32), appended.
+    std::FILE* ipu_out_dump = nullptr;
+    if (const char* dump = std::getenv("NATIVEEE_IPU_OUT_DUMP")) ipu_out_dump = std::fopen(dump, "wb");
+    struct IpuOutDumpClose { std::FILE*& f; ~IpuOutDumpClose() { if (f) std::fclose(f); } } ipu_out_dump_close{ipu_out_dump};
+    dmac.SetIpuDrainOutput([&ipu, &ipu_out_dump](uint8_t* host, size_t bytes) {
+        const size_t got = ipu.DrainOutputFifo(host, bytes);
+        if (ipu_out_dump && got) std::fwrite(host, 1, got, ipu_out_dump);
+        return got;
+    });
+    ipu.SetOutputReady([&dmac] {
+        if (dmac.channel(static_cast<int>(DmacChannelId::IpuFrom)).chcr & DmacChcr::kStr)
+            dmac.StartChannel(static_cast<int>(DmacChannelId::IpuFrom));
+    });
+    // The eight-quadword input FIFO: the toIPU channel moves what fits and resumes as the
+    // IPU consumes (libmpeg reads D4_QWC and IPU_CTRL.IFC to find where the stream is).
+    dmac.SetIpuInputRoom([&ipu] { return ipu.InputRoomBytes(); });
+    ipu.SetInputRoomReady([&dmac] {
+        auto& to = dmac.channel(static_cast<int>(DmacChannelId::IpuTo));
+        if ((to.chcr & DmacChcr::kStr) && to.qwc != 0) dmac.StartChannel(static_cast<int>(DmacChannelId::IpuTo));
+    });
+    // COP2: the VU0 macro ops and CMSAR1 reach the units (unbound they park vu_micro_absent).
+    VuMacroBridge::Bind(&vu0, &vu1, &vu0_registry);
+    struct VuMacroUnbind { ~VuMacroUnbind() { VuMacroBridge::Unbind(); } } vu_macro_unbind;
+    // The deferred VIF1 kick's observation points at the frame boundary / sceGsSyncPath.
+    GsSync::BindDmac([&dmac] { dmac.ChaseVif1Tail(); }, [&dmac] { dmac.FlushDeferredVif1(); });
+    // The kernel's DMAC handler records reach the DMAC's registry before every dispatch.
+    auto install_dmac_handlers = [&dmac] {
+        std::vector<DmacHandler> records;
+        int next_id = 1;
+        for (const SyscallTable::KernelHandler& k : SyscallTable::Instance().DmacHandlers()) {
+            DmacHandler h;
+            h.id = k.id;
+            h.cause = k.cause;
+            h.pc = k.pc;
+            h.gp = k.gp;
+            h.arg = k.arg;
+            h.flag = k.flag;
+            h.active = k.active;
+            records.push_back(h);
+            if (k.id >= next_id) next_id = k.id + 1;
+        }
+        dmac.handlers().Install(records, next_id);
+    };
+    // The GS interrupt: SIGNAL / FINISH count on GsPrivRegs as the general register is written
+    // (on the kicking guest thread, so STAT is set in place); the IMR view is the kernel's
+    // GsPutIMR word (syscall 113; bit 8 SIGMSK, bit 9 FINISHMSK). Delivered at the next
+    // dispatch point: the syscall-entry hook below, a back-edge yield, or the boundary.
+    uint64_t gs_irq_events = 0, gs_irq_masked = 0, gs_irq_raises = 0;
+    // NATIVEEE_ISR_TRACE=1 (boot triage): one stderr line per GS SIGNAL / FINISH event -- the
+    // kicking tid, the kernel's IMR word and whether the cause was raised or masked.
+    static const bool isr_trace = std::getenv("NATIVEEE_ISR_TRACE") != nullptr;
+    gs_state.Priv().SetInterruptObserver([&](uint32_t csr_event) {
+        ++gs_irq_events;
+        const bool masked = (SyscallTable::Instance().GsImr() & (static_cast<uint64_t>(csr_event) << 8)) != 0;
+        if (isr_trace)
+            std::fprintf(stderr, "gs-irq: tid=%d event=0x%x imr=0x%llx %s path=%d p1=%llu p2=%llu p3=%llu\n",
+                         EeRunToken::Instance().CurrentTid(), csr_event,
+                         static_cast<unsigned long long>(SyscallTable::Instance().GsImr()), masked ? "masked" : "raise",
+                         static_cast<int>(gif_parser.ActivePath()),
+                         static_cast<unsigned long long>(gif_parser.Receives(GifPath::Path1)),
+                         static_cast<unsigned long long>(gif_parser.Receives(GifPath::Path2)),
+                         static_cast<unsigned long long>(gif_parser.Receives(GifPath::Path3)));
+        if (masked) {
+            ++gs_irq_masked;
+            return;
+        }
+        intc.Raise(Intc::kGs);
+        ++gs_irq_raises;
+    });
+    // The interrupt taken at the next kernel call: every syscall's entry dispatches the pending
+    // enabled INTC causes (and the DMAC's INT1 handlers) on the calling thread before the
+    // syscall's body runs -- a GS FINISH raised in-line by the kick above reaches the game's GS
+    // handler before its WaitSema would block forever. Intc's in-dispatch guard keeps an ISR's own
+    // kernel calls (iSignalSema) from recursing into the dispatch.
+    // A BLOCKING kernel wait is also a DMA observation point (Dmac::ObserveAtKernelWait): the
+    // thread that kicked a VIF1 chain / PATH3 upload and now sleeps for the FINISH handler's
+    // semaphore gives the bus to the DMA; the parked chain is walked and the arbiter's PATH3
+    // backlog reaches the GS. The FINISH the observer raises is then pending in INTC_STAT, and
+    // an interrupt runs on WHICHEVER thread is running when it lands: if another thread is READY,
+    // the waiter blocks and the ISR is taken at that thread's next dispatch point (its next
+    // kernel call, back-edge yield or boundary) -- the DMA's latency shows up as the other
+    // threads' run time, as on the console. Taking it here instead would complete the kick
+    // instantaneously and return the waiter before it ever blocked: a high-priority render /
+    // frame-pacing thread pair then never both wait and the lower-priority main thread starves
+    // (Sly 2's level loader after the intro FMV). Only when nothing else is READY -- the kernel's
+    // idle loop would take the interrupt -- is it dispatched here, before the block.
+    // The entry LOOPS: a handler's exit (EeRunToken::IsrEnd) may hand the token to the thread it
+    // readied; when this thread is re-elected it is still at this entry, about to block, and the
+    // other threads counted it READY while they deferred -- so the causes raised meanwhile are its
+    // to take now. Without the re-check they would stay pending with every thread asleep.
+    uint64_t syscall_entry_isrs = 0, syscall_entry_isrs_deferred = 0;
+    // NATIVEEE_ISR_TRACE also prints one line per syscall entry that finds an INTC cause
+    // pending -- tid, syscall, the pending/mask words and the decision.
+    SyscallTable::Instance().SetPreDispatch([&](int num, CpuContext& ctx) {
+        const bool blocking = SyscallTable::IsBlockingWait(num);
+        if (blocking) dmac.ObserveAtKernelWait();
+        for (;;) {
+            if (dmac.CheckInterrupt()) {
+                install_dmac_handlers();
+                dmac.DispatchInterrupt(ctx);
+            }
+            if (!intc.Pending()) break;
+            EeRunToken& token = EeRunToken::Instance();
+            const bool defer = blocking && token.AnyReadyBesides(token.CurrentTid());
+            if (isr_trace)
+                std::fprintf(stderr, "isr-trace: tid=%d syscall=%d stat=0x%x mask=0x%x %s\n", token.CurrentTid(), num,
+                             intc.Stat(), intc.Mask(), defer ? "deferred" : "dispatch");
+            if (defer) {
+                ++syscall_entry_isrs_deferred;
+                break;
+            }
+            const int ran = intc.DispatchPending(ctx);
+            syscall_entry_isrs += static_cast<uint64_t>(ran);
+            if (ran == 0) break;  // pending but refused (nested) or without a handler: nothing more to do here
+        }
+    });
+
+    // --- the disc: IsoFs over the image, the sector reader the libcdvd rows copy from ------------
+    IsoFs iso_fs;
+    const std::string iso_path =
+        !cfg.paths.iso.empty() ? cfg.paths.iso : cfg.paths.game_files + "/" + title.disc_image_file;
+    std::string iso_error;
+    const bool iso_open = !title.disc_image_file.empty() && iso_fs.Open(iso_path, &iso_error);
+    if (!iso_open) std::fprintf(stderr, "nativeee: disc image: %s (sceCdRead answers 0)\n", iso_error.c_str());
+    ReadEngine read_engine(iso_fs);
+    StreamReader stream_reader(iso_open ? &read_engine : nullptr);
+    if (auto* meta = host.Meta()) {
+        meta->Set("iso_path", iso_open ? iso_path : std::string());
+        meta->Set("iso_open", iso_open ? "1" : "0");
+    }
+
+    // The kernel answers a SifDmaTransfer list with the transfer id (nonzero when queued; 0 only
+    // while the SIF1 channel is busy). The engine's syscall keeps its first title's rule -- 0 for a
+    // list without the command attribute (attr & 4) -- which Sly 2's plain data pushes never carry:
+    // the IOP-boot function 0x1a7630 polls `while (!sceSifSetDma(&t, 1))` and would spin forever.
+    // This hook supplies the id for such lists (upstream candidate: the kernel rule in the engine).
+    uint32_t title_sif_dma_id = 0x1000;
+    SyscallTable::Instance().SetSifDmaHook([&title_sif_dma_id](CpuContext& ctx) {
+        const int32_t count = ctx.cpuRegs.GPR.r[5].SL[0];
+        if (ctx.cpuRegs.GPR.r[2].UL[0] == 0 && count > 0) ctx.cpuRegs.GPR.r[2].UD[0] = ++title_sif_dma_id;
+    });
+
+    // --- the RPC servers the stock IOP modules would answer (padman, mcserv, sdrdrv) --------------
+    // Title-neutral and cheap; they matter once hle/sdk_bindings.tsv binds the sceSif rows (a
+    // sceSifBindRpc to one of these ids then routes here instead of parking sif_server_unbound).
+    RpcRouter rpc_router;
+    McHostStore mc_store(cfg.paths.mc_dir);
+    McCommandModel mc_model(cfg.cdvd.mc_latency_polls);
+    McservModule mcserv(mc_model, [](uint32_t a, uint32_t v) { memory::write<uint32_t>(a, v); });
+    rpc_router.RegisterServer(McservModule::kServerId, mcserv, "MCSERV");
+    PadProtocol pad_protocol([](uint32_t a, uint32_t v, int size) {
+        if (size == 1) memory::write<uint8_t>(a, static_cast<uint8_t>(v));
+        else if (size == 2) memory::write<uint16_t>(a, static_cast<uint16_t>(v));
+        else memory::write<uint32_t>(a, v);
+    });
+    const auto pad_now = [&domain] { return domain.DomainTick(); };
+    PadmanModule padman(
+        pad_protocol, [](uint32_t a) { return memory::read<uint32_t>(a); },
+        [](uint32_t a, uint8_t v) { memory::write<uint8_t>(a, v); },
+        [](uint32_t a, uint32_t v) { memory::write<uint32_t>(a, v); }, pad_now);
+    rpc_router.RegisterServer(PadmanModule::kCommandServerId, padman, "PADMAN");
+    rpc_router.RegisterServer(PadmanModule::kDataServerId, padman, "PADMAN_DATA");
+    ps2r::sound::SpuCore spu_core;
+    ps2r::sound::Mixer mixer(spu_core);
+    ps2r::sound::hle::SdBlockTrans sd_block_trans(cfg.audio.sdr_block_ms, [&mixer] { return mixer.FramesMixed(); });
+    ps2r::sound::hle::SdrRemote sdr_remote(spu_core, sd_block_trans, [](uint32_t a) { return memory::read<uint32_t>(a); },
+                                           [](uint32_t a, uint32_t v) { memory::write<uint32_t>(a, v); });
+    rpc_router.RegisterServer(ps2r::sound::hle::SdrRemote::kServerId, sdr_remote, "SDRDRV");
+
+    // --- play mode: the live pad + the session window on main ---------------------------------
+    // PlatformInput is constructed on main (its owner); the boundary's Sample() posts to main and
+    // waits a bounded 3 ms. SessionRuntime owns the VISIBLE window + its own GL context on main
+    // (opened after the video stack's context was released from main): Run() moves the cold boot
+    // to a 1 GiB-stack game worker while main pumps SDL, presents the posted frames at
+    // video.fps_cap and services the pad. The GS pipeline's presented image (VideoStack::Output,
+    // on the consumer thread) is posted to it. No audio device (nothing parks without one).
+    std::unique_ptr<PlatformInput> live_input;
+    std::unique_ptr<ps2r::app::SessionRuntime> session;
+    if (play_mode && video_live) {
+        std::string exe_err;
+        const std::string exe = ps2r::platform::host::ExecutablePath(&exe_err);
+        const size_t slash = exe.find_last_of('/');
+        const std::string exe_dir = slash == std::string::npos ? std::string(".") : exe.substr(0, slash);
+        live_input = std::make_unique<PlatformInput>(PlatformInput::SettingsFrom(cfg, exe_dir));
+        session = std::make_unique<ps2r::app::SessionRuntime>(live_input.get());
+        std::string err;
+        if (!session->Open(cfg.audio.volume, /*audio=*/false, /*recording=*/false, std::string(), err, cfg.paths.mc_dir)) {
+            std::fprintf(stderr, "nativeee: session window: %s\n", err.c_str());
+            return 2;
+        }
+        session->ConfigurePresentation(cfg.video.vsync, cfg.video.fps_cap);
+        session->SetEventTrace(cfg.dev.log_level == LogLevelSetting::Narrate);
+        video.SetOutput([&session](std::vector<uint8_t> rgba, int w, int h) { session->PostFrame(std::move(rgba), w, h); });
+    }
+
+    // --- the IOP arm: the title's embedded modules hosted on the engine's IOP kernel -----------
+    // The EE's sceSifSetDma pushes land in IOP RAM; sceSifAllocIopHeap is the sysmem heap; a
+    // sceSifLoadModuleBuffer boots the recompiled module whose .iopmod name matches (lgAud,
+    // 989snd, spiop) or records the row of a natively served one. The 989snd RPC servers the
+    // module registers are put on rpc_router by the host, so snd_Init's sceSifCallRpc reaches them.
+    ps2r::title::sly2::IopHost::ExpectedHashes iop_hashes;
+    iop_hashes.fileio = PS2R_SLY2_SHA_FILEIO;
+    iop_hashes.lgaud = PS2R_SLY2_SHA_LGAUD;
+    iop_hashes.snd989 = PS2R_SLY2_SHA_SND989;
+    iop_hashes.spiop = PS2R_SLY2_SHA_SPIOP;
+    ps2r::title::sly2::IopHost iop_host(cfg, ram, rpc_router, spu_core, iso_open ? &read_engine : nullptr, iop_hashes);
+    SyscallTable::Instance().SetSifDmaCopy([&iop_host](uint32_t ee_src, uint32_t iop_dst, uint32_t size) {
+        iop_host.SifDmaCopy(ee_src, iop_dst, size);
+    });
+    // The padman face follows the padman the title loads (padman.irx 4.10 on this disc: the SDK-3
+    // command table, GET_MODVER 0x410); the row image's .bss is the actuator-DMA sink.
+    padman.SetModuleFacts([&iop_host] {
+        PadmanModule::ModuleFacts f;
+        if (const auto* m = iop_host.Table().FindModule("padman")) {
+            f.version = static_cast<uint16_t>(m->version);
+            if (m->text_addr) {
+                f.act_sink = m->text_addr + m->text_size + m->data_size;
+                f.act_sink_size = m->bss_size;
+            }
+        }
+        return f;
+    });
+    sequencer.SetStep(BoundarySequencer::Step::IopDispatch, [&iop_host](CpuContext& ctx) {
+        iop_host.Table().PumpAtBoundary();
+        SceSif::DeliverPendingCommands(ctx);   // SIF commands the IOP sent since the last boundary
+        return true;
+    });
+    // Slot 4 (MaintDuties): the SIF RPC end callbacks. A sceSifCallRpc with an end function in
+    // NOWAIT mode (libmc's sceMcXxx: the callback signals the semaphore sceMcSync waits on) is
+    // queued by the router and runs here, in order, as a guest call on the boundary's context --
+    // the engine's rule (rpc_router.h) and the proven composition's slot-4 duty.
+    // Then the pad: one PadProtocol::Stamp per boundary -- the live host input in play mode, the
+    // neutral pad (no buttons, centred sticks) otherwise, exactly what the console's padman
+    // publishes every frame. Before this the leg never stamped, so the title saw no pad data.
+    uint64_t rpc_end_callbacks = 0, pad_stamps = 0;
+    // NATIVEEE_PAD_SCRIPT=<frame>:<buttons_hex>:<hold>[,<frame>:<buttons_hex>:<hold>...] (boot triage,
+    // headless): press `buttons` (libpad active-high order: CIRCLE 0x2000, CROSS 0x4000, START 0x0008)
+    // for `hold` boundaries starting at the `frame`-th pad stamp (one per boundary), over the neutral pad.
+    struct PadScriptStep { uint64_t frame; uint16_t buttons; uint64_t hold; };
+    std::vector<PadScriptStep> pad_script;
+    if (const char* env = std::getenv("NATIVEEE_PAD_SCRIPT")) {
+        for (const char* p = env; *p;) {
+            char* e = nullptr;
+            PadScriptStep st{};
+            st.frame = std::strtoull(p, &e, 10);
+            if (*e != ':') break;
+            st.buttons = static_cast<uint16_t>(std::strtoul(e + 1, &e, 16));
+            if (*e != ':') break;
+            st.hold = std::strtoull(e + 1, &e, 10);
+            pad_script.push_back(st);
+            if (*e != ',') break;
+            p = e + 1;
+        }
+    }
+    sequencer.SetStep(BoundarySequencer::Step::MaintDuties, [&](CpuContext& ctx) {
+        rpc_end_callbacks += static_cast<uint64_t>(rpc_router.CompletePending(
+            ctx, [](uint32_t addr, CpuContext& c) { DispatchTable::Invoke(addr, c); },
+            [](uint32_t a) { return memory::read<uint32_t>(a); }));
+        PadProtocol::Input in = live_input ? live_input->Sample() : PadProtocol::Input{};
+        for (const PadScriptStep& st : pad_script)
+            if (pad_stamps >= st.frame && pad_stamps < st.frame + st.hold) in.buttons |= st.buttons;
+        pad_protocol.Stamp(in, domain.DomainTick());
+        ++pad_stamps;
+        return true;
+    });
+    // Slot 0 (PresentRendezvous): the Phase-3 ticket, then the GS frame boundary -- the VSync
+    // job the engine does not push itself (nobody else marks the EE game frame): the counting
+    // sink hands it down the chain to the consumer (DrawPipeline::OnFrameEnd: the grab, the
+    // display quad, the present). Lockstep / inline: the push returns once the frame was
+    // consumed, so the Verify slot below reads a complete grab. Then CSR.VSINT. The GS SIGNAL /
+    // FINISH causes are raised in-line by the interrupt observer below -- not re-raised here.
+    uint64_t gs_frame_boundaries = 0;
+    sequencer.SetStep(BoundarySequencer::Step::PresentRendezvous, [&](CpuContext&) {
+        const uint32_t ticket = rendezvous.Issue();
+        if (!rendezvous.WaitFor(ticket, running)) return false;
+        ps2r::gs::JobRec vs{};
+        vs.type = static_cast<uint32_t>(ps2r::gs::JobKind::VSync);
+        vs.seq = gs_state.Seq();
+        vs.src_frame = static_cast<uint32_t>(gs_frame_boundaries);
+        vs.arg1 = 1;   // the EE game-frame boundary
+        vs.vram_epoch = gs_state.Vram().UploadEpoch();
+        draw_sink.OnFrame(vs);
+        if (gs_queue && !sequencer.WallLocked()) gs_queue->WaitFrame(gs_queue->FrameSeq());
+        ++gs_frame_boundaries;
+        gs_state.Priv().SetVsint();
+        return true;
+    });
+    // The SIF command path IOP -> EE: a hosted module's sceSifSendCmd lands in libkernl's command
+    // buffer (the title's sceSifInitCmd static) and runs the handler the EE registered with
+    // sceSifAddCmdHandler, as a guest call on the EE's context.
+    SceSif::SetCmdBuffer(SceSif::CmdBuffer{ps2r::title::sly2::IopModules::kEeSifCmdBuffer,
+                                           ps2r::title::sly2::IopModules::kEeSifCmdSlots,
+                                           ps2r::title::sly2::IopModules::kEeSifCmdSlotBytes});
+    SceSif::SetGuestCall([](uint32_t addr, CpuContext& ctx) { DispatchTable::Invoke(addr, ctx); });
+    sequencer.SetStep(BoundarySequencer::Step::EeStreamRpc, [&iop_host](CpuContext&) {
+        iop_host.Table().PumpAfterEeService();
+        return true;
+    });
+    // The back-edge yield (recomp/CMakeLists.txt: --yield-backedges): a guest loop that reaches
+    // no kernel call trips EeYieldPoint every kYieldBudget back-edges -- one field of emulated
+    // time (the protocol's wait hook), alarms, timers, the pending ISRs, the event drain, then
+    // the thbase preemption point. Refused while the boundary sequence is in flight.
+    constexpr uint32_t kYieldBudget = EeYieldPoint::kDefaultBudget;
+    {
+        EeYieldPoint::Deps yd;
+        yd.advance_field = [hook = protocol.WaitHook()] { hook(0); };
+        yd.domain = &domain;
+        yd.alarms = &Alarms::Instance();
+        yd.timers = &timers;
+        yd.intc = &intc;
+        // The DMAC's INT1 handlers too: a guest loop spinning on a counter its channel-3
+        // completion handler bumps (libmpeg's CSC chunks) has no kernel call to deliver it at.
+        yd.dispatch_dmac = [&dmac, &install_dmac_handlers](CpuContext& ctx) {
+            if (!dmac.CheckInterrupt()) return;
+            install_dmac_handlers();
+            dmac.DispatchInterrupt(ctx);
+        };
+        yd.queue = &EeEventQueue::Instance();
+        yd.inhibit = [&sequencer] { return sequencer.InFlight() != 0; };
+        yd.pump_devices = [&iop_host](CpuContext& ctx) {
+            // The IOP's threads run on their own clock while the EE spins (an RPC status
+            // poll into a hosted module needs the module to progress); its SIF commands land.
+            iop_host.Table().PumpFromParkLoop();
+            SceSif::DeliverPendingCommands(ctx);
+        };
+        yd.budget = kYieldBudget;
+        EeYieldPoint::Instance().Bind(std::move(yd));
+    }
+    struct YieldUnbind { ~YieldUnbind() { EeYieldPoint::Instance().Unbind(); } } yield_unbind;
+
+    // --- the ELF image + boot environment ----------------------------------------------------------
+    {
+        std::vector<uint8_t> file;
+        ElfLoader::Image image;
+        std::string err;
+        if (!ElfLoader::ReadFile(elf_path, file, &err) || !ElfLoader::Load(file, ram, image, &err)) {
+            std::fprintf(stderr, "nativeee: ELF %s: %s\n", elf_path.c_str(), err.c_str());
+            return 2;
+        }
+        if (image.entry != title.entry) {
+            std::fprintf(stderr, "nativeee: ELF entry 0x%08x != profile entry 0x%08x\n", image.entry, title.entry);
+            return 2;
+        }
+        PS2R_LOG(HOST, Info, "ELF loaded: %s entry=0x%08x segments=%zu", elf_path.c_str(), image.entry,
+                 image.segments.size());
+        if (auto* meta = host.Meta()) {
+            meta->Set("elf_path", elf_path);
+            meta->Set("elf_entry", Hex(image.entry));
+            meta->Set("elf_segments", std::to_string(image.segments.size()));
+        }
+    }
+    BootEnv::Instance().Configure(title.boot);
+    BootEnv::Instance().PreSeed();
+
+    // --- generated dispatch + the SDK binding manifest ---------------------------------------------
+    std::string iop_modules;          // run.meta iop_modules=: every module load answered, in order
+    uint64_t iop_module_loads = 0;
+    uint64_t boundary_site_hits = 0;  // run.meta boundary_site_hits=: WaitForVblank mirror entries
+    Ps2Float::SetGuestThreadRounding();
+    DispatchTable::Initialize();
+    {
+        SdkBindingManifest& manifest = SdkBindingManifest::Instance();
+        manifest.RegisterBuiltins();
+        GsSync::Register(manifest);
+        // The IOP heap is the host's sysmem heap (counted by SceSif::Heap()); a
+        // sceSifLoadModuleBuffer ("buffer@<iop addr> <args>") is answered by the host: the hosted
+        // module whose .iopmod name matches is booted (relocated, entry run with its args, threads
+        // dispatched to their first block), a natively served one becomes a row; the module id is
+        // the table row. run.meta iop_modules= keeps the load order.
+        SceSif::IopHeap iop_heap;
+        iop_heap.alloc = [&iop_host](uint32_t size) { return iop_host.HeapAlloc(size); };
+        iop_heap.free = [&iop_host](uint32_t addr) { iop_host.HeapFree(addr); };
+        SceSif::SetModuleLoader([&iop_host, &iop_modules, &iop_module_loads](const std::string& path) {
+            const int32_t id = iop_host.LoadModuleBuffer(path);
+            iop_module_loads++;
+            iop_modules += (iop_modules.empty() ? "" : ",") + path.substr(0, path.find(' ')) + "=" + std::to_string(id);
+            PS2R_LOG(HOST, Info, "sceSifLoadModuleBuffer(%s) -> %d", path.c_str(), id);
+            return id;
+        });
+        const int sif_rows = SceSif::Bind(manifest, rpc_router, sif_state, std::move(iop_heap), [](uint32_t handle) {
+            if ((handle & 0xFFFF0000u) != 0xDEAD0000u) return 0u;
+            const uint32_t low = handle & 0xFFFFu;
+            return low ? (0x80000000u | low) : 0u;   // the SDK system servers keep their low half
+        });
+        if (!manifest.MarkWaitBody("libkernl.a", "sceSifRpcLoop", TSW_SLEEP)) return 2;
+        const int cdvd_rows = LibcdvdBindings::Bind(manifest, iso_open ? &read_engine : nullptr, &clocks, &stream_reader);
+        // The memory card: the libmc rows over the host store (cfg.paths.mc_dir/mc0 = a formatted
+        // 8 MB card in slot 1); this libmc 3.0.0 passes sceMcGetInfo's fifth argument in t0.
+        const int libmc_rows = LibmcBindings::Bind(manifest, &mc_model, &mc_store);
+        LibmcBindings::SetFormatInT0(cfg.hle.libmc_format_in_t0);
+
+        if (auto* meta = host.Meta()) {
+            meta->Set("sif_rows", std::to_string(sif_rows));
+            meta->Set("cdvd_rows", std::to_string(cdvd_rows));
+            meta->Set("libmc_rows", std::to_string(libmc_rows));
+        }
+
+        std::vector<SdkBindingManifest::TitleRow> rows;
+        std::string err;
+        const std::string tsv = title_dir + "/" + title.sdk_bindings_file;
+        if (!SdkBindingManifest::LoadTitleManifest(tsv, rows, &err)) {
+            std::fprintf(stderr, "nativeee: manifest %s: %s\n", tsv.c_str(), err.c_str());
+            return 2;
+        }
+        int traps = 0, unresolved = 0;
+        const std::vector<SdkBindingManifest::Resolved> resolved = manifest.Resolve(rows);
+        static std::deque<uint32_t> wait_entries;   // stable storage for the wait bodies' continuation proofs
+        const int installed = manifest.Install(
+            resolved, [](uint32_t a, SdkBindingManifest::Body b) { return DispatchTable::Install(a, b); },
+            [](uint32_t a) { return DispatchTable::Capture(a); }, &traps, &unresolved,
+            [](uint32_t addr, SdkBindingManifest::Body body, int wait_type) {
+                wait_entries.push_back(addr);
+                DispatchTable::Continuations proof;
+                proof.entries = &wait_entries.back();
+                proof.count = 1;
+                proof.restart_wait = wait_type;
+                return DispatchTable::GeneratedBody(addr, [addr, body = std::move(body)](CpuContext& ctx, uint32_t a) {
+                    const bool pushed = ShadowCallStack::Push(addr, ctx.cpuRegs.GPR.r[31].UL[0]);
+                    body(ctx, a);
+                    if (pushed) ShadowCallStack::Pop();
+                }, proof);
+            });
+        // The frame boundary site when the title links no sceGsSyncV (TitleProfile::Gs::vblank_wait_entry):
+        // the engine's WaitForVblank mirror (GsSync::WaitForVblank -> BoundarySequencer::RunBoundary)
+        // replaces the game's flag + WaitSema vsync wait; its VBLANK INTC handler still runs at the
+        // boundary's TickAdvance (Intc::DispatchPending) and does the display flip.
+        if (title.gs.vblank_wait_entry) {
+            const bool ok = DispatchTable::Install(title.gs.vblank_wait_entry, [&boundary_site_hits](CpuContext& ctx, uint32_t) {
+                ++boundary_site_hits;
+                GsSync::WaitForVblank(ctx);
+            });
+            if (!ok) {
+                std::fprintf(stderr, "nativeee: vblank_wait_entry 0x%08x is not a generated function start\n",
+                             title.gs.vblank_wait_entry);
+                return 2;
+            }
+        }
+        // NATIVEEE_FN_TRACE=addr[,addr...]: wrap generated functions with an entry/return print
+        // (a0..a3 at entry, v0 at return) -- boot triage only, never a replacement.
+        if (const char* env = std::getenv("NATIVEEE_FN_TRACE")) {
+            std::string list(env);
+            size_t pos = 0;
+            while (pos < list.size()) {
+                size_t comma = list.find(',', pos);
+                if (comma == std::string::npos) comma = list.size();
+                const uint32_t fn = static_cast<uint32_t>(std::strtoul(list.substr(pos, comma - pos).c_str(), nullptr, 16));
+                pos = comma + 1;
+                DispatchTable::Body original = DispatchTable::Capture(fn);
+                if (!original) { std::fprintf(stderr, "fn-trace: 0x%08x is not a function start\n", fn); continue; }
+                DispatchTable::Install(fn, [fn, original](CpuContext& ctx, uint32_t entry) {
+                    std::fprintf(stderr, "fn-trace: 0x%08x(a0=0x%08x a1=0x%08x a2=0x%08x a3=0x%08x t0=0x%08x t1=0x%08x) ra=0x%08x\n", fn,
+                                 ctx.cpuRegs.GPR.r[4].UL[0], ctx.cpuRegs.GPR.r[5].UL[0], ctx.cpuRegs.GPR.r[6].UL[0],
+                                 ctx.cpuRegs.GPR.r[7].UL[0], ctx.cpuRegs.GPR.r[8].UL[0], ctx.cpuRegs.GPR.r[9].UL[0],
+                                 ctx.cpuRegs.GPR.r[31].UL[0]);
+                    original(ctx, entry);
+                    std::fprintf(stderr, "fn-trace: 0x%08x -> v0=0x%08x\n", fn, ctx.cpuRegs.GPR.r[2].UL[0]);
+                });
+            }
+        }
+        std::string not_starts;
+        for (const auto& r : resolved)
+            if (DispatchTable::IdOf(r.title.address) >= DispatchTable::FunctionCount())
+                not_starts += (not_starts.empty() ? "" : ",") + r.title.name + "@" + Hex(r.title.address);
+        PS2R_LOG(HOST, Info, "sdk manifest %s: %zu rows, %d installed (%d trap rows, %d not function starts: %s)",
+                 tsv.c_str(), rows.size(), installed, traps, unresolved, not_starts.c_str());
+        if (auto* meta = host.Meta()) {
+            meta->Set("title", title.serial);
+            meta->Set("functions", std::to_string(DispatchTable::FunctionCount()));
+            meta->Set("sdk_rows", std::to_string(rows.size()));
+            meta->Set("sdk_rows_installed", std::to_string(installed));
+            meta->Set("sdk_rows_trap", std::to_string(traps));
+            meta->Set("sdk_rows_not_fn_start", std::to_string(unresolved));
+            meta->Set("sdk_rows_not_fn_start_list", not_starts);
+        }
+    }
+
+    // --- the leg closer, the census rows every exit path writes, the park sink -------------------
+    LegCloser closer(host, mmio);
+    uint64_t boundaries = 0;
+    // NATIVEEE_VU1_MODE=interp|cached (boot triage): the VU1 fallback tier (engine default Cached).
+    if (const char* env = std::getenv("NATIVEEE_VU1_MODE"))
+        vu1.dispatch().settings().vu1_mode = std::string(env) == "interp" ? VuTierMode::Interp : VuTierMode::Cached;
+    // NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>] (boot triage): Vu1Case + PATH1 packet capture of
+    // VU1 kicks (hle/vu1_probe.h); the probe reads `boundaries` at every kick.
+    ps2r::title::sly2::Vu1Probe vu1_probe;
+    if (const char* env = std::getenv("NATIVEEE_VU1_CAP"))
+        if (!vu1_probe.Install(env, vu1, gif_arbiter, &boundaries, &vif)) std::fprintf(stderr, "nativeee: NATIVEEE_VU1_CAP=%s: malformed or unmakeable (ignored)\n", env);
+    // The main thread's context pointer, for the watchdog's park_pc (a racy read is fine: it
+    // is a diagnostic of a spinning guest, never a guest-visible effect).
+    std::atomic<CpuContext*> main_ctx{nullptr};
+    // Every guest thread: status, what it waits on, priority, entry, live ra/pc (racy reads of
+    // live contexts; a diagnostic). st: 1 RUN 2 READY 4 WAIT 8 SUSPEND 16 DORMANT; wait: 1 sleep
+    // 2 sema 4 event flag.
+    auto thread_census = [] {
+        std::string threads;
+        for (const auto& e : ThreadManager::Instance().SnapshotTable()) {
+            const std::shared_ptr<ThreadInfo>& info = e.second;
+            if (!info) continue;
+            threads += (threads.empty() ? "" : ",") + std::to_string(e.first) + ":st=" + std::to_string(info->status) +
+                       ":wait=" + std::to_string(info->wait_type) + "/" + std::to_string(info->wait_id) +
+                       ":prio=" + std::to_string(info->current_priority) + ":entry=" + Hex(info->entry);
+            if (const CpuContext* c = info->ctx)
+                threads += ":ra=" + Hex(c->cpuRegs.GPR.r[31].UL[0]) + ":pc=" + Hex(c->cpuRegs.pc);
+        }
+        return threads;
+    };
+    auto write_census = [&] {
+        if (auto* meta = host.Meta()) {
+            meta->Set("threads", thread_census());
+            meta->Set("first_syscalls", first_syscalls);
+            meta->Set("syscall_count", std::to_string(syscall_count));
+            meta->Set("boundaries", std::to_string(boundaries));
+            meta->Set("domain_tick", std::to_string(domain.DomainTick()));
+            const SceSif::HeapCensus heap = SceSif::Heap();
+            meta->Set("iop_heap_allocs", std::to_string(heap.allocs));
+            meta->Set("iop_heap_refused", std::to_string(heap.refused));
+            meta->Set("sif_init_rpc_calls", std::to_string(SceSif::InitRpcCalls()));
+            meta->Set("sif_dma_bytes", std::to_string(SyscallTable::Instance().SifDmaBytes()));
+            meta->Set("iop_module_loads", std::to_string(iop_module_loads));
+            meta->Set("iop_modules", iop_modules);
+            meta->Set("sif_bound", rpc_router.BoundCensus());
+            meta->Set("sif_cmds_delivered", std::to_string(SceSif::CommandsDelivered()));
+            meta->Set("sif_cmds_dropped", std::to_string(SceSif::CommandsDropped()));
+            meta->Set("sif_cmds_pending", std::to_string(SceSif::PendingCommands()));
+            meta->Set("rpc_end_callbacks", std::to_string(rpc_end_callbacks) + ":pending=" + std::to_string(rpc_router.PendingCount()));
+            iop_host.WriteCensus(meta);
+            meta->Set("cd_read_calls", std::to_string(LibcdvdBindings::ReadCalls()));
+            meta->Set("boundary_site", title.gs.vblank_wait_entry ? Hex(title.gs.vblank_wait_entry) : "sceGsSyncV");
+            meta->Set("boundary_site_hits", std::to_string(boundary_site_hits));
+            meta->Set("sdk_rows_hit", std::to_string(SdkBindingManifest::Instance().HitTotal()));
+            meta->Set("sdk_rows_hit_list", SdkBindingManifest::Instance().HitList());
+            meta->Set("ee_yield", EeYieldPoint::Instance().Stats().Format());
+            meta->Set("ee_yield_budget", std::to_string(kYieldBudget));
+            meta->Set("vblank_waits", std::to_string(EeRunToken::Instance().VblankWaits()) + ":idle=" +
+                                          std::to_string(EeRunToken::Instance().VblankWaitsIdle()));
+            meta->Set("syscall_entry_isrs", std::to_string(syscall_entry_isrs) + ":deferred=" + std::to_string(syscall_entry_isrs_deferred));
+            meta->Set("intc_raises", std::to_string(intc.RaiseCount()));
+            meta->Set("intc_dispatches", std::to_string(intc.DispatchCount()));
+            meta->Set("intc_nested_refusals", std::to_string(intc.NestedRefusals()));
+            meta->Set("gs_irq", "events=" + std::to_string(gs_irq_events) + ":masked=" + std::to_string(gs_irq_masked) +
+                                    ":raises=" + std::to_string(gs_irq_raises));
+            meta->Set("gs_priv_writes", std::to_string(gs_state.Priv().Writes()));
+            meta->Set("gs_csr", Hex(gs_state.Priv().Read(ps2r::gs::GsPrivRegs::kCsr)));
+            meta->Set("gs_draws", std::to_string(draw_sink.Draws()));
+            meta->Set("gs_frames", std::to_string(draw_sink.Frames()));
+            meta->Set("video", video_live ? "gl" : "stub");
+            if (video_live) {
+                meta->Set("gl_renderer", video.Renderer());
+                meta->Set("gl_version", video.GlVersion());
+                meta->Set("gs_window", std::to_string(video.WindowW()) + "x" + std::to_string(video.WindowH()) +
+                                           ":rebinds=" + std::to_string(video.Rebinds()) +
+                                           ":output_frames=" + std::to_string(video.OutputFrames()));
+                if (consumer) {
+                    const ps2r::gs::DrawIrQueueConsumer::Counters& c = consumer->Count();
+                    meta->Set("gs_consumer", "draws=" + std::to_string(c.draws) + ":jobs=" + std::to_string(c.jobs) +
+                                                 ":frames=" + std::to_string(c.frames) + ":uploads=" + std::to_string(c.uploads) +
+                                                 ":uploads_dropped=" + std::to_string(c.uploads_dropped) +
+                                                 ":resizes=" + std::to_string(c.resizes) + ":presents=" + std::to_string(c.presents) +
+                                                 ":grab_empty=" + std::to_string(c.grab_empty));
+                }
+                if (gs_queue) {
+                    const ps2r::gs::DrawIrThreadQueue::Counters& q = gs_queue->Count();
+                    meta->Set("gs_queue", std::string(gs_queue->policy() == ps2r::gs::DrawIrThreadQueue::Policy::Lockstep ? "lockstep" : "pipelined") +
+                                              ":enqueued=" + std::to_string(q.enqueued) + ":consumed=" + std::to_string(q.consumed) +
+                                              ":frames=" + std::to_string(q.frames) + ":frame_waits=" + std::to_string(q.frame_waits) +
+                                              ":max_depth=" + std::to_string(q.max_depth) + ":payload_bytes=" + std::to_string(q.payload_bytes) +
+                                              ":faulted=" + (gs_queue->Faulted() ? "1" : "0"));
+                } else {
+                    meta->Set("gs_queue", "inline");
+                }
+                meta->Set("gs_grab_sources", "grabs=" + std::to_string(grabs) + ",local_memory=" + std::to_string(grab_local_memory) +
+                                                 ",fallback=" + std::to_string(grab_fallback));
+                meta->Set("dump_frames", frame_dump.Enabled() ? frame_dump.Dir() + ":written=" + std::to_string(frame_dump.Written()) +
+                                                                     ":failed=" + std::to_string(frame_dump.Failed())
+                                                               : std::string("off"));
+            }
+            meta->Set("pad_stamps", std::to_string(pad_stamps));
+            if (live_input) meta->Set("pad_live", live_input->Census());
+            if (session) meta->Set("session_presents", std::to_string(session->Presents()));
+            meta->Set("gif_sink", "tags=" + std::to_string(gs_state_sink.Tags()) +
+                                  ":p1=" + std::to_string(gs_state_sink.TagsOn(GifPath::Path1)) +
+                                  ":p2=" + std::to_string(gs_state_sink.TagsOn(GifPath::Path2)) +
+                                  ":p3=" + std::to_string(gs_state_sink.TagsOn(GifPath::Path3)) +
+                                  ":regs=" + std::to_string(gs_state_sink.RegisterWrites()) +
+                                  ":packed=" + std::to_string(gs_state_sink.PackedWrites()) +
+                                  ":kicks=" + std::to_string(gs_state_sink.Kicks()) +
+                                  ":image_qw=" + std::to_string(gs_state_sink.ImageQwords()) +
+                                  ":eops=" + std::to_string(gs_state_sink.Eops()) +
+                                  ":p3_finishes=" + std::to_string(gs_state_sink.Path3Finishes()) +
+                                  ":drained=" + std::to_string(gif_arbiter.DrainedPackets()) +
+                                  ":pending=" + std::to_string(gif_arbiter.PendingBytes()));
+            meta->Set("dmac_int1_raises", std::to_string(dmac_int1_raises));
+            {
+                const DmacTransferStats& ts = dmac.TransferStats();
+                std::string spr;
+                for (int m = 0; m < 4; ++m)
+                    spr += (m ? ",from" : "from") + std::to_string(m) + "=" + std::to_string(ts.spr_from[m].starts) + "/" +
+                           std::to_string(ts.spr_from[m].completed) + "/" + std::to_string(ts.spr_from[m].rejected) +
+                           ",to" + std::to_string(m) + "=" + std::to_string(ts.spr_to[m].starts) + "/" +
+                           std::to_string(ts.spr_to[m].completed) + "/" + std::to_string(ts.spr_to[m].rejected);
+                meta->Set("dmac_spr", spr);  // per MOD: starts/completed/rejected
+            }
+            std::string dmac_chcr;
+            for (int ch = 0; ch < kDmacChannelCount; ++ch)
+                dmac_chcr += (ch ? "," : "") + std::to_string(ch) + "=" + Hex(dmac.channel(ch).chcr) + "/" +
+                             std::to_string(dmac.channel(ch).qwc);
+            meta->Set("dmac_chcr_qwc", dmac_chcr);
+            std::string ipu_cmds;
+            for (uint8_t code = 0; code < 10; ++code)
+                if (ipu.CommandCount(code))
+                    ipu_cmds += (ipu_cmds.empty() ? "" : ",") + std::to_string(code) + "=" + std::to_string(ipu.CommandCount(code)) +
+                                "/" + std::to_string(ipu.UnsupportedCommandCount(code));
+            meta->Set("ipu_commands", ipu_cmds.empty() ? "none" : ipu_cmds);
+            meta->Set("ipu_fifo", "in=" + std::to_string(ipu.InputSize()) + ":out=" + std::to_string(ipu.OutputSize()));
+            meta->Set("ipu_fifo_port", "in_bytes=" + std::to_string(ipu_fifo.InBytes()) + ":out_bytes=" + std::to_string(ipu_fifo.OutBytes()) + ":unhandled=" + std::to_string(ipu_fifo.Unhandled()));
+            meta->Set("vu_macro", "vu0_calls=" + std::to_string(VuMacroBridge::Stats().vu0_calls) +
+                                      ":vu1_kicks=" + std::to_string(VuMacroBridge::Stats().vu1_kicks));
+        }
+    };
+    using ps2r::triage::TriageBundle;
+    TriageBundle::InstallTerminateHook([&](const char* what) {
+        write_census();
+        closer.Close("exception", 0, ThreadManager::Instance().CurrentTid(), what);
+    });
+    static int terminate_hook_token = 0;
+    const std::unique_ptr<int, void (*)(int*)> terminate_hook_reset(&terminate_hook_token,
+                                                                    [](int*) { TriageBundle::ClearTerminateHook(); });
+    GuestPark::SetSink([&](const ParkRecord& r) {
+        TriageBundle::NoteThrowSite(r.detail ? r.detail : r.reason);
+        write_census();
+        closer.Close(r.reason, r.pc, ThreadManager::Instance().CurrentTid(), r.detail);
+        std::_Exit(0);
+    });
+
+    // The IOP reboot image (booted here, after the park sink exists, so an unresolved import of a
+    // hosted module parks visibly): the stock modules the engine serves natively need no bytes; FILEIO the stock modules the engine serves natively need no bytes; FILEIO
+    // (the EE's libfileio server) is hosted from the image's own module, read from the disc.
+    {
+        IsoFs::Entry rp;
+        std::vector<uint8_t> rp_bytes;
+        bool booted = false;
+        if (iso_open && iso_fs.Find(ps2r::title::sly2::IopModules::kRebootImage, rp) && !rp.directory && rp.size) {
+            rp_bytes.resize(rp.size);
+            const size_t got = iso_fs.ReadBytes(static_cast<uint64_t>(rp.lba) * IsoFs::kSectorSize, rp.size, rp_bytes.data());
+            if (got == rp.size) booted = iop_host.BootRebootImageModules(rp_bytes.data(), rp_bytes.size());
+        }
+        if (!booted) std::fprintf(stderr, "nativeee: the reboot image's FILEIO module was not hosted (%s)\n",
+                                  iso_open ? "not found or refused" : "no disc image");
+        if (auto* meta = host.Meta()) meta->Set("iop_reboot_image_hosted", booted ? "1" : "0");
+    }
+
+    // --- slot 7 (Verify): the lanes, the present / frame dump, the frames cap --------------------
+    // The grab this boundary reads: the consumer's reference when the boundary waited for it
+    // (lockstep / inline), a published COPY under the wall lock (the consumer runs concurrently).
+    // When grabbed: the frames lane line (host.OnPresent) and, with --dump-frames, f<key>.ppm (the
+    // grab) + p<key>.ppm (the presented window image, Backend::ReadPresented).
+    // (frame_dump / grab counters are declared with the GS block above: the census reads them.)
+    const std::vector<ps2r::verify::MemorySpan> verify_spans = {{ram.Data(), ram.Size()}, {spad.Data(), spad.Size()}};
+    sequencer.SetStep(BoundarySequencer::Step::Verify, [&](CpuContext&) {
+        mixer.Pump();
+        const uint64_t boundary = host.OnBoundary(mixer.Output(), ps2r::sound::Mixer::kFramesPerVsync, verify_spans);
+        boundaries = boundary + 1;
+        RingLog::SetFrame(static_cast<uint32_t>(boundaries));
+        if (consumer) {
+            const uint32_t present_key = host.PresentKey(0, boundary);
+            if (vert_trace_key) vert_trace.on.store(present_key + 1 == vert_trace_key);
+            ps2r::gs::DrawPipeline::Frame wall_locked_grab;
+            const ps2r::gs::DrawPipeline::Frame* fr = &consumer->LastFrame();
+            if (sequencer.WallLocked()) {
+                wall_locked_grab = consumer->LastFrameCopy();
+                fr = &wall_locked_grab;
+            }
+            if (fr->grabbed) {
+                ++grabs;
+                if (fr->source == ps2r::gs::ScanoutComposer::Source::Mirror) ++grab_local_memory;
+                if (fr->source_fallback) ++grab_fallback;
+                host.OnPresent(present_key, fr->rgba.data(), fr->w, fr->h, video.Scale(), video.Renderer());
+                if (frame_dump.Enabled() && present_key % dump_every == 0) {
+                    frame_dump.Write("f", present_key, fr->w, fr->h, fr->rgba.data(), /*flip=*/false);
+                    std::vector<uint8_t> presented;
+                    int pw = 0, ph = 0;
+                    if (video.Device().ReadPresented(&presented, &pw, &ph)) frame_dump.Write("p", present_key, pw, ph, presented.data(), /*flip=*/true);
+                }
+            } else {
+                host.OnPresentHashed(present_key, 0, video.Renderer());
+            }
+            // NATIVEEE_GS_ROUTES=<key>[,<key>...] (boot triage): the pipeline's per-draw route trace of
+            // that frame + the CRTC registers and the grab's source as <dump dir or harness out>/routes_<key>.txt.
+            static const char* routes_env = std::getenv("NATIVEEE_GS_ROUTES");
+            if (routes_env && !sequencer.WallLocked()) {
+                const std::string want = std::string(",") + routes_env + ",";
+                if (want.find("," + std::to_string(present_key) + ",") != std::string::npos) {
+                    const std::string dir = frame_dump.Enabled() ? frame_dump.Dir() : cfg.harness.out_dir;
+                    if (std::FILE* rf = std::fopen((dir + "/routes_" + std::to_string(present_key) + ".txt").c_str(), "w")) {
+                        using P = ps2r::gs::GsPrivRegs;
+                        const P& p = gs_state.Priv();
+                        std::fprintf(rf, "key=%u pmode=%s dispfb1=%s display1=%s dispfb2=%s display2=%s smode2=%s\n", present_key,
+                                     Hex(p.Read(P::kPmode)).c_str(), Hex(p.Read(P::kDispfb1)).c_str(), Hex(p.Read(P::kDisplay1)).c_str(),
+                                     Hex(p.Read(P::kDispfb2)).c_str(), Hex(p.Read(P::kDisplay2)).c_str(), Hex(p.Read(P::kSmode2)).c_str());
+                        const ps2r::gs::ScanoutComposer& sc = video.Pipe()->Scanout();
+                        std::fprintf(rf, "scanout_fbp=0x%x dispfb_fbw=%u psm=%u content=%dx%d grab=%s@0x%x fallback=%d %dx%d\n",
+                                     sc.ScanoutFbp(), sc.DispfbFbw(), sc.DispfbPsm(), sc.ContentW(), sc.ContentH(),
+                                     fr->source == ps2r::gs::ScanoutComposer::Source::Target ? "target"
+                                     : fr->source == ps2r::gs::ScanoutComposer::Source::Mirror ? "local_memory" : "none",
+                                     fr->source_fbp, fr->source_fallback ? 1 : 0, fr->w, fr->h);
+                        video.Pipe()->RouteTrace().Write(rf);
+                        std::fclose(rf);
+                    }
+                    // The GS local-memory image at that frame (4 MiB, native layout), for the texel check.
+                    if (std::FILE* vf = std::fopen((dir + "/vram_" + std::to_string(present_key) + ".bin").c_str(), "wb")) {
+                        std::fwrite(gs_state.Vram().Bytes(), 1, ps2r::gs::VramImage::kBytes, vf);
+                        std::fclose(vf);
+                    }
+                }
+            }
+        }
+        if (cfg.harness.frames > 0 && boundary + 1 >= static_cast<uint64_t>(cfg.harness.frames)) {
+            write_census();
+            closer.Close("none", 0, ThreadManager::Instance().CurrentTid(), "frames_cap");
+            std::_Exit(0);
+        }
+        // The session's boundary (pause / step / the close): false = the window was closed --
+        // the leg ends here with its census (the stop hook on main may be closing it too; the
+        // closer closes exactly once).
+        if (session && !session->Boundary(boundaries)) {
+            write_census();
+            closer.Close("none", 0, ThreadManager::Instance().CurrentTid(), "session_closed");
+            std::fflush(stdout);
+            std::_Exit(0);
+        }
+        return true;
+    });
+    if (session) {
+        ps2r::app::SessionRuntime::Hooks hooks;
+        hooks.stop = [&] {
+            write_census();
+            closer.Close("none", 0, 0, "window_closed");
+            std::fflush(stdout);
+            std::_Exit(0);
+        };
+        session->SetHooks(std::move(hooks));
+    }
+
+    // --- the watchdog: a guest that never reaches a boundary (a raw SIF poll with no IOP, an
+    // unmodelled wait) would otherwise only end at the bounded runner's wall timeout with no
+    // run.meta park row. After NATIVEEE_WATCHDOG_S seconds (default 60; 0 = off) without a
+    // boundary the leg closes as park=watchdog with the main thread's pc -- the FINDING of this
+    // stage is exactly where the fallbacks stop carrying the title.
+    uint64_t watchdog_s = 60;
+    if (const char* env = std::getenv("NATIVEEE_WATCHDOG_S")) watchdog_s = std::strtoull(env, nullptr, 10);
+    std::thread watchdog;
+    if (watchdog_s > 0) {
+        watchdog = std::thread([&, watchdog_s] {
+            uint64_t last = 0;
+            auto since = std::chrono::steady_clock::now();
+            while (running.load(std::memory_order_relaxed)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                if (boundaries != last) {
+                    last = boundaries;
+                    since = std::chrono::steady_clock::now();
+                    continue;
+                }
+                const auto waited = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - since);
+                if (static_cast<uint64_t>(waited.count()) < watchdog_s) continue;
+                CpuContext* ctx = main_ctx.load();
+                const uint32_t pc = ctx ? ctx->cpuRegs.pc : 0;
+                const std::string detail = "no boundary for " + std::to_string(watchdog_s) + "s; last syscall #" +
+                                           std::to_string(syscall_count);
+                write_census();
+                if (auto* meta = host.Meta()) {
+                    if (ctx) {
+                        meta->Set("watchdog_ra", Hex(ctx->cpuRegs.GPR.r[31].UL[0]));
+                        meta->Set("watchdog_sp", Hex(ctx->cpuRegs.GPR.r[29].UL[0]));
+                        meta->Set("watchdog_a0", Hex(ctx->cpuRegs.GPR.r[4].UL[0]));
+                    }
+                    meta->Set("threads", thread_census());
+                    meta->Set("token_tid", std::to_string(EeRunToken::Instance().OwnerForTest()));
+                }
+                closer.Close("watchdog", pc, 1, detail.c_str());
+                // NATIVEEE_RAM_DUMP=<file>: the 32 MB guest RAM image at the park (boot triage only;
+                // racy against still-running guest threads, which is fine for a parked title).
+                if (const char* dump = std::getenv("NATIVEEE_RAM_DUMP")) {
+                    if (std::FILE* f = std::fopen(dump, "wb")) {
+                        std::fwrite(ram.Data(), 1, ram.Size(), f);
+                        std::fclose(f);
+                        std::fprintf(stderr, "watchdog: RAM dumped to %s\n", dump);
+                    }
+                }
+                std::fflush(stdout);
+                std::_Exit(0);
+            }
+        });
+    }
+
+    // --- the cold boot ------------------------------------------------------------------------------
+    // Play mode: the wall-locked boundary -- the field ticker notes one tick per 60 Hz wall edge
+    // and the boundary's TickAdvance slot parks for it (BindPacer); NATIVEEE_UNPACED=1 keeps the
+    // boundary ticking inline (the title's pacer/render thread handshake under instant
+    // completions was the sched stage's starvation case -- the knob is the comparison).
+    TickThread tick_thread(tick_source, sequencer.Ticks(), protocol);
+    const bool paced = play_mode && video_live && std::getenv("NATIVEEE_UNPACED") == nullptr;
+    if (paced) {
+        tick_thread.Start();
+        sequencer.BindPacer(&protocol);
+    }
+    if (auto* meta = host.Meta()) meta->Set("play_mode", play_mode ? (paced ? "paced" : "unpaced") : "headless");
+    int result = 0;
+    uint32_t fault_pc = 0;
+    auto cold_boot = [&]() {
+        CpuContext ctx;
+        CpuContextInit::Reset(ctx, title.entry, title.main_stack_top);
+        std::shared_ptr<ThreadInfo> main_info = ThreadManager::Instance().AdoptCurrentThread(1, kMainThreadPriority);
+        main_info->ctx = &ctx;
+        main_ctx.store(&ctx);
+        EeRunToken::Instance().GuestEnter(1, kMainThreadPriority);
+        PS2R_LOG(HOST, Info, "cold boot: entry 0x%08x sp 0x%08x", title.entry, title.main_stack_top);
+        std::exception_ptr failure;
+        try {
+            Ps2Float::SetGuestThreadRounding();
+            DispatchTable::Invoke(title.entry, ctx);
+        } catch (const ThreadExitUnwind&) {
+        } catch (...) {
+            failure = std::current_exception();
+            fault_pc = ctx.cpuRegs.pc;
+        }
+        main_ctx.store(nullptr);
+        std::string release_error;
+        if (!ThreadManager::Instance().ReleaseCurrentThread(&release_error) && !failure)
+            failure = std::make_exception_ptr(std::runtime_error(release_error));
+        running.store(false);
+        write_census();
+        if (failure) {
+            std::string what = "guest fault";
+            try { std::rethrow_exception(failure); } catch (const std::exception& e) { what = e.what(); } catch (...) {}
+            closer.Close("exception", ctx.cpuRegs.pc, 1, what.c_str());
+            return 1;
+        }
+        closer.Close("none", ctx.cpuRegs.pc, 1, "guest_returned");
+        return 0;
+    };
+    if (session) {
+        // The game on the session's 1 GiB worker; main pumps the window until it returns or
+        // the window closes (the stop hook ends the process after the census).
+        result = session->Run(cold_boot, static_cast<unsigned>(cfg.engine.shutdown_wait_s));
+        write_census();
+        closer.Close("none", fault_pc, fault_pc ? 1 : 0, "session_closed");
+    } else {
+        result = cold_boot();
+    }
+    if (watchdog.joinable()) watchdog.join();
+    cap.RunFinalizers();
+    return result;
+}
+
+}  // namespace
+
+int TitlePlayMain(int argc, char** argv) {
+    Config cfg;
+    ConfigLoader loader;
+    loader.SetRetainedStartupAvailable(false);   // no IOP in this binary (PS2R_IOP_ORACLE=0)
+    loader.SetUserDataRoot(ps2r::app::UserData::PlatformRoot());
+    const ConfigLoader::Result r = loader.Load(argc, argv, cfg);
+    if (r.show_version) {
+        std::printf("%s\n", g_build_id);
+        return 0;
+    }
+    if (r.show_help) {
+        std::printf("%s", ConfigLoader::Usage());
+        return 0;
+    }
+    if (!r.ok) {
+        std::fprintf(stderr, "nativeee: %s\n", r.error.c_str());
+        return 2;
+    }
+    if (!r.extract_disc.empty() || r.launcher) {
+        std::fprintf(stderr, "nativeee: this title module is at its boot stage: no first-run extraction or launcher yet "
+                             "(run with --headless --frames N --harness-out <dir>)\n");
+        return 2;
+    }
+
+    const std::string log_dir = cfg.paths.log_dir.empty() ? std::string("logs") : cfg.paths.log_dir;
+    Logger::Instance().Start(cfg.harness.headless ? std::string() : log_dir + "/runtime_log.txt",
+                             ToLoggerLevel(cfg.dev.log_level), true);
+    const uint32_t mask_normal = RingLog::ParseChannelList(cfg.log.channels.c_str(), ~0u);
+    RingLog::Configure(mask_normal, 0, static_cast<uint32_t>(cfg.log.ring_events), log_dir.c_str());
+    RingLog::RegisterThread("main");
+    ps2r::platform::host::RegisterSelf();
+    ps2r::platform::host::PinCurrentThreadInteractive("nativeee-main");
+    const std::string crash_ring = log_dir + "/ring_crash.rlog";
+    ps2r::platform::CrashHandler::Install(crash_ring.c_str());
+    for (const std::string& note : r.notes) std::fprintf(stderr, "[config] %s\n", note.c_str());
+
+    const TitleProfile& title = ActiveTitleProfile();
+    PS2R_LOG(HOST, Info, "nativeee %s title %s (%s) config sources=%zu", g_build_id, title.serial.c_str(),
+             PS2R_TITLE_ID, r.sources.size());
+
+    ps2r::verify::VerifyHost host;
+    {
+        std::string err;
+        if (!host.Arm(cfg, g_build_id, PS2R_TITLE_ID, &err)) {
+            std::fprintf(stderr, "nativeee: %s\n", err.c_str());
+            return 2;
+        }
+        if (auto* meta = host.Meta()) meta->Set("user_data_root", cfg.paths.user_data);
+    }
+    ps2r::verify::FrameCap cap;
+    cap.Arm(static_cast<uint64_t>(cfg.harness.frames > 0 ? cfg.harness.frames : 0));
+    cap.AddFinalizer([&] { host.Finalize(); });
+    cap.AddFinalizer([] { RingLog::ExitDump(); });
+    cap.AddFinalizer([] { Logger::Instance().Flush(); });
+
+    // The title directory (hle/sdk_bindings.tsv): the source tree's games/<title>/ when this binary
+    // runs from its build (PS2R_TITLE_DIR), else the staged copy beside the executable.
+    std::string title_dir = PS2R_TITLE_DIR;
+    if (!FileExists(title_dir + "/" + title.sdk_bindings_file)) {
+        std::string exe_err;
+        const std::string exe = ps2r::platform::host::ExecutablePath(&exe_err);
+        const size_t slash = exe.find_last_of('/');
+        const std::string beside = (slash == std::string::npos ? std::string(".") : exe.substr(0, slash)) + "/title";
+        if (FileExists(beside + "/" + title.sdk_bindings_file)) title_dir = beside;
+        else std::fprintf(stderr, "nativeee: title directory not found: neither %s nor %s has %s\n", PS2R_TITLE_DIR,
+                          beside.c_str(), title.sdk_bindings_file.c_str());
+    }
+    const std::string elf_path = ResolveElf(cfg, title);
+    if (!FileExists(elf_path)) {
+        std::fprintf(stderr,
+                     "nativeee: ELF not found at %s (give --game-files <dir> holding %s/%s, or build with "
+                     "NATIVEEE_DISC / NATIVEEE_TITLE_ELF so the build's extracted copy exists)\n",
+                     elf_path.c_str(), title.elf_dir.c_str(), title.elf_path.c_str());
+        cap.RunFinalizers();
+        return 2;
+    }
+    return RunLeg(cfg, host, cap, title, elf_path, title_dir);
+}

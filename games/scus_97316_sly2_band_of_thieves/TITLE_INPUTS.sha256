@@ -1,0 +1,33 @@
+# TITLE_INPUTS.sha256 -- the disc files this title's generated code is made from (shasum -a 256 format).
+# The build (cmake/TitleInputs.cmake) extracts each path from the user's disc image (NATIVEEE_DISC)
+# or takes the loose file (NATIVEEE_TITLE_ELF) and REFUSES any other bytes.
+# Path = the file's path on the ISO9660 volume (root = the ELF). The ELF hash is the one the
+# launcher checks at first run (TitleProfile::elf_sha256, app/host/disc_verify.cpp).
+#
+# Sly 2: Band of Thieves, NTSC-U (SCUS_973.16; SYSTEM.CNF BOOT2=cdrom0:\SCUS_973.16;1, VER=1.00,
+# VMODE=NTSC). 2,597,048 bytes; md5 9a330ae38cf8bb7e93690385884034ae; crc32 D67D6E1E.
+#
+# There is deliberately NO .IRX row: Sly 2 ships no custom IOP module as a disc file. The volume
+# root holds only SYSTEM.CNF, SCUS_973.16, IOPRP300.IMG (the stock IOP kernel image for the
+# sceSifRebootIop) and Z6TAIL.DUP (32 MiB zero padding); the nine IOP modules the game loads
+# (sio2man, padman, mcman, mcserv, libsd, usbd, lgAud, 989snd, spiop) are embedded in the ELF's
+# own .irx section (0x472200..0x4e5e40) and sent with sceSifLoadModuleBuffer.
+#
+# The three modules the engine has no native owner for -- lgAud (Logitech USB audio), 989snd
+# (SCEA's 989snd_Library sound driver) and spiop (Sucker Punch's streaming module) -- are
+# EMBEDDED-module rows `<sha256>  SCUS_973.16!<.iopmod name>`: TitleInputs.cmake extracts each
+# from the ELF with tools/elf_embedded (the image spans from its ELF magic to the end of its
+# last section / section header -- what the module's own headers describe) into
+# <build>/generated/.../inputs/<name>.irx, SHA-256 gated, and iop/CMakeLists.txt recompiles
+# them with the IOP recompiler. The other six stay with their native engine owners (padman,
+# mcserv, libsd, sdrdrv) or idle (sio2man, mcman, usbd) and are not extracted.
+a511a94b1dbe8cd9bc9b764c34ffda3f88869713a338e188b4f407732fec6a73  SCUS_973.16
+5d0bfa40ad6e927efed0c8d5c3e6a6c9e3d05b7a7338196594f1c72ee3046a6d  SCUS_973.16!lgAud
+9d53c24ec15f0b5bdb61566318074383d32050b3fd5433aa52fb3071f2ff795c  SCUS_973.16!989snd_Library
+0ba6b76dc34d0fb2ce5e0fd1c379068b67f2d8d9a214857a26e288c1807402b1  SCUS_973.16!spiop
+# The stock FILEIO module of the IOP reboot image the title loads (sceSifRebootIop(IOPRP300.IMG)):
+# the EE's libfileio (sceFsInit -> rom0:ROMVER read inside sceGsSetDefDispEnv) talks to its RPC
+# server 0x80000001, and the engine models no fileio -- so the module itself is hosted, recompiled
+# like the embedded ones (`<container>!<module>`: TitleInputs extracts IOPRP300.IMG from the disc,
+# then the module out of it, SHA-256 gated).
+270c6408794d7817c5e016dc7f0fba6df4e93db6cb31058dec480fd8270cdb42  IOPRP300.IMG!FILEIO_service

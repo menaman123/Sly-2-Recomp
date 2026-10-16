@@ -1,0 +1,3 @@
+# Re-recorded (pad_mc stage): the unresolved JR/JALR diagnostics now name the site pc.
+5f88eaf0f8dbb3aba8e6eb96330c0a33a9fec1aaf55fb8330dccd59970a5e9cb  iop_recompiled.h
+a5a95285126ca69c79aec59d573c95a50d708ee0a0a04b3ee48ff1d71a4a9c45  iop_recompiled.cpp

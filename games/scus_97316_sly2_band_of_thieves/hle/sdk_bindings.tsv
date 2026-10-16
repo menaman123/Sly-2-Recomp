@@ -1,0 +1,194 @@
+# SCUS_973.16 (Sly 2: Band of Thieves, NTSC-U) SDK-library binding manifest -- title DATA.
+# Columns: library<TAB>function<TAB>address<TAB>signature_id  (SdkBindingManifest::LoadTitleManifest;
+# the engine holds handlers keyed by (library, function) and never an address; a row whose
+# (library, function) has no engine handler installs as a TRAP body -> park sdk_unimplemented).
+# SDK band 0x00233800-0x00259dec: the static-link block of the sce libraries at the end of .text
+# (game code ends at exit() 0x233828; crt0's _InitSys 0x2396c0, the libkernl syscall stubs
+# 0x234600..0x234e94, libcdvd's sceCdInit 0x2420f0 and every row below lie inside; .text ends at
+# 0x259df0). tests/lint/lint_sdk_bindings.py requires every row's address inside this band.
+#
+# STATUS (boot stage): libkernl.a SIF/heap/loadfile rows + the libcdvd.a rows this ELF links.
+# Each address was confirmed by disassembling the function (rabbitizer over SCUS_973.16, see
+# $WORK/fdis.py) against the SDK 3.0 shape; the evidence is on each row's comment: for the RPC
+# rows the sceSifBindRpc server id (lui 0x8000 / ori 0x5xx) or the sceSifCallRpc function number
+# and client record (bound in an identified function), for the others the sema/log strings
+# they reference. Without the SIF rows the raw recompiled sceSifInitCmd spins forever on
+# sceSifGetReg(SMFLAG) & 0x20000 (no IOP ever answers: the first leg parked there, park_pc
+# 0x80075000 / ra 0x23acf0, 269M syscalls in 30 s).
+#
+# NOT bound (unconfirmed or no engine row): sceSifCheckStatRpc / sceSifRegisterRpc /
+# sceSifSetRpcQueue / sceSifGetNextRequest / sceSifRpcLoop (addresses not yet identified; the
+# "SceSifrpcGod" sema name at 0x2aa9d8 is referenced by none of the .text lui/addiu pairs in
+# 0x234000..0x245000, so the RPC-server half may be reached another way). sceCdSearchFile,
+# sceCdStatus, sceCdReadClock, sceCdSt* are NOT in this ELF (no bind to 0x80000597 / no S-cmd
+# 0x0c / 0x01 caller / no stream client): Sly 2 reads raw sectors with sceCdRead only.
+#
+# Not SDK rows, left raw on purpose (harmless without an IOP): 0x00238f00 and 0x00237e70
+# (sceSifLoadFileReset-shaped: memset(client, 0, 4) + a flag store), 0x00242810 (sceCdGetReadPos:
+# returns the uncached read-position word only while cur_cmd == READ, else 0), 0x00242ab8 (the
+# game's sceCdGetDiskType wrapper: v0 = inner() == -1 ? 0 : inner()).
+#
+# sceSifInitRpc @0x00236a60 (0x236a60..0x236bfc): DI (jal 0x239450); lw init flag [0x2c49f0];
+#   if set -> EI (j 0x2394a0), return; else store 1, EI, jal 0x23aaf0 (sceSifInitCmd), then the
+#   RPC queue setup with 0x8000000x SifSetReg calls (7x lui 0x8000) -- the SDK body line for line.
+libkernl.a	sceSifInitRpc	0x00236a60	
+# sceSifInitCmd @0x0023aaf0 (0x23aaf0..0x23ad70): DI; lw init flag [0x2c5a60]; if set -> EI, return;
+#   else cmd buffer 0x44ed80|0x20000000 (uncached), SifSetReg(0x80000000 ..), then the poll
+#   `loop: v0 = sceSifGetReg(4=SMFLAG); if (!(v0 & 0x20000 /*SIF_STAT_CMDINIT*/)) goto loop` at
+#   0x23ace8..0x23acf4 -- the spin the first leg parked in.
+libkernl.a	sceSifInitCmd	0x0023aaf0	
+# sceSifAddCmdHandler @0x0023ada8 (0x23ada8..0x23ae20): the SDK body line for line -- cid < 0 (bit 31,
+#   a system command) indexes the system table at [0x44edd8+0xc], else the user table at [+0x14];
+#   12-byte entries {handler, arg, gp}. Bound so the engine's SIF command delivery (a hosted IOP
+#   module's sceSifSendCmd: fileio's completion commands 0x80000011) finds the handler libfileio's
+#   sceFsInit registers; raw, the record lands in libkernl's table that no interrupt ever reads.
+libkernl.a	sceSifAddCmdHandler	0x0023ada8	
+# sceSifRebootIop @0x00239340 (0x239340..0x239450): strlen(a0) < 0x51 check, prepends "rom0:UDNL "
+#   (0x2aacd0) to the image path -> the reboot command; returns 1. Called by the IOP-boot function
+#   0x1a7630 with "cdrom0:\IOPRP300.IMG;1" in a retry loop.
+libkernl.a	sceSifRebootIop	0x00239340	
+# sceSifSyncIop @0x002392f0 (0x2392f0..0x239340): v0 = sceSifGetReg(4=SMFLAG) & 0x40000
+#   (SIF_STAT_BOOTEND); 0 -> return 0; else re-init (jal 0x23a9c8; 0x23a920(1,1); 0x23a920(0,1)),
+#   return 1. Polled by 0x1a7630 after the reboot.
+libkernl.a	sceSifSyncIop	0x002392f0	
+# sceSifBindRpc @0x002370a8 (0x2370a8..0x2371f4): cd->command(+0x10)=0, cd->server(+0x24)=0; packet
+#   = _getPacket(0x236c28); packet->sid(+0x20) = a1; mode&1 test; else CreateSema named 0x2aa9e8
+#   "SceSifrpcBind" (jal 0x234a20); sceSifSendCmd(0x80000009 = SIF_CMD_RPC_BIND, packet, 0x40,..)
+#   (jal 0x23afa8); then the wait. Second leg's spin site: sceCdInit (0x2420f0) called it with
+#   sid 0x80000592 (cdvdfsv) and the raw body waited forever for the IOP's bind reply.
+libkernl.a	sceSifBindRpc	0x002370a8	
+# sceSifCallRpc @0x00237288 (0x237288..0x237490): the 9-argument shape (a0..a3, t0..t3 + end_param
+#   from 0xc0(sp)); _getPacket; cd->command(+0x20)=end_param? / +0x4 / +0x0 writes; CreateSema named
+#   0x2aa9f8 "SceSifrpcCall"; sceSifSendCmd(0x8000000a = SIF_CMD_RPC_CALL ..) at 0x23741c.
+libkernl.a	sceSifCallRpc	0x00237288	
+# --- libkernl.a: interrupt enable + thread start (SDK 3.0 wrappers; the sched stage) --------------
+# DIntr @0x00239450 (0x239450..0x2394a0): `mfc0 Status; lui 0x1; and` (bit 16 = EIE) -> if clear return 0;
+#   else `di; sync.p; mfc0; and 0x10000; bnez` loop until EIE reads clear; v0 = 1 (was enabled). EIntr
+#   @0x002394a0 (0x2394a0..0x2394b8): v0 = (Status & 0x10000) != 0; `ei`. The recompiler models ei/di on
+#   Status bit 0 and nothing in the engine sets bit 16, so the raw bodies report "never enabled".
+libkernl.a	DIntr	0x00239450	
+libkernl.a	EIntr	0x002394a0	
+# StartThread @0x002355e0 (0x2355e0..0x235758, 94 insns): the libkernl wrapper -- `if (0x235100() /* (Status^1)&1
+#   */) return -1; if (!DIntr()) { EIntr(); return -1; }` then ReferThreadStatus (0x234920 = syscall 0x30),
+#   requires status 0x10 (DORMANT), zeroes the 0x280-byte context area at stack+size-0x2a0 (25 x sq), stores
+#   the arg at +0x40, EIntr(), `syscall 0x22` (0x234840). Raw, the DIntr()==0 path returned -1 for every
+#   caller (0x1607a0 the render worker, 0x1aaf90, 0x1b2940, 0x1c90d0, libkernl 0x235388) and no game thread
+#   ever started: the display-handshake spin in FUN_00160e68 (watchdog_ra 0x160ec0) waited on a thread
+#   that did not exist. Bound, the engine row issues syscall 34 directly.
+libkernl.a	StartThread	0x002355e0	
+
+# --- libkernl.a: IOP heap + loadfile (the embedded-IRX push in the IOP-boot function 0x1a7630) ---
+# sceSifInitIopHeap @0x00238bd0 (0x238bd0..0x238c58): binds client 0x44be80 to 0x80000003 (IOPHEAP).
+libkernl.a	sceSifInitIopHeap	0x00238bd0	
+# sceSifAllocIopHeap @0x00238c58 (0x238c58..0x238cc8): sceSifCallRpc(client 0x44be80, func 1 = alloc,
+#   send 0x44bf00 recv 0x44bec0).
+libkernl.a	sceSifAllocIopHeap	0x00238c58	
+# sceSifFreeIopHeap @0x00238d40 (0x238d40..0x238d5c): the public wrapper over _sceSifFreeIopHeap
+#   0x238cc8 (sceSifCallRpc(client 0x44be80, func 2 = free)). The wrapper is the row; the inner
+#   body has no other caller.
+libkernl.a	sceSifFreeIopHeap	0x00238d40	
+# _lf_bind @0x00238d70 (0x238d70..0x238e70): binds client 0x44c240 to 0x80000006 (LOADFILE), then
+#   sceSifCallRpc(func 0xff = version) into 0x44c040.
+libkernl.a	_lf_bind	0x00238d70	
+# sceSifLoadModuleBuffer @0x00239140 (0x239140..0x23915c): (addr, arg_len, args) -> jal 0x238f38
+#   _sceSifLoadModuleBuffer(addr, arg_len, args, &result on the stack); the inner body does
+#   _lf_bind, then sceSifCallRpc(client 0x44c240, func 6 = LF_F_MOD_BUF_LOAD). Engine row added
+#   this stage (SceSif::LoadModuleBuffer -> the composition's module loader, "buffer@<iop addr>").
+libkernl.a	sceSifLoadModuleBuffer	0x00239140	
+
+# --- libcdvd.a (engine LibcdvdBindings; the disc image is cfg.paths.iso) ---------------------------
+# Row names follow the first title's manifest (engine/cdvd/hle/libcdvd_bindings.cpp kRows).
+# cmd_sem_init @0x00241a30 (0x241a30..0x241b14): CreateSema x4 named "SceCdNcmdSema" 0x2ab418,
+#   "SceCdScmdSema" 0x2ab428, "SceCdRcmdSema" 0x2ab438, "SceCdCallbackSema" 0x2ab448.
+libcdvd.a	cmd_sem_init	0x00241a30	
+# _sceCd_ncmd_prechk @0x00241c98 (0x241c98..0x241df0, 344 bytes = the first title's): "Ncmd fail sema
+#   cur_cmd:%d keep_cmd:%d" 0x2ab4d0, sceSifBindRpc(client 0x2c7910, 0x80000595 = N-cmd server),
+#   "Libcdvd bind err N CMD" 0x2ab4f8. Callers: sceCdRead (prechk id 4), 0x241df0 (N-cmd 0x0e, id 2).
+libcdvd.a	_sceCd_ncmd_prechk	0x00241c98	
+# sceCdSync @0x00241e88 (0x241e88..0x241f28): mode 0 -> "N cmd wait" 0x2ab510 loop on the N-cmd
+#   busy word [0x2c6774] + sceSifCheckStatRpc(0x2c7910), returns 0; else busy ? 1 : 0.
+libcdvd.a	sceCdSync	0x00241e88	
+# sceCdSyncS @0x00241f28 (0x241f28..0x241f94): "S cmd wait" 0x2ab520, the S-cmd twin.
+libcdvd.a	sceCdSyncS	0x00241f28	
+# _sceCd_scmd_prechk @0x00241f98 (0x241f98..0x2420f0, 344 bytes): "Scmd fail sema" 0x2ab530,
+#   sceSifBindRpc(client 0x2c82c0, 0x80000593 = S-cmd server), "Libcdvd bind err S cmd" 0x2ab558.
+libcdvd.a	_sceCd_scmd_prechk	0x00241f98	
+# sceCdInit @0x002420f0 (0x2420f0..0x2423d8, 744 bytes): sceCdSyncS(1); sceSifInitRpc(0); binds client
+#   0x4504e8 to 0x80000592 (CDVD init server) -- the implement stage's park site -- then
+#   sceSifCallRpc(func 0, send 0x450540 recv 0x2c7940); mode 5 (SCECdEXIT) -> "Libcdvd Exit" 0x2ab590;
+#   else cmd_sem_init 0x241a30 + 0x241c10 (callback thread), returns 1/2.
+libcdvd.a	sceCdInit	0x002420f0	
+# sceCdDiskReady_old @0x002423d8 (0x2423d8..0x2425f0, 536 bytes): "OLD DiskReady Call" 0x2ab5a0, binds
+#   client 0x450510 to 0x8000059a, "Libcdvd bind err CdDiskReady" 0x2ab5b8, "DiskReady ended" 0x2ab5d8.
+libcdvd.a	sceCdDiskReady_old	0x002423d8	
+# sceCdDiskReady @0x002425f0 (0x2425f0..0x242810, 544 bytes): "NEW DiskReady Call" 0x2ab5f0, binds
+#   client 0x450510 to 0x8000059c, falls back to the _old body. Called by the IOP-boot function as
+#   sceCdDiskReady(0) (blocking) after sceCdMmode.
+libcdvd.a	sceCdDiskReady	0x002425f0	
+# sceCdRead @0x00242840 (0x242840..0x242a20): _sceCd_ncmd_prechk(4); "call cdread cmd" 0x2ab608;
+#   sceSifCallRpc(client 0x2c7910 = N-cmd, func 1 = READ); "cdread end" 0x2ab620. Game callers:
+#   0x14ba38 and 0x14bc78 (the raw-sector reader; 0x14bc78 follows with sceCdSync + sceCdGetError).
+libcdvd.a	sceCdRead	0x00242840	
+# sceCdGetDiskType @0x00242a20 (0x242a20..0x242ab8): _sceCd_scmd_prechk(1); sceSifCallRpc(client
+#   0x2c82c0 = S-cmd, func 3 = GET_DISK_TYPE, recv 0x2c7940); returns the word or -1. The game's
+#   wrapper 0x242ab8 (-1 -> 0) is its only caller; 0x14b9c0 compares the result with 0x14 (PS2 DVD).
+libcdvd.a	sceCdGetDiskType	0x00242a20	
+# sceCdGetError @0x00242ae0 (0x242ae0..0x242b78, 152 bytes = the first title's): _sceCd_scmd_prechk(3);
+#   S-cmd func 4 = GET_ERROR.
+libcdvd.a	sceCdGetError	0x00242ae0	
+# sceCdBreak @0x00242b78 (0x242b78..0x242c30, 184 bytes = the first title's): _sceCd_scmd_prechk(0x1e);
+#   cur_cmd [0x2c67a0] = 8 (BREAK); S-cmd func 0x16 = BREAK.
+libcdvd.a	sceCdBreak	0x00242b78	
+# sceCdMmode @0x00242c30 (0x242c30..0x242d00): _sceCd_scmd_prechk(0x22 = MMODE); media word
+#   [0x2c7d80] = a0; S-cmd call (func word loaded from [0x2d82e8]). 0x14ba00 calls it with 2 (SCECdDVD)
+#   when the disk type is 0x14.
+libcdvd.a	sceCdMmode	0x00242c30	
+
+# The frame boundary is NOT a row here: this ELF links no sceGsSyncV, and tests/lint/lint_sdk_bindings.py
+# admits only sce-library rows inside the SDK band. The game's vsync-wait routine 0x0016f560 is declared
+# as TitleProfile::Gs::vblank_wait_entry (hle/title_profile.cpp, with the evidence) and the composition
+# installs the engine's WaitForVblank mirror there.
+# --- libmc.a (engine LibmcBindings over McHostStore: cfg.paths.mc_dir/mc0 is the formatted card) ----------
+# "PsIIlibpad  3000"-era libmc ("PsIImcserv  3000" strings; sceMcInit @0x243cb0 creates "sceMc_sema_regs"
+# 0x2ab7b0 / "sceMc_sema_timer" 0x2ab7c0, binds client 0x450880 to 0x80000400 (lui 0x8000/ori 0x400 at
+# 0x243db4..0x243dbc, retry loop <0x200), sceSifCallRpc(func 0xFE, send 0x451e40 0x30 bytes, recv 0x450900
+# 0xC bytes) and refuses reply+4 < 0x20A ("libmc: too old release of mcserv.irx" 0x2ab7f0) / reply+8 < 0x20E
+# (0x2ab818). sceMcInit stays RAW: its RPC reaches the engine's McservModule (versions 0x210/0x226).
+# Every row below issues sceSifCallRpc on client 0x450880 with the mcserv fno named, after
+# WaitSema(sceMc_sema_regs) (jal 0x234a70) and the recv buffer 0x450900; the game's callers are listed.
+# sceMcSync @0x00244450 (0x244450..0x244514): (mode, *cmd, *result): lw [0x2c8350] current cmd -> 0 -> -1;
+#   PollSema/WaitSema(sceMc_sema_timer [0x2c8358]) by mode; *cmd = [0x2c8350], *result = [0x451e40];
+#   SignalSema(regs). Callers: the game's wrapper 0x1ab098 (mode 0, &cmd, &result) and sceMcInit 0x243d5c.
+libmc.a	sceMcSync	0x00244450	
+# sceMcGetInfo @0x00244570 (0x244570..0x2446ec): (port a0, slot a1, *type a2, *free a3, *format T0 -- `daddu
+#   s5, t0` at 0x2445b8; the -100 NotReady return when client+0x24 == 0); fno 1 (addiu a1,1 at 0x244688),
+#   end callback 0x244518 (mceGetInfoApdx: reads +0x90 of the reply). Game callers 0x1ac598, 0x1ac6a0.
+libmc.a	sceMcGetInfo	0x00244570	
+# sceMcOpen @0x00243ef0 (0x243ef0..0x244018): (port, slot, name, mode); strncpy(name) 0x233638; fno 2 at
+#   0x243fb4. Callers: the game's 0x1ac7a0 (a function outside the first census, see padmc notes) and
+#   sceMcMkdir.
+libmc.a	sceMcOpen	0x00243ef0	
+# sceMcMkdir @0x00244018 (0x244018..0x24404c): sceMcOpen(port, slot, name, 0x40) then current cmd
+#   [0x2c8350] = 0xB. Game caller 0x1ac748.
+libmc.a	sceMcMkdir	0x00244018	
+# sceMcClose @0x00244050 (0x244050..0x24410c): (fd) -> [0x450900] = fd; fno 3 at 0x2440bc. Caller 0x1ac808.
+libmc.a	sceMcClose	0x00244050	
+# sceMcRead @0x002441c0 (0x2441c0..0x2442d4): (fd, buf, size); SyncDCache 0x23b170 x2; fno 5 at 0x244274,
+#   end callback 0x244110 (mceIntrReadFixAlign: the unaligned head/tail copy). Caller 0x1ac850.
+libmc.a	sceMcRead	0x002441c0	
+# sceMcWrite @0x002442d8 (0x2442d8..0x244450): (fd, buf, size); the <0x400-byte head copied into the
+#   send buffer, FlushCache 0x234ca0; fno 6 at 0x2443f4. Caller 0x1ac8a8.
+libmc.a	sceMcWrite	0x002442d8	
+# sceMcGetDir @0x002446f0 (0x2446f0..0x24483c): (port, slot, name, mode, max T0, table T1); strncpy
+#   0x233638, SyncDCache 0x23b170; fno 0xD at 0x2447d8. Callers 0x1aba10, 0x1abe78.
+libmc.a	sceMcGetDir	0x002446f0	
+# sceMcFormat @0x00244848 (0x244848..0x244914): (port, slot); fno 0x10 at 0x2448c0. Caller 0x1ab6c0.
+libmc.a	sceMcFormat	0x00244848	
+# sceMcDelete @0x00244918 (0x244918..0x244a34): (port, slot, name); strncpy; fno 0xF at 0x2449d4.
+#   Caller 0x1aca40 (x5 from the save manager 0x1ab868).
+libmc.a	sceMcDelete	0x00244918	
+# sceMcGetEntSpace @0x00244a58 (0x244a58..0x244b64): (port, slot, path); strncpy; fno 0x12 at 0x244b08.
+#   Caller 0x1ab868 (the "requires 100 KB of free space" check). Engine row added this stage.
+libmc.a	sceMcGetEntSpace	0x00244a58	
+# Not bound: sceMcChdir (no fno 0xC caller in this ELF), the RPC end callbacks 0x244110 / 0x244518
+# (never reached once the rows answer without an RPC).

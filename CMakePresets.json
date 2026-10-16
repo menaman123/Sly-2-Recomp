@@ -1,0 +1,54 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "sly2-base",
+      "hidden": true,
+      "description": "NativeEE (engine/) as the source tree, this repository's games/ as the title directory. The build dir is OUTSIDE the repository: it receives the extracted ELF and the recompiled code (game-derived, never committed). NOTE: CMake reads presets from the SOURCE dir, and the source dir here must be engine/ -- so these presets are documentation of the cache variables build.sh passes; use ./build.sh (cmake --preset cannot re-root the source directory).",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../sly2recomp_work/build-sly2",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PS2R_DIAGNOSTICS": "OFF",
+        "PS2R_GAMES_DIR": "${sourceDir}/games"
+      }
+    },
+    {
+      "name": "sly2-disc",
+      "inherits": "sly2-base",
+      "description": "Your own disc image: NATIVEEE_DISC from the environment (or -DNATIVEEE_DISC=...). The ELF is extracted and SHA-256 gated at build time.",
+      "cacheVariables": {
+        "NATIVEEE_DISC": "$env{NATIVEEE_DISC}"
+      }
+    },
+    {
+      "name": "sly2-elf",
+      "inherits": "sly2-base",
+      "description": "The loose ELF (SCUS_973.16): NATIVEEE_TITLE_ELF from the environment (or -DNATIVEEE_TITLE_ELF=...), hashed at configure time.",
+      "cacheVariables": {
+        "NATIVEEE_TITLE_ELF": "$env{NATIVEEE_TITLE_ELF}"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "sly2-disc",
+      "configurePreset": "sly2-disc",
+      "targets": [
+        "nativeee"
+      ]
+    },
+    {
+      "name": "sly2-elf",
+      "configurePreset": "sly2-elf",
+      "targets": [
+        "nativeee"
+      ]
+    }
+  ]
+}
