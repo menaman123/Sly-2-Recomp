@@ -1,6 +1,6 @@
 # Sly-2-Recomp -- the title module for NativeEE. Nothing game-derived is ever committed here.
 
-# build directories (build.sh defaults to ../sly2recomp_work/build-sly2; these cover an in-tree slip)
+# build directories (build.sh defaults to the sibling ../<checkout name>-build; these cover an in-tree slip)
 /build/
 /build-*/
 /out/

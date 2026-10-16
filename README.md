@@ -10,54 +10,59 @@ harness -- is the `engine/` git submodule and knows nothing about Sly.
 from *your* disc image, checks its SHA-256 against `games/<title>/TITLE_INPUTS.sha256` and recompiles
 it into the build directory. The build directory lives outside the repository.
 
-## Status (2026-10-15): boot stage, no per-title HLE
+## Status (2026-10-16): playable in a window, no per-title HLE
 
-What works, verified on macOS (Apple clang, cmake + ninja):
+What works, verified on macOS (Apple clang 21, cmake 4.3, ninja 1.13) from a fresh clone:
 
-- `cmake` configures NativeEE as the source tree with this repository's `games/` as the title
-  directory (`-DPS2R_GAMES_DIR`), auto-discovering `scus_97316_sly2_band_of_thieves`.
-- With `-DNATIVEEE_DISC=<your iso>` the build extracts `SCUS_973.16` (SHA-256 gated), runs the
-  in-tree recompiler over it (6574 functions, 265 jump-table sites, 32 shards, 0 unhandled
-  instructions) and links the result into `nativeee` with the title's play composition.
-- `nativeee --headless --frames 600 --harness-out <dir> --iso <your iso>` boots the recompiled ELF on
-  the engine's fallbacks (no GS/VU/DMAC/IOP models armed yet): crt0 runs, the kernel syscalls are served
-  (InitMainThread, InitHeap, CreateSema, SetSysCall x12 -- the game installs custom syscalls --,
-  AddIntcHandler, CreateThread, GetOsdConfigParam ...), `main` runs the whole IOP boot sequence
-  (sceCdInit / GetDiskType / Mmode / DiskReady on the engine's libcdvd rows, `sceSifRebootIop`, IOP heap,
-  the nine embedded IRX images pushed with `sceSifSetDma` and `sceSifLoadModuleBuffer` -- all answered
-  without an IOP), the display init reaches the first frame boundary (the game's own vsync wait, bound
-  as the engine's `WaitForVblank` mirror), libpad's `scePadInit` talks to the engine's padman server,
-  and the run parks cleanly at the first RPC call into 989snd's IOP module:
+- `./build.sh --disc <iso>` configures NativeEE as the source tree with this repository's `games/` as
+  the title directory (`-DPS2R_GAMES_DIR`), auto-discovers `scus_97316_sly2_band_of_thieves`, extracts
+  `SCUS_973.16` and `IOPRP300.IMG` from the disc (SHA-256 gated), pulls the four IOP module images out
+  of them (lgAud, 989snd_Library, spiop, FILEIO_service; gated), recompiles the ELF with the in-tree
+  recompiler (6574 functions, 265 jump-table sites, 32 shards, 0 unhandled instructions) and the four
+  modules with the IOP recompiler, verifies every generated file against the committed
+  `MANIFEST.sha256` (strict: 35 + 4x2 files) and links `nativeee` with the title's play composition.
+  0 compiler warnings (`-Wall -Wextra -Werror`).
+- The game boots through the FMV / legal / logo / memory-card screens and renders through the engine's
+  generic GS renderer -- no per-title VU1 programs, renderer profile or IOP HLE: the title's own IOP
+  modules run recompiled (`iop/`, `hle/iop_host.cpp`), the sce libraries bind to the engine's generic
+  bodies (`hle/sdk_bindings.tsv`: 15 libkernl, 13 libcdvd, 11 libmc rows). The intro cinematic, the
+  title screen, New Game, the Binocucom briefings and the first playable area (the Cairo museum) all
+  reach the screen; the left stick walks Sly and the camera follows (keyboard WASD / a gamepad).
+- `nativeee` with no arguments shows the engine's first-run launcher: drop the disc image, it is
+  verified (ISO9660, `SCUS_973.16` present, ELF SHA-256 equal to this build's), extracted under the
+  user data root (`~/Library/Application Support/NativeEE` on macOS) and the game starts; later
+  starts show the settings screen (Play / Display / Controls / Save states / Data). `--iso` and the
+  harness flags bypass it.
+- Audio plays through the SDL device in windowed runs (the SPU2 mixer, one quantum per 60 Hz field;
+  headless legs stay muted and hash the same lane as before).
+- The GS consumer runs pipelined on its own thread (split VRAM image, frame skip) in windowed runs;
+  closing the window or pressing Escape shuts down cleanly (guest workers joined, census written,
+  exit 0); the `--frames` cap does the same.
 
-  ```
-  park=sif_server_unbound  park_pc=0x232788  park_tid=1  park_detail=sid=0x123456 func=0 client=0x443800
-  boundaries=1  iop_module_loads=9  iop_modules=sio2man(3.01),padman(4.10),mcman(2.26),mcserv(2.10),
-  Sound_Device_Library(3.03),USB_driver(2.04),lgAud(1.0a),989snd_Library(3.01),spiop(1.00)
-  sdk_rows_installed=24  (libkernl SIF/heap/loadfile 11 rows, libcdvd 13 rows)
-  ```
-
-  That is `snd_Init` (the 989snd EE library at `0x2319e8`, `p3/989snd.cpp`) sending its first command
-  to the `989snd_Library` IOP module (server `0x123456`) -- a custom module this binary has no model
-  for. It is where the fallbacks stop carrying the title: everything behind it (the disc reader
-  `0x14ba38`, pads, memory cards, rendering) needs the per-title IOP side.
-
-Not done: any per-title HLE (the IOP modules -- Sly 2's nine, including Sucker Punch's own `spiop` and
-989snd, are embedded in the ELF and loaded with `sceSifLoadModuleBuffer`; there is no disc-side IRX --,
-the GS/GIF/VIF/DMAC/VU hardware fallbacks, streaming from raw sectors, audio), libpad/libmc/libgraph
-rows and statics, the launcher / first-run flow.
+Performance: ~15 fps in gameplay on an M4 (the intro / title screens run at 60). The bound is the
+engine's VU1 interpreter running the title's microprograms on the EE render thread (~78 % of that
+thread's time; a real VU1 is ~10x faster) -- a faster VU1 tier or per-title VU1 HLE is what the next
+phase needs. Not done: no per-title HLE of any kind (VU1 program library, renderer profile); the
+989snd handler-node corruption noted in the title README remains.
 
 ## Layout
 
 ```
-engine/                                  NativeEE (submodule) + small local, title-neutral fixes (see below)
+engine/                                  NativeEE (submodule, branch sly2-upstream) -- title-neutral; its Sly-era fixes are listed below
 games/scus_97316_sly2_band_of_thieves/   the title module (the engine's games/<serial>_<slug>/ contract)
-  TITLE_INPUTS.sha256                    the disc file(s) the generated code is made from (the ELF only)
-  hle/title_profile.cpp                  TitleProfile: identity, ELF facts, boot env (UNKNOWNs documented)
-  hle/sdk_bindings.tsv                   the SDK-library binding table (6 libkernl rows, each with its evidence)
-  hle/boot_leg.cpp                       the play composition: the headless cold-boot leg (TitlePlayMain)
+  TITLE_INPUTS.sha256                    the disc files the generated code is made from (the ELF, its three embedded
+                                         IOP modules, IOPRP300.IMG's FILEIO) -- hashes only, extracted at build time
+  hle/title_profile.cpp                  TitleProfile: identity, ELF facts, boot env
+  hle/sdk_bindings.tsv                   the SDK-library binding table (39 rows: libkernl, libcdvd, libmc; each with its evidence)
+  hle/boot_leg.cpp                       the play composition (TitlePlayMain): the launcher hand-over, headless legs, the SDL
+                                         window + audio device + live pad, the pipelined GS queue, the shutdown ladder
+  hle/video_stack.*, frame_dump.*        the GS -> GL video stack and the --dump-frames writer
+  hle/iop_host.*                         hosts the recompiled IOP modules on the engine's cooperative IOP kernel
+  hle/vu1_probe.*                        NATIVEEE_VU1_CAP: VU1 kick capture for tests/vu/test_vu1_capture_replay
   recomp/CMakeLists.txt                  runs the recompiler at build time into <build>/generated/...
   recomp/MANIFEST.sha256, INVOCATION.md  hashes of the generated output + how it was produced
-  iop/stream_irx, vu1_library, renderer_profile   STATUS-only stubs (no target)
+  iop/{fileio,lgaud,snd989,spiop}/       the IOP recompiles (one MANIFEST.sha256 each), iop/iop_modules.h = bases
+  vu1_library/, renderer_profile/        STATUS-only stubs (no target: nothing per-title)
   lint_denylist.txt, README.md
 build.sh                                 configure + build wrapper (the engine is the CMake source dir)
 CMakePresets.json                        the same cache variables, as documentation
@@ -71,13 +76,23 @@ FFmpeg as the engine's README describes (Homebrew on macOS). Your own disc image
 ```
 git clone --recurse-submodules https://github.com/menaman123/Sly-2-Recomp
 cd Sly-2-Recomp
+git submodule status            # must print the pinned engine commit with no leading '-' or '+'
 ./build.sh --disc "/path/to/Sly 2 - Band of Thieves.iso"          # or: --elf /path/to/SCUS_973.16
 ```
 
-The build directory defaults to `../sly2recomp_work/build-sly2` (override with `--build-dir`, it must be
-outside the repository). The ELF's SHA-256 must be
-`a511a94b1dbe8cd9bc9b764c34ffda3f88869713a338e188b4f407732fec6a73` (NTSC-U, 2,597,048 bytes); any other
-revision is refused with the reason.
+`engine/` is pinned to a specific NativeEE commit (`.gitmodules` names the branch `sly2-upstream`); if the
+submodule fetch reports `not our ref <sha>`, that commit is not on GitHub yet -- clone NativeEE yourself into
+`engine/` and `git checkout <sha>` (the sha `git submodule status` prints with a leading `-`).
+
+The build directory defaults to a sibling of the checkout named after it: `<checkout>-build/` (a clone at
+`~/src/Sly-2-Recomp` builds in `~/src/Sly-2-Recomp-build`; override with `--build-dir DIR` or
+`SLY2_BUILD_DIR`; build.sh refuses a directory inside the repository). A full build from scratch is
+~2 minutes on an M-series Mac (580 ninja steps: the engine, the tools, the disc extraction, the four IOP
+module recompiles, the EE recompile into 32 shards, the `MANIFEST.sha256` checks, `nativeee`). The ELF's
+SHA-256 must be `a511a94b1dbe8cd9bc9b764c34ffda3f88869713a338e188b4f407732fec6a73` (NTSC-U, 2,597,048
+bytes); any other revision is refused with the reason. The binary ends up at `<build>/app/host/nativeee`
+(`nativeee --help` lists only `--version`/`--help` and the linked title; the harness flags below are read
+by the engine's config loader, `engine/engine/core/config/config_loader.cpp`).
 
 Run the boot leg (always bounded):
 
@@ -87,22 +102,50 @@ engine/verify/run_bounded.sh 120 leg.log -- <build>/app/host/nativeee --headless
 grep -E "^(park|park_pc|park_detail|sdk_rows_hit_list|iop_modules|boundaries|first_syscalls)" <out>/run.meta
 ```
 
+Play (the launcher on a plain start; `--iso` skips it for a harness-style run):
+
+```
+<build>/app/host/nativeee                                   # first run: drop the disc image on the window, Verify & extract, Play
+<build>/app/host/nativeee --extract-disc "/path/to/Sly 2 - Band of Thieves.iso"   # the same extraction from the command line
+engine/verify/run_bounded.sh 600 play.log -- <build>/app/host/nativeee --harness-window --frames 6000 --harness-out <out> --iso "..."
+```
+
+Controls (the engine's `default_bindings.ini`; the launcher's Controls page rebinds them): WASD = left
+stick, mouse = right stick (camera; left click captures the mouse, Escape releases it), Space = cross,
+LShift = square, right mouse button = circle, E = triangle, 1/2/3/4 = L1/L2/R1/R2, 5/6 = L3/R3, Y = START,
+Tab = SELECT, arrows = D-pad. An SDL game controller uses the DualShock 2 layout directly. F1 opens the
+session menu (volume, display, pause); Escape with the menu closed, or the window's close button, quits.
+From the intro: START skips the cinematic, START at the title screen starts a new game (the game asks to
+create a save on the host memory card the first time: square = yes), cross advances the briefing lines.
+
 See the picture (the engine's generic GS renderer over OpenGL -- no per-title class renderers):
 
 ```
 # headless, every presented frame as <dir>/p<key>.ppm (the window image) + f<key>.ppm (the display grab)
 engine/verify/run_bounded.sh 240 dump.log -- <build>/app/host/nativeee --headless --frames 400 --dump-frames <dir> \
     --harness-out <out> --iso "..."
-# windowed play (SDL window on main, keyboard/gamepad pad through libpad -> padman; --frames caps the run)
-engine/verify/run_bounded.sh 120 play.log -- <build>/app/host/nativeee --harness-window --frames 600 --harness-out <out> --iso "..."
+# windowed play with every Nth presented picture written as <dir>/p<n>.ppm (n = the picture ordinal)
+NATIVEEE_DUMP_EVERY=50 engine/verify/run_bounded.sh 120 play.log -- <build>/app/host/nativeee --harness-window --frames 600 \
+    --dump-frames <dir> --harness-out <out> --iso "..."
 ```
+
+`run.meta` rows a play run writes: `boundary_wall_ms=` (the wall clock at every 100th boundary -- the
+frame rate of a window of the run), `pace=` / `tick_profile=` / `pace_long_trace=` (the engine's pacer
+census), `audio_device=` (quanta pushed / non-silent, the ring's underruns / padded frames),
+`pad_served=` (stamps that carried a press or a stick), `input_sources=`, `gs_queue=pipelined:frame_skip...`,
+`vu1_tier=bundles=` (VU1 bundles interpreted). The shutdown ladder prints `nativeee: leg shutdown: ...`.
 
 `NATIVEEE_UNPACED=1` runs the window without the 60 Hz field pacer; `NATIVEEE_DUMP_EVERY=N` writes every Nth key;
 `NATIVEEE_GS_ROUTES=<key,...>` / `NATIVEEE_GS_VERTS=<key>` write a frame's draw routes (+ `vram_<key>.bin`) /
 every DrawIr with its vertices; `NATIVEEE_IPU_OUT_DUMP=<file>` is the fromIPU side of `NATIVEEE_IPU_DUMP`;
 `NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>]` records VU1 kicks as `Vu1Case` files + their PATH1 packets
 (hle/vu1_probe.h; replay with `tests/vu/test_vu1_capture_replay <case.bin> [--trace]`); `NATIVEEE_VU1_MODE=interp`
-selects the VU1 interpreter tier; `NATIVEEE_PAD_SCRIPT=<stamp>:<buttons_hex>:<hold>[,...]` presses buttons in headless.
+selects the VU1 interpreter tier; `NATIVEEE_PAD_SCRIPT=<stamp>:<buttons_hex>:<hold>[:<lx>,<ly>[,<rx>,<ry>]][,...]`
+presses buttons / holds the sticks over the live pad (`500:8:10,650:8:10` = START twice: skip the intro, New
+Game; `3950:0:120:0,128` = left stick full left for 120 boundaries); `NATIVEEE_KEY_SCRIPT=<stamp>:<sdl_scancode>:<hold>`
+holds a KEYBOARD key through the real key route (A = 4, D = 7, S = 22, W = 26, Space = 44). The engine's harness
+verbs `--set harness.close_at_frame=N` (a real window close at boundary N) and `--set harness.inject_key=Escape@N`
+(a real key press) are honoured by the composition.
 
 `NATIVEEE_WATCHDOG_S` (default 60) ends a leg that reaches no frame boundary with `park=watchdog` and the
 spinning pc, so a hang is still a reported result. Boot-triage tooling in the composition (all env-gated,
@@ -113,9 +156,10 @@ the shadow-stack frame; needs a non-NDEBUG engine build, e.g. `--type RelWithDeb
 `-DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -g"`). The engine's own per-tag DMAC / VIF narration is
 `--log-level narrate` (`[DMAC] dmac-vif1: tag@...`, `[DMAC] dmac-gif:`, `[DMAC] dmac-sprfrom:`, `[VIF] vif1: cmd=`).
 
-## Local changes to the engine submodule (uncommitted; upstream candidates)
+## Changes to the engine for this title (the submodule's `sly2-upstream` branch; upstream candidates)
 
-All title-neutral; none mentions Sly. Listed in full in the work notes (`implement_notes.md`).
+All title-neutral; none mentions Sly. Committed on NativeEE's `sly2-upstream` branch (8 commits over `main`),
+which is what the submodule pins.
 
 - `PS2R_GAMES_DIR` cache variable: title discovery and the five `add_subdirectory` calls from a
   directory outside the engine tree (the parent-repository layout).
@@ -215,6 +259,13 @@ All title-neutral; none mentions Sly. Listed in full in the work notes (`impleme
   the DrawIr and run as one pass over the 32-bit image (TEXA expansion, DECAL, the CT16 write rule and
   FBMSK16 per half-word); the target keeps its 32-bit tags. The 5551 companion route stays for every other
   16-bit draw. This title saves / restores its G channel through the sibling buffer's alpha this way.
+- `app/gui/session_gui`: Escape with the session menu closed submits the Close request (the window's
+  close button's); with the menu open it stays ImGui's.
+- `engine/title/title_profile.h` (`display_name`), `app/host/launcher` (`Launcher::TitleName`: the
+  launcher names the linked title -- window title, the screen's heading, the disc hint -- from the
+  profile instead of a placeholder; the disc id in both its forms + its region), `app/host/disc_verify`
+  (the reports name the build's serial), `app/host/session_window` / `session_runtime`
+  (`SetTitle` / `SetWindowTitle`: the game window's title bar).
 
 ## License
 

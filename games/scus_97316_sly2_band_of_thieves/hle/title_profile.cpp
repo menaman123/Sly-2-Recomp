@@ -11,6 +11,7 @@ const TitleProfile& ActiveTitleProfile() {
         TitleProfile t;
         // --- identity ---------------------------------------------------------------------
         t.serial = "SCUS_973.16";          // SYSTEM.CNF: BOOT2 = cdrom0:\SCUS_973.16;1, VER = 1.00, VMODE = NTSC
+        t.display_name = "Sly 2: Band of Thieves";   // the launcher's / window's name for it
         t.crc = 0xD67D6E1Eu;               // zlib crc32 of the whole 2,597,048-byte ELF (PCSX2 GameDB key)
         t.elf_path = "SCUS_973.16";        // volume root
         t.elf_dir = "Sly2.rep";            // game_files/ subdirectory holding the user's copy

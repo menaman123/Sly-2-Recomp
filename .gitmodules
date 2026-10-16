@@ -1,3 +1,4 @@
 [submodule "engine"]
 	path = engine
 	url = https://github.com/menaman123/NativeEE
+	branch = sly2-upstream

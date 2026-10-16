@@ -11,7 +11,7 @@
       "hidden": true,
       "description": "NativeEE (engine/) as the source tree, this repository's games/ as the title directory. The build dir is OUTSIDE the repository: it receives the extracted ELF and the recompiled code (game-derived, never committed). NOTE: CMake reads presets from the SOURCE dir, and the source dir here must be engine/ -- so these presets are documentation of the cache variables build.sh passes; use ./build.sh (cmake --preset cannot re-root the source directory).",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/../sly2recomp_work/build-sly2",
+      "binaryDir": "${sourceDir}/../${sourceDirName}-build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "PS2R_DIAGNOSTICS": "OFF",

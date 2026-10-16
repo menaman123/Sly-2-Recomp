@@ -1,21 +1,33 @@
-// games/scus_97316_sly2_band_of_thieves/hle/boot_leg.cpp -- the title's play composition, step 2:
-// the headless boot leg WITH the IOP arm. It arms the engine's title-neutral mechanisms (memory +
-// MMIO sink, INTC + timers, the SIF register block, the emulated time domain and boundary owner,
-// the kernel syscalls and the SDK binding manifest), hosts the title's three embedded IOP modules
-// on the engine's cooperative IOP kernel (iop_host.cpp: lgAud, 989snd, spiop recompiled at build
-// time; the stock Sony modules are the engine's HLE; the EE's SIF RPCs into 989snd reach its own
-// handlers), loads the ELF image, installs the generated dispatch table, runs the recompiled code
-// from the ELF entry on the engine's FALLBACKS (every MMIO page the sink answers idle; no
-// GS/VU/DMAC models yet) and reports where it parks: run.meta park= / park_pc= / park_tid= /
-// park_detail= (LegCloser) plus a `census:` block on stdout. No per-title HLE: hle/sdk_bindings.tsv
-// is the only title data consulted at run time (iop/iop_modules.h is layout data); the disc image
-// (--iso, else <game_files>/<disc_image_file>) feeds the engine's libcdvd rows (Sly 2 reads raw
-// sectors with sceCdRead).
+// games/scus_97316_sly2_band_of_thieves/hle/boot_leg.cpp -- the title's play composition
+// (TitlePlayMain). It arms the engine's title-neutral mechanisms (memory + MMIO sink, INTC + timers,
+// the SIF register block, the emulated time domain and boundary owner, the kernel syscalls and the
+// SDK binding manifest), hosts the title's three embedded IOP modules on the engine's cooperative IOP
+// kernel (iop_host.cpp: lgAud, 989snd, spiop recompiled at build time; the stock Sony modules are the
+// engine's HLE), the hardware fallbacks (GS / GIF / VU / VIF / DMAC / IPU), the memory card and pad
+// faces, loads the ELF image, installs the generated dispatch table and runs the recompiled code from
+// the ELF entry. Three shapes of one leg:
+//   * the headless harness leg (--headless): a counting GS sink, no GL, the neutral pad, muted; the
+//     park / frames-cap census in run.meta (LegCloser) + a `census:` block on stdout;
+//   * the headless dump (--headless --dump-frames <dir>): the generic GS renderer over GL into a
+//     hidden window, the DrawIR queue in LOCKSTEP over the shared VRAM image (the frames lane is the
+//     inline path's by construction), every present as f<key>.ppm / p<key>.ppm;
+//   * play (a window): the engine's first-run launcher on a plain start (the disc image verified
+//     against the TitleProfile's ELF SHA-256, extracted under the user data root), the SessionRuntime
+//     window on main with the live keyboard / gamepad pad, the SDL audio device fed one SPU2 quantum
+//     per 60 Hz field, the DrawIR queue PIPELINED over a SPLIT VRAM image with frame skip (the
+//     renderer never blocks the game), and the clean shutdown: the window close / Escape / the
+//     --frames cap cancel the guest workers (ThreadExitUnwind), the join ladder runs, the census is
+//     written, RunLeg returns through its destructors.
+// No per-title HLE: hle/sdk_bindings.tsv is the only title data consulted at run time (iop/iop_modules.h
+// is layout data); the disc image (--iso, else <game_files>/<disc_image_file>) feeds the engine's
+// libcdvd rows (Sly 2 reads raw sectors with sceCdRead). The env knobs (NATIVEEE_*) are boot triage.
 //
 // Shape: the first title's EeBootstrap cold-boot composition (private app/host/ee_bootstrap*.cpp),
 // reduced to its title-neutral phases, in the same construction order so object lifetimes nest
 // the same way. Entered from app/host/main.cpp through engine/title/title_play.h.
 #include "engine/title/title_play.h"
+
+#include <SDL.h>
 
 #include <algorithm>
 #include <atomic>
@@ -37,8 +49,11 @@
 
 #include "app/host/build_id.h"
 #include "app/host/leg_closer.h"
+#include "app/host/first_run.h"
+#include "app/host/launcher.h"
 #include "app/host/platform_input.h"
 #include "app/host/session_runtime.h"
+#include "app/host/session_workers.h"
 #include "app/host/tick_thread.h"
 #include "app/host/user_data.h"
 #include "engine/cdvd/hle/libcdvd_bindings.h"
@@ -116,6 +131,8 @@
 #include "engine/pad/hle/padman_module.h"
 #include "engine/platform/host/platform.h"
 #include "engine/platform/posix/crash_handler.h"
+#include "engine/platform/sdl/audio_pull_ring.h"
+#include "engine/platform/sdl/sdl_audio_sink.h"
 #include "engine/sif/hle/rpc_router.h"
 #include "engine/sif/hle/sce_sif.h"
 #include "engine/sif/sif_state.h"
@@ -349,17 +366,32 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     ps2r::gs::GsState gs_state;
     gs_state.SetQuirks(ps2r::gs::VertexKickQuirks{title.quirks.round_sprite_mode});
     ps2r::title::sly2::VideoStack video;
+    // Play mode with gs.queue=pipelined (the Config default): the SPLIT image -- the pipeline
+    // runs on ITS OWN VramImage on the consumer thread; the EE keeps GsState's image for its
+    // writes, marks and upload epoch, and every EE-side call on it is logged (VramMirror) and
+    // replayed on the pipeline's image in stream order by the queue (draw_ir_thread_queue.h).
+    // The headless dump / harness legs keep the LOCKSTEP shared image: their frames lane is
+    // byte-identical to the inline path by construction, and the Verify slot reads a
+    // complete grab. The first title's composition made the same split (private
+    // ee_bootstrap_devices.cpp, gs.queue=pipelined).
+    const bool gs_queue_split_image = play_mode && cfg.video.backend == ps2r::VideoBackend::Gl &&
+                                      cfg.gs.queue == ps2r::GsQueue::Pipelined;
+    std::unique_ptr<ps2r::gs::VramImage> pipeline_vram;
+    if (gs_queue_split_image) pipeline_vram = std::make_unique<ps2r::gs::VramImage>();
     const bool video_live = want_video && cfg.video.backend == ps2r::VideoBackend::Gl &&
-                            video.Create(cfg.video, "Sly 2 -- NativeEE (GS)", gs_state.Vram());
+                            video.Create(cfg.video, "Sly 2 -- NativeEE (GS)", pipeline_vram ? *pipeline_vram : gs_state.Vram());
     if (want_video && !video_live) std::fprintf(stderr, "nativeee: no GL video stack (video=stub; see the log)\n");
     std::unique_ptr<ps2r::gs::DrawIrQueueConsumer> consumer;
     std::unique_ptr<ps2r::gs::DrawIrThreadQueue> gs_queue;
     // gs.queue=inline: the consumer runs on the pushing EE thread (the context re-bound per
     // thread); otherwise the DrawIR ring carries the stream to the consumer on its own host
-    // thread, which owns the GL context -- LOCKSTEP for both `thread` and `pipelined` in this
-    // first cut (every push returns once consumed; the shared VramImage interleaving is the
-    // inline one). The split-image pipelined mode is a follow-up.
+    // thread, which owns the GL context. Headless (dump): LOCKSTEP -- every push returns once
+    // consumed, the shared VramImage interleaving is the inline one. Play: PIPELINED over the
+    // split image with FRAME SKIP (the clock contract, rule 2: the renderer never blocks the
+    // game -- one pending frame, the older dropped; pushes never wait for ring room; the
+    // boundary does not WaitFrame).
     const bool gs_queue_thread = video_live && cfg.gs.queue != ps2r::GsQueue::Inline;
+    const bool gs_queue_lockstep = !gs_queue_split_image;
     if (video_live) {
         // The display grab when no target sits at the scanout base: the CRTC's own read --
         // decode the DISPFB tuple out of local memory (an uploaded movie frame the title points
@@ -383,18 +415,35 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         }
         hooks.window_resized = [&video](int w, int h) { video.OnWindowResized(w, h); };
         consumer = std::make_unique<ps2r::gs::DrawIrQueueConsumer>(*video.Pipe(), std::move(hooks));
+        // Play: the frames-lane hash is taken where the grab is made (the consumer thread, at
+        // the present scale); the wall-locked boundary reads the header + hash, never the pixels.
+        if (!gs_queue_lockstep) consumer->SetFrameHashScale(video.Scale());
         if (gs_queue_thread) {
             ps2r::gs::DrawIrThreadQueue::Hooks qh;
             qh.upload_pixels = [&gs_state] { return &gs_state.Xfer().LastUploadPixels(); };
             qh.crtc = crtc_now;
-            gs_queue = std::make_unique<ps2r::gs::DrawIrThreadQueue>(*consumer, std::move(qh),
-                                                                     ps2r::gs::DrawIrThreadQueue::Policy::Lockstep, 4096);
+            gs_queue = std::make_unique<ps2r::gs::DrawIrThreadQueue>(
+                *consumer, std::move(qh),
+                gs_queue_lockstep ? ps2r::gs::DrawIrThreadQueue::Policy::Lockstep : ps2r::gs::DrawIrThreadQueue::Policy::Pipelined,
+                4096, pipeline_vram.get());
+            if (pipeline_vram) {
+                gs_state.Vram().SetMirror(gs_queue->ProducerMirror());
+                // A local->local copy's source under frame skip: never wait -- the EE image is
+                // authoritative for what the EE wrote; a GPU target's pixels come from the
+                // consumer's last completed frame, staleness counted (gs_queue l2l_*=).
+                gs_state.Xfer().SetLocalToLocalPrepare(
+                    [&gs_queue](ps2r::gs::VramImage::Span source, ps2r::gs::VramImage& image) {
+                        return gs_queue->ServeLocalToLocalSource(source, image);
+                    });
+                gs_queue->SetFrameSkip(true);
+            }
             video.ReleaseCurrent();
             gs_queue->Start([&video] {
                 ps2r::platform::host::PinCurrentThreadInteractive("ps2r-gs");
                 video.EnsureCurrent();
             });
-            PS2R_LOG(HOST, Info, "GS queue: consumer thread started (lockstep, shared VRAM image)");
+            PS2R_LOG(HOST, Info, "GS queue: consumer thread started (%s%s)", gs_queue_lockstep ? "lockstep, shared VRAM image" : "pipelined",
+                     pipeline_vram ? ", split VRAM image, frame skip" : "");
         }
     }
     ps2r::gs::DrawIrSink* gs_sink_head =
@@ -711,13 +760,34 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                                            [](uint32_t a, uint32_t v) { memory::write<uint32_t>(a, v); });
     rpc_router.RegisterServer(ps2r::sound::hle::SdrRemote::kServerId, sdr_remote, "SDRDRV");
 
+    // --- play mode: the audio device ----------------------------------------------------------------
+    // The mixer's 800-frame output of every boundary is ALSO pushed into the SPSC ring the SDL
+    // device callback pulls from (engine/platform/sdl/audio_pull_ring.h: nothing flows back, so
+    // the audio lane is byte-identical with or without a device). The device opens in play mode
+    // only, and only when audio.enabled (headless / deterministic legs stay muted, the rule in
+    // sdl_audio_sink.h); audio.volume (0..100, the session's live volume) is the gain applied to
+    // the ring's copy, never to the hashed buffer. Pad-with-tail (the clock contract, rule 4): a
+    // late game tick repeats the previous quantum's tail -- never a gap, never a pitch change.
+    ps2r::platform::sdl::AudioPullRing audio_ring;
+    ps2r::platform::sdl::SdlAudioSink audio_sink;
+    std::vector<float> audio_gain_buf;
+    uint64_t audio_device_quanta = 0, audio_device_nonsilent = 0;   // census audio_device=
+    uint64_t audio_pumped_tick = 0, audio_field_pumps = 0;           // the field pump (Verify slot)
+    if (play_mode && cfg.audio.enabled) {
+        ps2r::platform::AudioSpec spec;   // 48 kHz stereo, 800 frames per quantum
+        audio_ring.SetPadWithTail(true);
+        audio_ring.Prime();
+        if (!audio_sink.Open(spec, audio_ring)) PS2R_LOG(HOST, Warn, "audio device not opened: running without sound");
+        else PS2R_LOG(HOST, Info, "audio device: %d Hz x%d, %d-frame buffer", audio_sink.DeviceSampleRate(), audio_sink.DeviceChannels(), audio_sink.DeviceBufferFrames());
+    }
+
     // --- play mode: the live pad + the session window on main ---------------------------------
     // PlatformInput is constructed on main (its owner); the boundary's Sample() posts to main and
     // waits a bounded 3 ms. SessionRuntime owns the VISIBLE window + its own GL context on main
     // (opened after the video stack's context was released from main): Run() moves the cold boot
     // to a 1 GiB-stack game worker while main pumps SDL, presents the posted frames at
     // video.fps_cap and services the pad. The GS pipeline's presented image (VideoStack::Output,
-    // on the consumer thread) is posted to it. No audio device (nothing parks without one).
+    // on the consumer thread) is posted to it.
     std::unique_ptr<PlatformInput> live_input;
     std::unique_ptr<ps2r::app::SessionRuntime> session;
     if (play_mode && video_live) {
@@ -728,14 +798,37 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         live_input = std::make_unique<PlatformInput>(PlatformInput::SettingsFrom(cfg, exe_dir));
         session = std::make_unique<ps2r::app::SessionRuntime>(live_input.get());
         std::string err;
-        if (!session->Open(cfg.audio.volume, /*audio=*/false, /*recording=*/false, std::string(), err, cfg.paths.mc_dir)) {
+        if (!session->Open(cfg.audio.volume, audio_sink.Running(), /*recording=*/false, std::string(), err, cfg.paths.mc_dir)) {
             std::fprintf(stderr, "nativeee: session window: %s\n", err.c_str());
             return 2;
         }
         session->ConfigurePresentation(cfg.video.vsync, cfg.video.fps_cap);
+        session->SetWindowTitle(title.display_name.empty() ? title.serial : title.display_name);
         session->SetEventTrace(cfg.dev.log_level == LogLevelSetting::Narrate);
-        video.SetOutput([&session](std::vector<uint8_t> rgba, int w, int h) { session->PostFrame(std::move(rgba), w, h); });
+        // The consumer thread's presented image goes to the session window and, with
+        // --dump-frames, every dump_every-th one is written as p<n>.ppm with n = the OUTPUT
+        // frame ordinal (under frame skip the presents and the EE boundaries no longer pair 1:1,
+        // so the play dump is keyed by the picture, not the boundary).
+        video.SetOutput([&session, &video, &frame_dump, dump_every](std::vector<uint8_t> rgba, int w, int h) {
+            const uint32_t n = static_cast<uint32_t>(video.OutputFrames());
+            if (frame_dump.Enabled() && n % dump_every == 0) frame_dump.Write("p", n, w, h, rgba.data(), /*flip=*/true);
+            session->PostFrame(std::move(rgba), w, h);
+        });
     }
+    const auto push_audio_ring = [&](const float* out) {
+        if (!audio_sink.Running()) return;
+        const float gain = static_cast<float>(std::clamp(session ? session->Volume() : cfg.audio.volume, 0, 100)) / 100.0f;
+        ++audio_device_quanta;
+        for (int i = 0; i < ps2r::sound::Mixer::kFramesPerVsync * 2; ++i)
+            if (out[i] != 0.0f) { ++audio_device_nonsilent; break; }
+        if (gain == 1.0f) {
+            audio_ring.Push(out, ps2r::sound::Mixer::kFramesPerVsync);
+        } else {
+            audio_gain_buf.assign(out, out + ps2r::sound::Mixer::kFramesPerVsync * 2);
+            for (float& v : audio_gain_buf) v *= gain;
+            audio_ring.Push(audio_gain_buf.data(), ps2r::sound::Mixer::kFramesPerVsync);
+        }
+    };
 
     // --- the IOP arm: the title's embedded modules hosted on the engine's IOP kernel -----------
     // The EE's sceSifSetDma pushes land in IOP RAM; sceSifAllocIopHeap is the sysmem heap; a
@@ -777,21 +870,56 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // neutral pad (no buttons, centred sticks) otherwise, exactly what the console's padman
     // publishes every frame. Before this the leg never stamped, so the title saw no pad data.
     uint64_t rpc_end_callbacks = 0, pad_stamps = 0;
-    // NATIVEEE_PAD_SCRIPT=<frame>:<buttons_hex>:<hold>[,<frame>:<buttons_hex>:<hold>...] (boot triage,
-    // headless): press `buttons` (libpad active-high order: CIRCLE 0x2000, CROSS 0x4000, START 0x0008)
-    // for `hold` boundaries starting at the `frame`-th pad stamp (one per boundary), over the neutral pad.
-    struct PadScriptStep { uint64_t frame; uint16_t buttons; uint64_t hold; };
+    // run.meta pad_served=: stamps carrying a press or a deflected stick (the live keyboard / gamepad,
+    // the pad script, the key script -- whatever reached the title), and the last such sample.
+    uint64_t pad_served_active = 0;
+    std::string pad_served_last;
+    // NATIVEEE_PAD_SCRIPT=<frame>:<buttons_hex>:<hold>[:<lx>,<ly>[,<rx>,<ry>]][,<frame>:...] (boot triage):
+    // press `buttons` (libpad active-high order: CIRCLE 0x2000, CROSS 0x4000, START 0x0008, SQUARE
+    // 0x8000, D-pad UP 0x0010 RIGHT 0x0020 DOWN 0x0040 LEFT 0x0080) and, when given, hold the sticks at
+    // lx,ly[,rx,ry] (0..255, 128 = centre; e.g. 0,128 = left stick full left) for `hold` boundaries
+    // starting at the `frame`-th pad stamp (one per boundary), over the live / neutral pad.
+    struct PadScriptStep { uint64_t frame; uint16_t buttons; uint64_t hold; bool sticks; uint8_t lx, ly, rx, ry; };
     std::vector<PadScriptStep> pad_script;
     if (const char* env = std::getenv("NATIVEEE_PAD_SCRIPT")) {
         for (const char* p = env; *p;) {
             char* e = nullptr;
             PadScriptStep st{};
+            st.lx = st.ly = st.rx = st.ry = 0x80;
             st.frame = std::strtoull(p, &e, 10);
             if (*e != ':') break;
             st.buttons = static_cast<uint16_t>(std::strtoul(e + 1, &e, 16));
             if (*e != ':') break;
             st.hold = std::strtoull(e + 1, &e, 10);
+            if (*e == ':') {
+                st.sticks = true;
+                st.lx = static_cast<uint8_t>(std::strtoul(e + 1, &e, 10));
+                if (*e == ',') st.ly = static_cast<uint8_t>(std::strtoul(e + 1, &e, 10));
+                if (*e == ',') st.rx = static_cast<uint8_t>(std::strtoul(e + 1, &e, 10));
+                if (*e == ',') st.ry = static_cast<uint8_t>(std::strtoul(e + 1, &e, 10));
+            }
             pad_script.push_back(st);
+            if (*e != ',') break;
+            p = e + 1;
+        }
+    }
+    // NATIVEEE_KEY_SCRIPT=<frame>:<sdl_scancode>:<hold>[,...] (boot triage, play mode): hold a KEYBOARD key
+    // (SDL scancode: A 4, D 7, S 22, W 26, Space 44, Up 82 ...) from the `frame`-th pad stamp for `hold`
+    // boundaries through PlatformInput::HoldKey -- the engine's held-key overlay on the kbm backend, so
+    // the press goes through the REAL keyboard -> InputMapper (default_bindings.ini: WASD = left stick,
+    // Space = cross ...) -> DualShock sample path, not the pad script's direct stamp.
+    struct KeyScriptStep { uint64_t frame; int scancode; uint64_t hold; bool down = false; };
+    std::vector<KeyScriptStep> key_script;
+    if (const char* env = std::getenv("NATIVEEE_KEY_SCRIPT")) {
+        for (const char* p = env; *p;) {
+            char* e = nullptr;
+            KeyScriptStep st{};
+            st.frame = std::strtoull(p, &e, 10);
+            if (*e != ':') break;
+            st.scancode = static_cast<int>(std::strtol(e + 1, &e, 10));
+            if (*e != ':') break;
+            st.hold = std::strtoull(e + 1, &e, 10);
+            key_script.push_back(st);
             if (*e != ',') break;
             p = e + 1;
         }
@@ -800,9 +928,25 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         rpc_end_callbacks += static_cast<uint64_t>(rpc_router.CompletePending(
             ctx, [](uint32_t addr, CpuContext& c) { DispatchTable::Invoke(addr, c); },
             [](uint32_t a) { return memory::read<uint32_t>(a); }));
+        if (live_input)
+            for (KeyScriptStep& st : key_script) {
+                const bool want = pad_stamps >= st.frame && pad_stamps < st.frame + st.hold;
+                if (want != st.down) {
+                    live_input->HoldKey(st.scancode, want);
+                    st.down = want;
+                }
+            }
         PadProtocol::Input in = live_input ? live_input->Sample() : PadProtocol::Input{};
         for (const PadScriptStep& st : pad_script)
-            if (pad_stamps >= st.frame && pad_stamps < st.frame + st.hold) in.buttons |= st.buttons;
+            if (pad_stamps >= st.frame && pad_stamps < st.frame + st.hold) {
+                in.buttons |= st.buttons;
+                if (st.sticks) { in.lx = st.lx; in.ly = st.ly; in.rx = st.rx; in.ry = st.ry; }
+            }
+        if (in.buttons || in.lx != 0x80 || in.ly != 0x80 || in.rx != 0x80 || in.ry != 0x80) {
+            ++pad_served_active;
+            pad_served_last = std::to_string(pad_stamps) + ":" + Hex(in.buttons) + ":" + std::to_string(in.lx) + "," + std::to_string(in.ly) + "," +
+                              std::to_string(in.rx) + "," + std::to_string(in.ry);
+        }
         pad_protocol.Stamp(in, domain.DomainTick());
         ++pad_stamps;
         return true;
@@ -1021,6 +1165,14 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // --- the leg closer, the census rows every exit path writes, the park sink -------------------
     LegCloser closer(host, mmio);
     uint64_t boundaries = 0;
+    // run.meta boundary_wall_ms= : the wall clock (ms since the leg's cold boot) at every 100th
+    // boundary -- the frame rate of a WINDOW of the run ((b2 - b1) / (t2 - t1)), where wall_ms /
+    // frames averages the FMV, the loads and the level together.
+    const auto leg_t0 = std::chrono::steady_clock::now();
+    std::string boundary_wall;
+    // The shutdown's step census (run.meta shutdown= / the stderr line): the join ladder's steps
+    // with their wall offsets, and the guest workers it had to abandon ("" = none).
+    std::string shutdown_steps, guest_join_abandoned;
     // NATIVEEE_VU1_MODE=interp|cached (boot triage): the VU1 fallback tier (engine default Cached).
     if (const char* env = std::getenv("NATIVEEE_VU1_MODE"))
         vu1.dispatch().settings().vu1_mode = std::string(env) == "interp" ? VuTierMode::Interp : VuTierMode::Cached;
@@ -1105,9 +1257,14 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                 if (gs_queue) {
                     const ps2r::gs::DrawIrThreadQueue::Counters& q = gs_queue->Count();
                     meta->Set("gs_queue", std::string(gs_queue->policy() == ps2r::gs::DrawIrThreadQueue::Policy::Lockstep ? "lockstep" : "pipelined") +
+                                              (gs_queue->FrameSkip() ? ":frame_skip" : "") +
                                               ":enqueued=" + std::to_string(q.enqueued) + ":consumed=" + std::to_string(q.consumed) +
-                                              ":frames=" + std::to_string(q.frames) + ":frame_waits=" + std::to_string(q.frame_waits) +
+                                              ":frames=" + std::to_string(q.frames) + ":frames_dropped=" + std::to_string(q.frames_dropped) +
+                                              ":frame_waits=" + std::to_string(q.frame_waits) +
                                               ":max_depth=" + std::to_string(q.max_depth) + ":payload_bytes=" + std::to_string(q.payload_bytes) +
+                                              ":vram_ops=" + std::to_string(q.vram_ops) + ":snapshots=" + std::to_string(q.snapshots) +
+                                              ":l2l=" + std::to_string(q.l2l_ee_served) + "/" + std::to_string(q.l2l_snapshot_served) + "/" +
+                                              std::to_string(q.l2l_stale_max) + "/" + std::to_string(q.l2l_unserved) +
                                               ":faulted=" + (gs_queue->Faulted() ? "1" : "0"));
                 } else {
                     meta->Set("gs_queue", "inline");
@@ -1119,8 +1276,36 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                                                                : std::string("off"));
             }
             meta->Set("pad_stamps", std::to_string(pad_stamps));
-            if (live_input) meta->Set("pad_live", live_input->Census());
+            meta->Set("pad_served", "active=" + std::to_string(pad_served_active) + ":last=" + (pad_served_last.empty() ? "none" : pad_served_last));
+            if (live_input) {
+                meta->Set("pad_live", live_input->Census());
+                meta->Set("input_sources", live_input->Sources());
+            }
             if (session) meta->Set("session_presents", std::to_string(session->Presents()));
+            // The audio device (play): quanta pushed to the ring / with a non-zero sample, the
+            // ring's own counters (frames pushed/pulled, underruns, padded frames, re-latches, trimmed).
+            meta->Set("audio_device", audio_sink.Running() || audio_device_quanta
+                                          ? "sdl:" + std::to_string(audio_sink.DeviceSampleRate()) + "hz:quanta=" + std::to_string(audio_device_quanta) +
+                                                ":nonsilent=" + std::to_string(audio_device_nonsilent) + ":pushed=" + std::to_string(audio_ring.pushed()) +
+                                                ":pulled=" + std::to_string(audio_ring.pulled()) + ":underruns=" + std::to_string(audio_ring.underruns()) +
+                                                ":padded=" + std::to_string(audio_ring.padded()) + ":relatches=" + std::to_string(audio_ring.relatches()) +
+                                                ":trimmed=" + std::to_string(audio_ring.trimmed()) +
+                                                ":field_pumps=" + std::to_string(audio_field_pumps)
+                                          : std::string("none"));
+            meta->Set("audio_mixed", "pumps=" + std::to_string(mixer.Pumps()) + ":frames=" + std::to_string(mixer.FramesMixed()));
+            // The pace census (play; the pacer's protocol): boundaries that parked for the wall
+            // edge / arrived late, the longest frame's work, the first long frames with the
+            // TickProfile breakdown (Boundary / GifDrain / ... / other = recompiled code), the
+            // per-site totals (ms/calls).
+            meta->Set("pace", "parks=" + std::to_string(protocol.PaceParks()) + ":late=" + std::to_string(protocol.PaceLate()) +
+                                  ":timeouts=" + std::to_string(protocol.PaceTimeouts()) + ":late_fields=" + std::to_string(sequencer.PaceLateFields()) +
+                                  ":slept_ms=" + std::to_string(protocol.PaceSleptUs() / 1000) + ":work_max_ms=" + std::to_string(protocol.WorkMaxUs() / 1000) +
+                                  ":long=" + std::to_string(protocol.LongTraceCount()));
+            meta->Set("pace_work_max_breakdown", protocol.WorkMaxBreakdown().empty() ? std::string("none") : protocol.WorkMaxBreakdown());
+            meta->Set("pace_long_trace", protocol.LongTrace().empty() ? std::string("none") : protocol.LongTrace());
+            meta->Set("tick_profile", protocol.SiteTotals());
+            meta->Set("boundary_wall_ms", boundary_wall.empty() ? std::string("none") : boundary_wall);
+            meta->Set("shutdown", shutdown_steps.empty() ? std::string("none") : shutdown_steps);
             meta->Set("gif_sink", "tags=" + std::to_string(gs_state_sink.Tags()) +
                                   ":p1=" + std::to_string(gs_state_sink.TagsOn(GifPath::Path1)) +
                                   ":p2=" + std::to_string(gs_state_sink.TagsOn(GifPath::Path2)) +
@@ -1159,6 +1344,10 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             meta->Set("ipu_fifo_port", "in_bytes=" + std::to_string(ipu_fifo.InBytes()) + ":out_bytes=" + std::to_string(ipu_fifo.OutBytes()) + ":unhandled=" + std::to_string(ipu_fifo.Unhandled()));
             meta->Set("vu_macro", "vu0_calls=" + std::to_string(VuMacroBridge::Stats().vu0_calls) +
                                       ":vu1_kicks=" + std::to_string(VuMacroBridge::Stats().vu1_kicks));
+            // The VU1 fallback tier's work: bundles retired by the cached tier (the title's
+            // microprograms interpreted on the kicking EE thread), the unit's cycle count.
+            meta->Set("vu1_tier", "bundles=" + std::to_string(vu1.dispatch().cached().bundles()) + ":cycle=" + std::to_string(vu1.cycle()) +
+                                      ":dropped_kicks=" + std::to_string(vu1.DroppedKicks()));
         }
     };
     using ps2r::triage::TriageBundle;
@@ -1173,6 +1362,12 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         TriageBundle::NoteThrowSite(r.detail ? r.detail : r.reason);
         write_census();
         closer.Close(r.reason, r.pc, ThreadManager::Instance().CurrentTid(), r.detail);
+        // Play: the session closes cleanly around the park (the window goes, the workers are
+        // joined); a headless leg's park is its result -- leave at once, census written.
+        if (session) {
+            session->RequestClose();
+            throw ThreadExitUnwind{};
+        }
         std::_Exit(0);
     });
 
@@ -1195,31 +1390,132 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
 
     // --- slot 7 (Verify): the lanes, the present / frame dump, the frames cap --------------------
     // The grab this boundary reads: the consumer's reference when the boundary waited for it
-    // (lockstep / inline), a published COPY under the wall lock (the consumer runs concurrently).
-    // When grabbed: the frames lane line (host.OnPresent) and, with --dump-frames, f<key>.ppm (the
-    // grab) + p<key>.ppm (the presented window image, Backend::ReadPresented).
+    // (lockstep / inline); under the wall lock (play: the consumer runs concurrently, pipelined)
+    // the published HEADER + hash (no pixel copy crosses the threads; the consumer hashed the
+    // grab at the present scale). When grabbed: the frames lane line (host.OnPresent /
+    // OnPresentHashed) and, with --dump-frames in a headless leg, f<key>.ppm (the grab) +
+    // p<key>.ppm (the presented window image, Backend::ReadPresented). In play the p<n> dump is
+    // the consumer thread's (VideoStack::Output above).
     // (frame_dump / grab counters are declared with the GS block above: the census reads them.)
     const std::vector<ps2r::verify::MemorySpan> verify_spans = {{ram.Data(), ram.Size()}, {spad.Data(), spad.Size()}};
+    // The play-mode field ticker (started with the cold boot below; declared here so the clean
+    // leg end can stop it).
+    TickThread tick_thread(tick_source, sequencer.Ticks(), protocol);
+    // The clean leg end (the frames cap, the window close): every guest worker is cancelled
+    // (ThreadManager::TerminateAll + the kernel waits' condition variables + the pacer woken) and
+    // the thread at the boundary unwinds through ThreadExitUnwind; the cold-boot thread catches
+    // its own unwind and joins the rest (headless) or the session's `stopped` ladder does (play).
+    ps2r::app::SessionWorkers session_workers(ThreadManager::Instance(), running, [&tick_thread] { tick_thread.Stop(); },
+                                              [&protocol] { protocol.NotifyTick(); });
+    auto end_leg_from_boundary = [&](const char* detail) {
+        write_census();
+        closer.Close("none", 0, ThreadManager::Instance().CurrentTid(), detail);
+        std::fflush(stdout);
+        if (session) session->RequestClose();   // main: hooks.stop -> the cancel below
+        else session_workers.Cancel();
+        throw ThreadExitUnwind{};
+    };
+    // --set harness.close_at_frame=N [harness.close_after_ms=M]: the window's close (a real SDL_QUIT
+    // into SDL's queue, from main) at the first boundary >= N -- the user's red X without the
+    // finger; the shutdown pin (RootExitClean's shape). --set harness.inject_key=<KEY>@N[-M][,...]:
+    // a synthetic press through the REAL key route (SDL's queue -> the main pump -> SessionGui ->
+    // SessionControls / the pad's kbm backend) at the first boundary >= N, released at M (or the
+    // next boundary); KEY = F1..F12 or an SDL key name (Escape, Space ...). The validator pinned
+    // the format; an unknown name is refused here.
+    struct HarnessKeyPress { int scancode; uint64_t frame, until; bool pressed = false, released = false; std::string name; };
+    std::vector<HarnessKeyPress> harness_keys;
+    for (std::string rest = cfg.harness.inject_key; !rest.empty();) {
+        const size_t comma = rest.find(',');
+        const std::string item = rest.substr(0, comma);
+        rest = comma == std::string::npos ? std::string() : rest.substr(comma + 1);
+        const size_t at = item.find('@');
+        HarnessKeyPress k{};
+        k.name = item.substr(0, at);
+        const std::string frames = item.substr(at + 1);
+        const size_t dash = frames.find('-');
+        k.frame = std::strtoull(frames.substr(0, dash).c_str(), nullptr, 10);
+        k.until = dash == std::string::npos ? k.frame : std::strtoull(frames.substr(dash + 1).c_str(), nullptr, 10);
+        k.scancode = static_cast<int>(SDL_GetScancodeFromName(k.name.c_str()));
+        if (k.scancode == SDL_SCANCODE_UNKNOWN) {
+            std::fprintf(stderr, "nativeee: harness.inject_key: unknown key name '%s'\n", k.name.c_str());
+            return 2;
+        }
+        harness_keys.push_back(k);
+    }
+    bool close_pushed = false;
+    auto harness_verbs = [&](uint64_t at_boundary) {
+        if (!session) return;
+        for (HarnessKeyPress& k : harness_keys) {
+            if (!k.pressed && at_boundary >= k.frame) {
+                k.pressed = true;
+                std::fprintf(stderr, "nativeee: harness.inject_key %s at boundary %llu: %s\n", k.name.c_str(),
+                             static_cast<unsigned long long>(at_boundary),
+                             session->InjectKey(k.scancode, true) ? "SDL_KEYDOWN pushed into SDL's queue" : "SDL_PushEvent refused");
+            }
+            if (k.pressed && !k.released && at_boundary > k.until) {
+                k.released = true;
+                session->InjectKey(k.scancode, false);
+                std::fprintf(stderr, "nativeee: harness.inject_key %s released at boundary %llu\n", k.name.c_str(),
+                             static_cast<unsigned long long>(at_boundary));
+            }
+        }
+        if (cfg.harness.close_at_frame > 0 && !close_pushed && at_boundary >= static_cast<uint64_t>(cfg.harness.close_at_frame)) {
+            close_pushed = true;
+            if (cfg.harness.close_after_ms > 0) {
+                session->ArmCloseAfter(uint64_t(cfg.harness.close_after_ms) * 1000000ull);
+                std::fprintf(stderr, "nativeee: harness.close_at_frame at boundary %llu: SDL_QUIT armed on main in %d ms\n",
+                             static_cast<unsigned long long>(at_boundary), cfg.harness.close_after_ms);
+            } else {
+                std::fprintf(stderr, "nativeee: harness.close_at_frame at boundary %llu: %s\n", static_cast<unsigned long long>(at_boundary),
+                             session->InjectClose() ? "SDL_QUIT pushed into SDL's queue" : "SDL_PushEvent refused");
+            }
+        }
+    };
     sequencer.SetStep(BoundarySequencer::Step::Verify, [&](CpuContext&) {
+        harness_verbs(boundaries);
+        // The play-mode FIELD PUMP (the first title's rule, ee_bootstrap_play.cpp): the SPU2 mixes
+        // 48000 frames a second whether or not the EE passes a boundary -- a late boundary delivered
+        // the elapsed fields (DomainTick ran ahead of the boundary count), so the mixer is caught up
+        // to one quantum per domain tick, each pushed to the DEVICE ring only; the boundary's own
+        // pump below is the hashed one (the lane keeps exactly 800 frames per boundary). The device
+        // then hears the game's audio at its own rate instead of a padded tail. Play only: the
+        // headless lane is the boundary-only pump it always was.
+        if (audio_sink.Running()) {
+            const uint64_t now = domain.DomainTick();
+            if (audio_pumped_tick == 0) audio_pumped_tick = now;   // the first boundary anchors
+            while (audio_pumped_tick + 1 < now) {
+                mixer.Pump();
+                push_audio_ring(mixer.Output());
+                ++audio_pumped_tick;
+                ++audio_field_pumps;
+            }
+            audio_pumped_tick = now;
+        }
         mixer.Pump();
+        push_audio_ring(mixer.Output());
         const uint64_t boundary = host.OnBoundary(mixer.Output(), ps2r::sound::Mixer::kFramesPerVsync, verify_spans);
         boundaries = boundary + 1;
+        if (boundaries % 100 == 0)
+            boundary_wall += (boundary_wall.empty() ? "" : ",") + std::to_string(boundaries) + ":" +
+                             std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - leg_t0).count());
         RingLog::SetFrame(static_cast<uint32_t>(boundaries));
         if (consumer) {
             const uint32_t present_key = host.PresentKey(0, boundary);
             if (vert_trace_key) vert_trace.on.store(present_key + 1 == vert_trace_key);
+            const bool wall_locked = sequencer.WallLocked();
             ps2r::gs::DrawPipeline::Frame wall_locked_grab;
             const ps2r::gs::DrawPipeline::Frame* fr = &consumer->LastFrame();
-            if (sequencer.WallLocked()) {
-                wall_locked_grab = consumer->LastFrameCopy();
+            if (wall_locked) {
+                wall_locked_grab = consumer->LastFrameHeaderCopy();
                 fr = &wall_locked_grab;
             }
             if (fr->grabbed) {
                 ++grabs;
                 if (fr->source == ps2r::gs::ScanoutComposer::Source::Mirror) ++grab_local_memory;
                 if (fr->source_fallback) ++grab_fallback;
-                host.OnPresent(present_key, fr->rgba.data(), fr->w, fr->h, video.Scale(), video.Renderer());
-                if (frame_dump.Enabled() && present_key % dump_every == 0) {
+                if (wall_locked) host.OnPresentHashed(present_key, fr->hashed ? fr->hash : 0, video.Renderer());
+                else host.OnPresent(present_key, fr->rgba.data(), fr->w, fr->h, video.Scale(), video.Renderer());
+                if (!wall_locked && frame_dump.Enabled() && present_key % dump_every == 0) {
                     frame_dump.Write("f", present_key, fr->w, fr->h, fr->rgba.data(), /*flip=*/false);
                     std::vector<uint8_t> presented;
                     int pw = 0, ph = 0;
@@ -1231,7 +1527,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             // NATIVEEE_GS_ROUTES=<key>[,<key>...] (boot triage): the pipeline's per-draw route trace of
             // that frame + the CRTC registers and the grab's source as <dump dir or harness out>/routes_<key>.txt.
             static const char* routes_env = std::getenv("NATIVEEE_GS_ROUTES");
-            if (routes_env && !sequencer.WallLocked()) {
+            if (routes_env && !wall_locked) {
                 const std::string want = std::string(",") + routes_env + ",";
                 if (want.find("," + std::to_string(present_key) + ",") != std::string::npos) {
                     const std::string dir = frame_dump.Enabled() ? frame_dump.Dir() : cfg.harness.out_dir;
@@ -1258,29 +1554,48 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                 }
             }
         }
-        if (cfg.harness.frames > 0 && boundary + 1 >= static_cast<uint64_t>(cfg.harness.frames)) {
-            write_census();
-            closer.Close("none", 0, ThreadManager::Instance().CurrentTid(), "frames_cap");
-            std::_Exit(0);
-        }
+        if (cfg.harness.frames > 0 && boundary + 1 >= static_cast<uint64_t>(cfg.harness.frames)) end_leg_from_boundary("frames_cap");
         // The session's boundary (pause / step / the close): false = the window was closed --
         // the leg ends here with its census (the stop hook on main may be closing it too; the
-        // closer closes exactly once).
-        if (session && !session->Boundary(boundaries)) {
-            write_census();
-            closer.Close("none", 0, ThreadManager::Instance().CurrentTid(), "session_closed");
-            std::fflush(stdout);
-            std::_Exit(0);
-        }
+        // closer closes exactly once) and the guest workers unwind.
+        if (session && !session->Boundary(boundaries)) end_leg_from_boundary("session_closed");
         return true;
     });
+    // The join ladder, in dependency order: the guest workers first (they produce for every
+    // consumer below; bounded -- a worker parked in a wait the cancel cannot reach is abandoned
+    // after the deadline and NAMED), the pacer, the GS consumer's backlog (Quiesce: the census
+    // reads its counters after it drained; the queue's own Stop/join and the video stack's
+    // teardown run in the frame's destructor order, on main), the audio device, the census.
+    constexpr uint64_t kGuestJoinDeadlineMs = 5000;
+    auto join_ladder = [&] {
+        const auto t0 = std::chrono::steady_clock::now();
+        auto note = [&](const char* step) {
+            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+            shutdown_steps += (shutdown_steps.empty() ? "" : ",") + std::string(step) + "@" + std::to_string(ms) + "ms";
+        };
+        if (session_workers.Join(kGuestJoinDeadlineMs, &guest_join_abandoned) > 0)
+            std::fprintf(stderr, "nativeee: shutdown: guest workers abandoned after %llu ms: %s\n",
+                         static_cast<unsigned long long>(kGuestJoinDeadlineMs), guest_join_abandoned.c_str());
+        note("guest_join");
+        tick_thread.Stop();
+        note("pacer");
+        if (gs_queue) gs_queue->Quiesce();
+        note("gs_quiesce");
+        if (audio_sink.Running()) audio_sink.Close();
+        note("audio_close");
+    };
     if (session) {
         ps2r::app::SessionRuntime::Hooks hooks;
-        hooks.stop = [&] {
+        // Main, at the close request: cancel only (no join here -- main keeps pumping the
+        // window and enforcing the shutdown deadline); the boundary thread sees
+        // Boundary() == false and unwinds, the waiters wake terminated.
+        hooks.stop = [&] { session_workers.Cancel(); };
+        // The game worker, after the cold boot returned: the join ladder, then the census.
+        hooks.stopped = [&] {
+            join_ladder();
             write_census();
             closer.Close("none", 0, 0, "window_closed");
             std::fflush(stdout);
-            std::_Exit(0);
         };
         session->SetHooks(std::move(hooks));
     }
@@ -1341,7 +1656,6 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // and the boundary's TickAdvance slot parks for it (BindPacer); NATIVEEE_UNPACED=1 keeps the
     // boundary ticking inline (the title's pacer/render thread handshake under instant
     // completions was the sched stage's starvation case -- the knob is the comparison).
-    TickThread tick_thread(tick_source, sequencer.Ticks(), protocol);
     const bool paced = play_mode && video_live && std::getenv("NATIVEEE_UNPACED") == nullptr;
     if (paced) {
         tick_thread.Start();
@@ -1372,6 +1686,8 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         if (!ThreadManager::Instance().ReleaseCurrentThread(&release_error) && !failure)
             failure = std::make_exception_ptr(std::runtime_error(release_error));
         running.store(false);
+        // Headless: this thread joins the rest (the session's `stopped` ladder does it in play).
+        if (!session) join_ladder();
         write_census();
         if (failure) {
             std::string what = "guest fault";
@@ -1379,12 +1695,14 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             closer.Close("exception", ctx.cpuRegs.pc, 1, what.c_str());
             return 1;
         }
-        closer.Close("none", ctx.cpuRegs.pc, 1, "guest_returned");
+        closer.Close("none", ctx.cpuRegs.pc, 1, session && session->Closing() ? "session_closed" : "guest_returned");
         return 0;
     };
     if (session) {
         // The game on the session's 1 GiB worker; main pumps the window until it returns or
-        // the window closes (the stop hook ends the process after the census).
+        // the window closes; the `stopped` ladder joins the workers and writes the census; Run
+        // returns on main once the worker is joined -- the frame below unwinds normally (the GS
+        // queue's Stop, the video stack, the session window: on main, in reverse construction order).
         result = session->Run(cold_boot, static_cast<unsigned>(cfg.engine.shutdown_wait_s));
         write_census();
         closer.Close("none", fault_pc, fault_pc ? 1 : 0, "session_closed");
@@ -1392,7 +1710,16 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         result = cold_boot();
     }
     if (watchdog.joinable()) watchdog.join();
+    std::fprintf(stderr, "nativeee: leg shutdown: %s%s%s\n", shutdown_steps.empty() ? "(no ladder)" : shutdown_steps.c_str(),
+                 guest_join_abandoned.empty() ? "" : " abandoned=", guest_join_abandoned.c_str());
     cap.RunFinalizers();
+    if (!guest_join_abandoned.empty()) {
+        // An abandoned guest worker is still parked inside objects this frame owns: leave now,
+        // census written, without their destructors.
+        std::fflush(stderr);
+        std::fflush(stdout);
+        std::_Exit(result ? result : 3);
+    }
     return result;
 }
 
@@ -1416,11 +1743,12 @@ int TitlePlayMain(int argc, char** argv) {
         std::fprintf(stderr, "nativeee: %s\n", r.error.c_str());
         return 2;
     }
-    if (!r.extract_disc.empty() || r.launcher) {
-        std::fprintf(stderr, "nativeee: this title module is at its boot stage: no first-run extraction or launcher yet "
-                             "(run with --headless --frames N --harness-out <dir>)\n");
-        return 2;
-    }
+    const TitleProfile& title = ActiveTitleProfile();
+    // The CLI route of the first-run extraction (`--extract-disc <image>`): verify the disc image
+    // against this build's ELF (TitleProfile::elf_sha256) and lay the game files, memcards,
+    // settings and stamp under the resolved user data root, then exit. No window, no game.
+    if (!r.extract_disc.empty())
+        return ps2r::app::FirstRun::RunCli(ps2r::app::FirstRun::PlanFor(cfg, title, g_build_id, r.extract_disc, true));
 
     const std::string log_dir = cfg.paths.log_dir.empty() ? std::string("logs") : cfg.paths.log_dir;
     Logger::Instance().Start(cfg.harness.headless ? std::string() : log_dir + "/runtime_log.txt",
@@ -1434,9 +1762,31 @@ int TitlePlayMain(int argc, char** argv) {
     ps2r::platform::CrashHandler::Install(crash_ring.c_str());
     for (const std::string& note : r.notes) std::fprintf(stderr, "[config] %s\n", note.c_str());
 
-    const TitleProfile& title = ActiveTitleProfile();
     PS2R_LOG(HOST, Info, "nativeee %s title %s (%s) config sources=%zu", g_build_id, title.serial.c_str(),
              PS2R_TITLE_ID, r.sources.size());
+
+    // The launcher (the engine's first-run / settings screen, app/host/launcher.h) runs BEFORE
+    // the game on a plain start: no game files under the user data root -> drop the disc image,
+    // verify (ISO9660, SCUS_973.16 present, its SHA-256 == the ELF this build recompiled),
+    // extract (ELF, disc copy or reference, memcards, settings, stamp), Play; afterwards the
+    // settings screen (launcher.show). Any harness flag (--iso, --headless, --frames, --set,
+    // --game-files ...) bypasses it, so the harness legs are unchanged; --launcher forces it.
+    // Play lands the files in cfg.paths.game_files / cfg.paths.iso, where ResolveElf and the
+    // disc open below look first.
+    if (ps2r::app::Launcher::Wanted(cfg, title, r.harness_cli, r.launcher)) {
+        ps2r::app::Launcher launcher(cfg, title, g_build_id);
+        if (!r.launcher_screenshot.empty()) launcher.SetScreenshot(r.launcher_screenshot, r.launcher_then_play);
+        else if (r.launcher_then_play) launcher.SetAutoPlay();
+        if (!r.launcher_disc.empty()) launcher.SetScriptedDrop(r.launcher_disc);
+        if (!r.launcher_page.empty()) launcher.SetHarnessPage(r.launcher_page);
+        const ps2r::app::Launcher::Outcome outcome = launcher.Run();
+        if (outcome == ps2r::app::Launcher::Outcome::Quit) return 0;
+        if (outcome == ps2r::app::Launcher::Outcome::Failed) {
+            std::fprintf(stderr, "nativeee: the launcher could not open or present a window; use --extract-disc <image> and --game-files\n");
+            return 2;
+        }
+        PS2R_LOG(HOST, Info, "launcher: Play (game files %s, disc %s)", cfg.paths.game_files.c_str(), cfg.paths.iso.c_str());
+    }
 
     ps2r::verify::VerifyHost host;
     {

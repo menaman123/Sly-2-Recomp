@@ -7,9 +7,11 @@
 #   ./build.sh --elf /path/to/SCUS_973.16                      the loose ELF instead (faster iteration)
 #   ./build.sh                       neither: the engine, tools and component tests only (title skipped)
 #
-#   --build-dir DIR    where to build (default: ${SLY2_BUILD_DIR:-../sly2recomp_work/build-sly2} relative
-#                      to this file; the build dir MUST be outside the repository -- it holds the
-#                      extracted ELF and the recompiled code, which are game-derived)
+#   --build-dir DIR    where to build (default: $SLY2_BUILD_DIR, else the sibling directory
+#                      <this repository's directory name>-build/ next to the checkout, e.g. a clone at
+#                      ~/src/Sly-2-Recomp builds in ~/src/Sly-2-Recomp-build; the build dir MUST be
+#                      outside the repository -- it holds the extracted ELF and the recompiled code,
+#                      which are game-derived)
 #   --type TYPE        CMAKE_BUILD_TYPE (default Release)
 #   --target T         build target(s) (default: nativeee; repeatable)
 #   --configure-only   stop after configure
@@ -22,7 +24,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine="$here/engine"
 games="$here/games"
-build_dir="${SLY2_BUILD_DIR:-$here/../sly2recomp_work/build-sly2}"
+build_dir="${SLY2_BUILD_DIR:-$here/../$(basename "$here")-build}"
 build_type=Release
 disc="${NATIVEEE_DISC:-}"
 elf="${NATIVEEE_TITLE_ELF:-}"

@@ -76,23 +76,23 @@ target exists, so nothing is skipped or edited.
 - `iop/`: four modules recompiled at build time (fileio 53 functions, lgAud 140, 989snd 503, spiop 89;
   0 unimplemented instructions), all four boot and stay resident (`iop_hosted=` in run.meta; lgAud
   returns 2 = removable, its "no RPC server" path with `rpc=0`); `iop_imports_unresolved=` empty.
-- `hle/boot_leg.cpp`: the headless cold-boot leg. Current park (60 s watchdog):
-  `park=watchdog park_pc=0x80075000 watchdog_ra=0x160ec0` -- the main thread in the game's display
-  handshake `FUN_00160e68`, spinning on the render worker's idle flag `[0x2deb20]` after
-  `WaitSema([0x2deb1c])`x2 / `SignalSema`x2; the worker `FUN_00160b70` sets it at its loop top after
-  its vsync wait (`0x16f590` -> the `0x16f560` boundary site). Passed before it: the 989snd RPC
-  (`0x123456` answered twice: 36 bytes in, 24 out -- the previous park), `sceFsInit`'s fileio init and
-  `rom0:ROMVER` open against the hosted FILEIO (1 SIF command delivered), `scePadInit`, one frame
-  boundary. The frontier is the EE side now: a busy spin that expects an interrupt-driven higher-
-  priority thread to run (the console's VBlank) while no boundary is reached -- an EE scheduling /
-  boundary-ownership mechanism, not an IOP one.
-- `hle/video_stack.cpp` + `hle/frame_dump.cpp` + the play arm in `boot_leg.cpp`: the engine's generic GS
-  renderer (DrawPipeline with no class registry over an empty VramLayout, GL 4.1, a hidden window whose
-  presented image feeds the SessionRuntime window / `--dump-frames`), the DrawIR thread queue in lockstep,
-  the pad stamped every boundary (live PlatformInput in the window, neutral headless). Picture status: the
-  intro FMV (IPU BDEC/CSC -> 640x480 RGB32 texture -> a sprite into the 512x224 field buffer) is correct
-  and moving; the post-FMV text screen draws with black vertex colours and zero STQ on its VU1-output
-  strips (glyph fragments only) -- the next target (the VU1 microprogram output / its interpreter).
+- `hle/boot_leg.cpp`: the play composition. Boots through the FMV / legal / logo / memory-card screens
+  (the libpad SDK-3 padman face, the libmc rows over the engine's host card), the intro cinematic, the
+  title screen, New Game, the Binocucom briefings and the first playable area (the Cairo museum): the
+  left stick walks Sly and the camera follows (a windowed run with the keyboard 'A' held 2 s changes
+  ~50 % of the picture's pixels; idle changes < 2 %). The play arm: the engine's first-run launcher on a
+  plain start (`Launcher::Wanted`; `--extract-disc` for the CLI route), the SessionRuntime window on
+  main with the live pad, the SDL audio device fed one SPU2 quantum per 60 Hz field (headless legs
+  stay muted), the DrawIR queue PIPELINED over a split VRAM image with frame skip (headless legs keep
+  the lockstep shared image so their frames lane is unchanged), the clean shutdown (SessionWorkers
+  cancel + join ladder; the frames cap, the window close and Escape all end with exit 0 and the census).
+  Performance: ~15 fps in gameplay on an M4 (was 7.7 fps lockstep); the bound is the engine's VU1
+  interpreter on the EE render thread (~78 % of its time, `vu1_tier=bundles=` ~1 M per frame).
+- `hle/video_stack.cpp` + `hle/frame_dump.cpp`: the engine's generic GS renderer (DrawPipeline with no
+  class registry over an empty VramLayout, GL 4.1, a hidden window whose presented image feeds the
+  SessionRuntime window / `--dump-frames`). Known picture gaps: sky banding from the PSMT8H colour-grade
+  pass (the engine's alpha convention), strips over never-uploaded texture pages, a GL "zero texture"
+  warning once.
 - libpad/libmc/libgraph rows and statics in `title_profile.cpp`: UNKNOWN / not bound (libpad runs raw
   through the engine's SIF rows and padman server).
 - `vu1_library`, `renderer_profile`: STATUS-only, no target.
