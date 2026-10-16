@@ -39,11 +39,14 @@ What works, verified on macOS (Apple clang 21, cmake 4.3, ninja 1.13) from a fre
   closing the window or pressing Escape shuts down cleanly (guest workers joined, census written,
   exit 0); the `--frames` cap does the same.
 
-Performance: ~15 fps in gameplay on an M4 (the intro / title screens run at 60). The bound is the
-engine's VU1 interpreter running the title's microprograms on the EE render thread (~78 % of that
-thread's time; a real VU1 is ~10x faster) -- a faster VU1 tier or per-title VU1 HLE is what the next
-phase needs. Not done: no per-title HLE of any kind (VU1 program library, renderer profile); the
-989snd handler-node corruption noted in the title README remains.
+Performance: ~20 fps in gameplay on an M4 (the intro / title screens run at 60), up from ~15 after the
+engine's VU1 cached tier was made ~1.8x faster (fast kinds for every word the title's microprogram
+uses, inlined clamp / flag / stall kernels, NEON lane kernels under `PS2R_SIMD=ON` -- which build.sh
+now passes; every step proven byte-identical by replaying 720 captured VU1 kicks on both tiers). The
+bound is still that interpreter on the EE render thread (~60 % of its time; a real VU1 is ~6x faster
+than this one) -- 30 fps needs the VU1 off the EE thread (the engine's MTVU) or per-title VU1 HLE.
+Not done: no per-title HLE of any kind (VU1 program library, renderer profile); the 989snd
+handler-node corruption noted in the title README remains.
 
 ## Layout
 
@@ -138,6 +141,7 @@ census), `audio_device=` (quanta pushed / non-silent, the ring's underruns / pad
 `NATIVEEE_UNPACED=1` runs the window without the 60 Hz field pacer; `NATIVEEE_DUMP_EVERY=N` writes every Nth key;
 `NATIVEEE_GS_ROUTES=<key,...>` / `NATIVEEE_GS_VERTS=<key>` write a frame's draw routes (+ `vram_<key>.bin`) /
 every DrawIr with its vertices; `NATIVEEE_IPU_OUT_DUMP=<file>` is the fromIPU side of `NATIVEEE_IPU_DUMP`;
+`NATIVEEE_AUDIO_DUMP=<file.wav>` writes the DEVICE audio stream (pads included) as 48 kHz stereo int16 (play mode);
 `NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>]` records VU1 kicks as `Vu1Case` files + their PATH1 packets
 (hle/vu1_probe.h; replay with `tests/vu/test_vu1_capture_replay <case.bin> [--trace]`); `NATIVEEE_VU1_MODE=interp`
 selects the VU1 interpreter tier; `NATIVEEE_PAD_SCRIPT=<stamp>:<buttons_hex>:<hold>[:<lx>,<ly>[,<rx>,<ry>]][,...]`
@@ -266,6 +270,25 @@ which is what the submodule pins.
   profile instead of a placeholder; the disc id in both its forms + its region), `app/host/disc_verify`
   (the reports name the build's serial), `app/host/session_window` / `session_runtime`
   (`SetTitle` / `SetWindowTitle`: the game window's title bar).
+- `gl_shader_sources` (the PS2 vertex program): the GS coverage rule. The GS samples pixel (i, j) at the
+  INTEGER point of the XYOFFSET-relative space and draws it when x0 <= i < x1; GL samples at i + 0.5. The
+  primitive is translated by +0.5 - 1/256 px so the two grids coincide with the GS's inclusive-low /
+  exclusive-high edge rule (never the driver's tie rule). A sprite y in [-0.5, 223.5) -- this title's
+  frame-end Z clear and both letterbox bars -- now covers rows 0..223 (row 223 was the faint coloured
+  line on the last presented rows). `tests/render/test_gl_raster_rule.cpp` (new) pins the rule.
+- ONE stored-alpha convention (`texture_decoder`, `clut_source`, `readback_engine`, `gl_shader_sources`,
+  `blend_ff_map`): every texel, CLUT entry and colour attachment stores the GS alpha byte (0..0xFF); 0x80 =
+  1.0 applies only where the GS applies it (the blend factor As, the alpha test). The x2 "GPU convention"
+  (decoder prescale + shader inverse, the doubled alpha of fixed-function-blended frame writes, the halved
+  PSMT8H index / SyncRTToVRAM encode) is gone; the fixed-function As factor is the fragment program's
+  dual-source output (`GL_SRC1_ALPHA`). This title's PSMT8H colour-grade pass reads the exact alpha bytes
+  (the sky streaks). `tests/render/test_gl_alpha_convention.cpp` (new) pins it (CT16 + TEXA texels, the
+  blend, the stored byte, the alpha test, DATE); Texsrc / Targets / shader-hash pins updated.
+- `engine/platform/sdl/audio_pull_ring`: the standing lead adapts to the producer's cadence (grows by one
+  quantum per pad that had to stand in, up to 10 of a 12-quantum ring; decays after 10 s without a pad);
+  a game thread below 60 Hz delivers its SPU2 quanta in bursts every 60-90 ms, and the fixed 50 ms lead
+  padded 37 % of the device stream with tail loops and trimmed 43 % of the produced audio. Plus a
+  consumer-side `SetPullTap` (the device stream for a host's WAV capture; nothing flows back).
 
 ## License
 

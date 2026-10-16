@@ -15,6 +15,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "PS2R_DIAGNOSTICS": "OFF",
+        "PS2R_SIMD": "ON",
         "PS2R_GAMES_DIR": "${sourceDir}/games"
       }
     },

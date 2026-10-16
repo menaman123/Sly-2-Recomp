@@ -90,9 +90,11 @@ target exists, so nothing is skipped or edited.
   interpreter on the EE render thread (~78 % of its time, `vu1_tier=bundles=` ~1 M per frame).
 - `hle/video_stack.cpp` + `hle/frame_dump.cpp`: the engine's generic GS renderer (DrawPipeline with no
   class registry over an empty VramLayout, GL 4.1, a hidden window whose presented image feeds the
-  SessionRuntime window / `--dump-frames`). Known picture gaps: sky banding from the PSMT8H colour-grade
-  pass (the engine's alpha convention), strips over never-uploaded texture pages, a GL "zero texture"
-  warning once.
+  SessionRuntime window / `--dump-frames`). The last presented rows (the GS coverage rule) and the sky's
+  streak noise (the stored-alpha convention) are fixed in the engine; known picture gaps: strips over
+  never-uploaded texture pages, a GL "zero texture" warning once. Audio: the device stream is continuous
+  in gameplay (adaptive ring lead; `NATIVEEE_AUDIO_DUMP=<wav>` captures it); `[IOP-RECOMP] Unresolved JALR`
+  no longer prints (0 lines over a 3900-frame run into gameplay).
 - libpad/libmc/libgraph rows and statics in `title_profile.cpp`: UNKNOWN / not bound (libpad runs raw
   through the engine's SIF rows and padman server).
 - `vu1_library`, `renderer_profile`: STATUS-only, no target.

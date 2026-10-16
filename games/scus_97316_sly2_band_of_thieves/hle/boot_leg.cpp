@@ -773,10 +773,50 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     std::vector<float> audio_gain_buf;
     uint64_t audio_device_quanta = 0, audio_device_nonsilent = 0;   // census audio_device=
     uint64_t audio_pumped_tick = 0, audio_field_pumps = 0;           // the field pump (Verify slot)
+    // NATIVEEE_AUDIO_DUMP=<file.wav> (triage): the DEVICE stream -- what the listener hears, pads
+    // and trims included -- written as 48 kHz stereo int16 WAV from the ring's consumer tap (the
+    // SDL device thread; the header is patched at close). Not the hashed lane.
+    struct AudioDump {
+        std::FILE* f = nullptr;
+        uint64_t frames = 0;
+        std::vector<int16_t> buf;
+        static void Tap(void* ctx, const float* in, int n) {
+            AudioDump* d = static_cast<AudioDump*>(ctx);
+            d->buf.resize(static_cast<size_t>(n) * 2);
+            for (size_t i = 0; i < d->buf.size(); ++i) {
+                const float v = std::clamp(in[i], -1.0f, 1.0f);
+                d->buf[i] = static_cast<int16_t>(v < 0 ? v * 32768.0f : v * 32767.0f);
+            }
+            std::fwrite(d->buf.data(), sizeof(int16_t), d->buf.size(), d->f);
+            d->frames += static_cast<uint64_t>(n);
+        }
+        void Close() {
+            if (!f) return;
+            const uint32_t data_bytes = static_cast<uint32_t>(frames * 4), riff = 36 + data_bytes;
+            const uint32_t rate = 48000, byte_rate = rate * 4;
+            const uint16_t fmt_tag = 1, ch = 2, align = 4, bits = 16;
+            const uint32_t fmt_len = 16;
+            std::fseek(f, 0, SEEK_SET);
+            std::fwrite("RIFF", 1, 4, f); std::fwrite(&riff, 4, 1, f); std::fwrite("WAVEfmt ", 1, 8, f);
+            std::fwrite(&fmt_len, 4, 1, f); std::fwrite(&fmt_tag, 2, 1, f); std::fwrite(&ch, 2, 1, f);
+            std::fwrite(&rate, 4, 1, f); std::fwrite(&byte_rate, 4, 1, f); std::fwrite(&align, 2, 1, f);
+            std::fwrite(&bits, 2, 1, f); std::fwrite("data", 1, 4, f); std::fwrite(&data_bytes, 4, 1, f);
+            std::fclose(f);
+            f = nullptr;
+        }
+    } audio_dump;
     if (play_mode && cfg.audio.enabled) {
         ps2r::platform::AudioSpec spec;   // 48 kHz stereo, 800 frames per quantum
         audio_ring.SetPadWithTail(true);
         audio_ring.Prime();
+        if (const char* wav = std::getenv("NATIVEEE_AUDIO_DUMP")) {
+            audio_dump.f = std::fopen(wav, "wb");
+            if (audio_dump.f) {
+                static const uint8_t zero_header[44] = {};
+                std::fwrite(zero_header, 1, sizeof(zero_header), audio_dump.f);   // patched at close
+                audio_ring.SetPullTap(&AudioDump::Tap, &audio_dump);
+            }
+        }
         if (!audio_sink.Open(spec, audio_ring)) PS2R_LOG(HOST, Warn, "audio device not opened: running without sound");
         else PS2R_LOG(HOST, Info, "audio device: %d Hz x%d, %d-frame buffer", audio_sink.DeviceSampleRate(), audio_sink.DeviceChannels(), audio_sink.DeviceBufferFrames());
     }
@@ -1290,7 +1330,8 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                                                 ":pulled=" + std::to_string(audio_ring.pulled()) + ":underruns=" + std::to_string(audio_ring.underruns()) +
                                                 ":padded=" + std::to_string(audio_ring.padded()) + ":relatches=" + std::to_string(audio_ring.relatches()) +
                                                 ":trimmed=" + std::to_string(audio_ring.trimmed()) +
-                                                ":field_pumps=" + std::to_string(audio_field_pumps)
+                                                ":field_pumps=" + std::to_string(audio_field_pumps) +
+                                                ":lead=" + std::to_string(audio_ring.LeadQuanta())
                                           : std::string("none"));
             meta->Set("audio_mixed", "pumps=" + std::to_string(mixer.Pumps()) + ":frames=" + std::to_string(mixer.FramesMixed()));
             // The pace census (play; the pacer's protocol): boundaries that parked for the wall
@@ -1582,6 +1623,8 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         if (gs_queue) gs_queue->Quiesce();
         note("gs_quiesce");
         if (audio_sink.Running()) audio_sink.Close();
+        audio_ring.SetPullTap(nullptr, nullptr);   // the device callback has returned (Close waits for it)
+        audio_dump.Close();
         note("audio_close");
     };
     if (session) {

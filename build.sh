@@ -53,8 +53,11 @@ build_dir="$(cd "$build_dir" && pwd -P)"
 case "$build_dir" in
     "$(cd "$here" && pwd -P)"/*) echo "build.sh: the build dir must be outside the repository (it holds game-derived files): $build_dir" >&2; exit 2 ;;
 esac
+# PS2R_SIMD=ON: the engine's NEON lane kernels (the VU tiers' clamp / MAC-flag / FMAC lanes, the lazy
+# MAC ring, BlockDecode) -- each proven byte-identical to its scalar twin by the engine's tests and, for
+# the VU1 tier, by replaying this title's captured VU1 programs; the title runs ~1.8x more VU1 bundles/s with it.
 args=(-S "$engine" -B "$build_dir" -G Ninja
-      -DCMAKE_BUILD_TYPE="$build_type" -DPS2R_DIAGNOSTICS=OFF
+      -DCMAKE_BUILD_TYPE="$build_type" -DPS2R_DIAGNOSTICS=OFF -DPS2R_SIMD=ON
       -DPS2R_GAMES_DIR="$games")
 if [ -n "$disc" ]; then args+=(-DNATIVEEE_DISC="$disc" -DNATIVEEE_TITLE_ELF=); fi
 if [ -n "$elf" ]; then args+=(-DNATIVEEE_TITLE_ELF="$elf"); fi
