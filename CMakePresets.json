@@ -2,14 +2,14 @@
   "version": 6,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 25,
+    "minor": 21,
     "patch": 0
   },
   "configurePresets": [
     {
       "name": "sly2-base",
       "hidden": true,
-      "description": "NativeEE (engine/) as the source tree, this repository's games/ as the title directory. The build dir is OUTSIDE the repository: it receives the extracted ELF and the recompiled code (game-derived, never committed). NOTE: CMake reads presets from the SOURCE dir, and the source dir here must be engine/ -- so these presets are documentation of the cache variables build.sh passes; use ./build.sh (cmake --preset cannot re-root the source directory).",
+      "description": "DOCUMENTATION ONLY -- these presets cannot be used with `cmake --preset` from this directory: CMake reads presets from the SOURCE directory, and the source directory must be engine/ (this root has no CMakeLists.txt; `cmake --preset sly2-elf` here fails with 'does not appear to contain CMakeLists.txt'). They record the cache variables build.sh / build.ps1 pass: NativeEE (engine/) as the source tree, this repository's games/ as PS2R_GAMES_DIR, the build dir OUTSIDE the repository (it receives the extracted ELF and the recompiled code, game-derived, never committed). Use ./build.sh [--disc|--elf|--no-disc] [--preset <ENGINE preset>] -- it runs `cmake -S engine -B <build dir> --preset <macos-release|linux-release|...>` with these -D values, so the engine's per-platform toolchain comes from engine/CMakePresets.json.",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/../${sourceDirName}-build",
       "cacheVariables": {

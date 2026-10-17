@@ -30,6 +30,7 @@
 #include <SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -469,8 +470,22 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             if (skip_date && d.raster.test.date) return true;
             return false;
         }
+        // Census gs_pages=: the 8 KB VRAM pages a host->local / local->local transfer wrote
+        // (InvalidateTextures jobs: a1 = dbp bytes, a2 = bytes) and the pages textured draws
+        // sample (TEX0 tbp0 / cbp) -- a texture page sampled but never written is the
+        // "garbage strip" class (blacklevel notes: pages 448..486 all-zero at frame 600).
+        // page_target: the first page of every FRAME / ZBUF a draw rendered into (a page sampled
+        // but only ever written by draws is a render-to-texture target, not an orphan).
+        std::array<uint32_t, 512> page_written{}, page_sampled{}, page_target{};
         void OnDraw(const ps2r::gs::DrawIr& d) override {
             if (Skipped(d)) return;
+            ++page_target[(d.raster.frame.fbp >> 13u) & 511u];
+            ++page_target[(d.raster.zbuf.zbp >> 13u) & 511u];
+            if (d.tex_enabled) {
+                const uint32_t tp = (d.tex.tbp >> 13u) & 511u, cp = (d.tex.cbp >> 13u) & 511u;
+                ++page_sampled[tp];
+                if (d.tex.psm == 0x13 || d.tex.psm == 0x14 || d.tex.psm == 0x1b || d.tex.psm == 0x24 || d.tex.psm == 0x2c) ++page_sampled[cp];
+            }
             if (on.load(std::memory_order_relaxed)) {
                 const uint32_t idx = index++;
                 if (skip_from && idx >= skip_from) return;
@@ -490,6 +505,10 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             if (next) next->OnDraw(d);
         }
         void OnJob(const ps2r::gs::JobRec& j) override {
+            if (j.type == static_cast<uint32_t>(ps2r::gs::JobKind::InvalidateTextures) && j.arg2) {
+                const uint32_t first = (j.arg1 >> 13u) & 511u, last = ((j.arg1 + j.arg2 - 1) >> 13u) & 511u;
+                for (uint32_t pg = first; pg <= last && pg < 512; ++pg) ++page_written[pg];
+            }
             if (on.load(std::memory_order_relaxed))
                 std::fprintf(stderr, "verts: job type=%u a1=0x%x a2=0x%x a3=0x%x a4=0x%x\n", j.type, j.arg1, j.arg2, j.arg3, j.arg4);
             if (next) next->OnJob(j);
@@ -498,7 +517,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     } vert_trace;
     const uint32_t vert_trace_key = std::getenv("NATIVEEE_GS_VERTS") ? static_cast<uint32_t>(std::strtoul(std::getenv("NATIVEEE_GS_VERTS"), nullptr, 10)) : 0;
     const char* skip_class_env = std::getenv("NATIVEEE_GS_SKIP_CLASS");
-    if ((vert_trace_key || skip_class_env) && gs_sink_head) {
+    if (gs_sink_head) {   // always in the chain: the gs_pages= census counts every draw / transfer
         vert_trace.next = gs_sink_head;
         if (const char* env = std::getenv("NATIVEEE_GS_SKIP_FROM")) vert_trace.skip_from = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
         if (skip_class_env) {
@@ -525,8 +544,12 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         std::fprintf(stderr, "nativeee: --dump-frames %s: cannot create the directory (no dumps)\n", dump_frames_dir.c_str());
     uint64_t grab_local_memory = 0, grab_fallback = 0, grabs = 0;   // census gs_grab_sources=
     // NATIVEEE_DUMP_EVERY=N (boot triage): write only every Nth present key (1 = all; long runs).
-    uint32_t dump_every = 1;
+    // NATIVEEE_DUMP_FROM=M (boot triage): no dumps before present key M (a dense window late in a
+    // long run without the hundreds of frames before it).
+    uint32_t dump_every = 1, dump_from = 0;
     if (const char* env = std::getenv("NATIVEEE_DUMP_EVERY")) dump_every = std::max(1u, static_cast<uint32_t>(std::strtoul(env, nullptr, 10)));
+    if (const char* env = std::getenv("NATIVEEE_DUMP_FROM")) dump_from = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
+    const auto dump_wanted = [dump_every, dump_from](uint32_t n) { return n >= dump_from && n % dump_every == 0; };
     ps2r::gs::GsMmioHandler gs_mmio(gs_state);
     mmio.Register(MmioRouter::kGsPrivBase, MmioRouter::kGsPrivEnd - MmioRouter::kGsPrivBase, gs_mmio, "GS_PRIV");
     GifRegs gif_regs;
@@ -849,9 +872,9 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         // --dump-frames, every dump_every-th one is written as p<n>.ppm with n = the OUTPUT
         // frame ordinal (under frame skip the presents and the EE boundaries no longer pair 1:1,
         // so the play dump is keyed by the picture, not the boundary).
-        video.SetOutput([&session, &video, &frame_dump, dump_every](std::vector<uint8_t> rgba, int w, int h) {
+        video.SetOutput([&session, &video, &frame_dump, dump_wanted](std::vector<uint8_t> rgba, int w, int h) {
             const uint32_t n = static_cast<uint32_t>(video.OutputFrames());
-            if (frame_dump.Enabled() && n % dump_every == 0) frame_dump.Write("p", n, w, h, rgba.data(), /*flip=*/true);
+            if (frame_dump.Enabled() && dump_wanted(n)) frame_dump.Write("p", n, w, h, rgba.data(), /*flip=*/true);
             session->PostFrame(std::move(rgba), w, h);
         });
     }
@@ -919,28 +942,46 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // 0x8000, D-pad UP 0x0010 RIGHT 0x0020 DOWN 0x0040 LEFT 0x0080) and, when given, hold the sticks at
     // lx,ly[,rx,ry] (0..255, 128 = centre; e.g. 0,128 = left stick full left) for `hold` boundaries
     // starting at the `frame`-th pad stamp (one per boundary), over the live / neutral pad.
+    // Steps overlap by OR (buttons) / last-wins (sticks). Parsed by comma tokens: a token with a
+    // ':' starts a step, a bare number continues the previous step's stick tuple -- so a step
+    // giving only lx,ly may be followed by another step (an earlier greedy read took the next
+    // step's frame as rx and dropped the rest of the script).
     struct PadScriptStep { uint64_t frame; uint16_t buttons; uint64_t hold; bool sticks; uint8_t lx, ly, rx, ry; };
     std::vector<PadScriptStep> pad_script;
     if (const char* env = std::getenv("NATIVEEE_PAD_SCRIPT")) {
+        unsigned stick_slot = 4;   // the next stick value to fill: 1 = ly, 2 = rx, 3 = ry, 4 = none
         for (const char* p = env; *p;) {
-            char* e = nullptr;
-            PadScriptStep st{};
-            st.lx = st.ly = st.rx = st.ry = 0x80;
-            st.frame = std::strtoull(p, &e, 10);
-            if (*e != ':') break;
-            st.buttons = static_cast<uint16_t>(std::strtoul(e + 1, &e, 16));
-            if (*e != ':') break;
-            st.hold = std::strtoull(e + 1, &e, 10);
-            if (*e == ':') {
-                st.sticks = true;
-                st.lx = static_cast<uint8_t>(std::strtoul(e + 1, &e, 10));
-                if (*e == ',') st.ly = static_cast<uint8_t>(std::strtoul(e + 1, &e, 10));
-                if (*e == ',') st.rx = static_cast<uint8_t>(std::strtoul(e + 1, &e, 10));
-                if (*e == ',') st.ry = static_cast<uint8_t>(std::strtoul(e + 1, &e, 10));
+            const char* comma = std::strchr(p, ',');
+            const std::string tok(p, comma ? static_cast<size_t>(comma - p) : std::strlen(p));
+            if (tok.find(':') != std::string::npos) {
+                char* e = nullptr;
+                PadScriptStep st{};
+                st.lx = st.ly = st.rx = st.ry = 0x80;
+                stick_slot = 4;
+                st.frame = std::strtoull(tok.c_str(), &e, 10);
+                if (*e != ':') break;
+                st.buttons = static_cast<uint16_t>(std::strtoul(e + 1, &e, 16));
+                if (*e != ':') break;
+                st.hold = std::strtoull(e + 1, &e, 10);
+                if (*e == ':') {
+                    st.sticks = true;
+                    st.lx = static_cast<uint8_t>(std::strtoul(e + 1, &e, 10));
+                    stick_slot = 1;
+                }
+                pad_script.push_back(st);
+            } else if (!pad_script.empty() && pad_script.back().sticks && stick_slot < 4) {
+                const uint8_t v = static_cast<uint8_t>(std::strtoul(tok.c_str(), nullptr, 10));
+                PadScriptStep& st = pad_script.back();
+                if (stick_slot == 1) st.ly = v;
+                else if (stick_slot == 2) st.rx = v;
+                else st.ry = v;
+                ++stick_slot;
+            } else {
+                std::fprintf(stderr, "nativeee: NATIVEEE_PAD_SCRIPT: stray token '%s' (script truncated here)\n", tok.c_str());
+                break;
             }
-            pad_script.push_back(st);
-            if (*e != ',') break;
-            p = e + 1;
+            if (!comma) break;
+            p = comma + 1;
         }
     }
     // NATIVEEE_KEY_SCRIPT=<frame>:<sdl_scancode>:<hold>[,...] (boot triage, play mode): hold a KEYBOARD key
@@ -1276,6 +1317,28 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             meta->Set("gs_irq", "events=" + std::to_string(gs_irq_events) + ":masked=" + std::to_string(gs_irq_masked) +
                                     ":raises=" + std::to_string(gs_irq_raises));
             meta->Set("gs_priv_writes", std::to_string(gs_state.Priv().Writes()));
+            {
+                // gs_pages=written=<n>:sampled=<n>:sampled_never_written=<n>:<page ranges, draws>
+                uint32_t written = 0, sampled = 0, orphan = 0;
+                std::string ranges;
+                for (uint32_t pg = 0; pg < 512; ++pg) {
+                    written += vert_trace.page_written[pg] != 0;
+                    sampled += vert_trace.page_sampled[pg] != 0;
+                    if (vert_trace.page_sampled[pg] && !vert_trace.page_written[pg]) {
+                        ++orphan;
+                        uint32_t end = pg, draws = 0;
+                        while (end < 512 && vert_trace.page_sampled[end] && !vert_trace.page_written[end]) draws += vert_trace.page_sampled[end++];
+                        ranges += ":" + std::to_string(pg) + "-" + std::to_string(end - 1) + "x" + std::to_string(draws);
+                        orphan += end - 1 - pg;
+                        pg = end - 1;
+                    }
+                }
+                std::string targets;
+                for (uint32_t pg = 0; pg < 512; ++pg)
+                    if (vert_trace.page_target[pg]) targets += (targets.empty() ? "" : ",") + std::to_string(pg) + "x" + std::to_string(vert_trace.page_target[pg]);
+                meta->Set("gs_pages", "written=" + std::to_string(written) + ":sampled=" + std::to_string(sampled) +
+                                          ":sampled_never_written=" + std::to_string(orphan) + ranges + ":targets=" + targets);
+            }
             meta->Set("gs_csr", Hex(gs_state.Priv().Read(ps2r::gs::GsPrivRegs::kCsr)));
             meta->Set("gs_draws", std::to_string(draw_sink.Draws()));
             meta->Set("gs_frames", std::to_string(draw_sink.Frames()));
@@ -1556,7 +1619,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                 if (fr->source_fallback) ++grab_fallback;
                 if (wall_locked) host.OnPresentHashed(present_key, fr->hashed ? fr->hash : 0, video.Renderer());
                 else host.OnPresent(present_key, fr->rgba.data(), fr->w, fr->h, video.Scale(), video.Renderer());
-                if (!wall_locked && frame_dump.Enabled() && present_key % dump_every == 0) {
+                if (!wall_locked && frame_dump.Enabled() && dump_wanted(present_key)) {
                     frame_dump.Write("f", present_key, fr->w, fr->h, fr->rgba.data(), /*flip=*/false);
                     std::vector<uint8_t> presented;
                     int pw = 0, ph = 0;

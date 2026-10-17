@@ -1,0 +1,248 @@
+# .github/workflows/ci.yml -- Sly-2-Recomp CI: the title module built against the pinned NativeEE
+# submodule, WITHOUT any game data (a public runner never has the disc).
+#
+#   guard         game files NEVER in the repository, NEVER in CI: the engine's source-tree asset scan
+#                 (engine/tools/ci/asset_scan.py --tree: names, format magic, byte windows of a title
+#                 ELF, raster images, > 1 MB files, pasted byte arrays) over games/ and over engine/,
+#                 then the asset guard (class A disc / extracted files, class B oracle images) over both,
+#                 the tools' selftests, the engine lints' selftests, this workflow's YAML, actionlint.
+#                 Zero findings or nothing builds.
+#   build-nodisc  {macos-latest arm64, ubuntu-latest x86-64, windows-latest x64} x Release: the engine
+#                 configured as the CMake source tree with THIS repository's games/ as PS2R_GAMES_DIR
+#                 (./build.sh --no-disc --tests / .\build.ps1 -NoDisc), the engine's host preset
+#                 (macos-release / linux-release-clang / windows-release). Without a disc the title's
+#                 recompiled code and play composition are skipped by the engine's own SKIPPED lines;
+#                 what builds: every engine library, the tools, nativeee (the no-composition stub), the
+#                 title's ps2r_title_hle, the component test suite. Then ctest minus
+#                 .github/ci/ctest_exclusions.txt (title lanes, first-title pins, the known-broken
+#                 targets' tests, the engine regressions at the pinned commit -- every row has its
+#                 reason there and in README.md "Known issues"). The Windows lane is
+#                 continue-on-error: the engine's Windows build is unverified upstream (its README).
+#   title-lanes   needs the disc: gated on the repository variable NATIVEEE_TITLE_LANES == 'true'
+#                 (Settings -> Secrets and variables -> Actions -> Variables), as the engine's own
+#                 ci.yml gates its dist / identity lanes. Leave it unset on the public repository.
+#
+# Local validation: `python3 -c 'import yaml,sys; yaml.safe_load(open(".github/workflows/ci.yml"))'`
+# and `actionlint .github/workflows/*.yml` (the guard job runs the latter). The macOS lane's exact
+# commands were run on a fresh clone with no disc before this file was written (README "Known issues"
+# lists the ctest summary); the Linux and Windows lanes are structurally the engine's own lanes.
+name: Sly-2-Recomp CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: asset scan (games + engine) + asset guard + selftests + actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # THE gate: zero findings over the title tree and over the engine, or the workflow fails here.
+      - name: Asset scan over games/ (names / magic / ELF windows / images / size / arrays)
+        run: python3 engine/tools/ci/asset_scan.py --tree games --report asset_scan_games.md
+      - name: Asset scan over engine/
+        run: python3 engine/tools/ci/asset_scan.py --tree engine --report asset_scan_engine.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: asset-scan-reports
+          path: asset_scan_*.md
+          if-no-files-found: ignore
+      - name: Asset guard (--mode ci -- class A or B anywhere in either tree fails)
+        run: |
+          python3 engine/tools/ci/asset_guard.py --root games --mode ci
+          python3 engine/tools/ci/asset_guard.py --root engine --mode ci
+      - name: Tool and lint selftests (the engine's harness tools, this repository's CI lists)
+        run: |
+          python3 engine/tools/ci/asset_scan.py --selftest
+          python3 engine/tools/ci/asset_guard.py --selftest
+          python3 engine/tools/build/clang_cl_shim.py --selftest
+          python3 engine/tests/lint/lint_one_class.py --selftest
+          python3 engine/tests/lint/lint_engine_purity.py --selftest
+          python3 engine/tests/lint/lint_size_budget.py --selftest
+          python3 engine/tests/lint/lint_header_globals.py --selftest
+          python3 engine/tests/lint/lint_session_tags.py --selftest
+          python3 .github/ci/ci_lists.py --selftest
+      - name: Submodule pin is what .gitmodules says (branch sly2-upstream) and the checkout is clean
+        run: |
+          git submodule status
+          git -C engine status --porcelain | tee engine_status.txt
+          test ! -s engine_status.txt
+      - name: Workflow YAML parses
+        run: |
+          python3 - <<'EOF'
+          import glob, yaml
+          for f in glob.glob('.github/workflows/*.yml'):
+              yaml.safe_load(open(f))
+              print('ok', f)
+          EOF
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:latest -color
+
+  build-nodisc:
+    name: ${{ matrix.target }} (no disc)
+    needs: guard
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest,   target: macos-arm64,  preset: macos-release,       platform: macos,   jobs: 3 }
+          - { os: ubuntu-latest,  target: linux-x86_64, preset: linux-release-clang, platform: linux,   jobs: 3 }
+          - { os: windows-latest, target: windows-x64,  preset: windows-release,     platform: windows, jobs: 3 }
+    runs-on: ${{ matrix.os }}
+    # The engine's own Windows build has not run on a Windows machine yet (NativeEE README, "Known
+    # issues": no Windows GL loader, POSIX headers in six TUs). The lane configures and builds what the
+    # engine's cross-compile smoke has proven (ps2r_core) plus the title's ps2r_title_hle, then TRIES the
+    # whole tree; it must not block the repository until the engine's Windows arm is green.
+    continue-on-error: ${{ matrix.platform == 'windows' }}
+    timeout-minutes: 180
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
+      # build.sh's default sibling layout (<checkout>-build next to the checkout), spelled out: the
+      # build dir must be outside the repository (it would hold game-derived files in a disc build).
+      SLY2_BUILD_DIR: ${{ github.workspace }}/../build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Asset guard (--mode ci)
+        shell: bash
+        run: |
+          python3 engine/tools/ci/asset_guard.py --root games --mode ci
+          python3 engine/tools/ci/asset_guard.py --root engine --mode ci
+
+      # --- dependencies per host (the engine's ci.yml, verbatim) -------------------------------
+      - name: Dependencies (macOS -- Homebrew)
+        if: matrix.platform == 'macos'
+        run: brew install cmake ninja sdl2 ffmpeg
+
+      - name: Dependencies (Linux -- the engine's package list)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2046
+          sudo apt-get install -y --no-install-recommends $(grep -v '^#' engine/tools/ci/linux_packages.txt | xargs)
+
+      - name: Dependencies (Windows -- Python for the clang-cl shim)
+        if: matrix.platform == 'windows'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: vcpkg checkout
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+      - name: vcpkg binary cache (restore)
+        if: matrix.platform == 'windows'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('engine/vcpkg.json') }}
+      - name: MSVC developer environment (clang-cl, Ninja, the Windows SDK on PATH)
+        if: matrix.platform == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # --- macOS / Linux: configure + build `all` + component suite in one command -------------
+      #     (build.sh: the engine's preset via `cmake -S engine -B $SLY2_BUILD_DIR --preset`, ninja -k 0
+      #      audited against .github/ci/known_broken_targets.txt, 0 warning: / 0 ld: warning, then
+      #      ctest -E <ctest_exclusions.txt>; on Linux without a display it wraps ctest in xvfb-run).
+      - name: build.sh --no-disc --tests (configure, build, audit, ctest)
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: ./build.sh --no-disc --tests --preset ${{ matrix.preset }} --jobs ${{ matrix.jobs }}
+
+      # --- Windows: configure + the proven targets, then the whole tree as a try ---------------
+      - name: build.ps1 -NoDisc (configure; ps2r_core + ps2r_title_hle)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: .\build.ps1 -NoDisc -Preset ${{ matrix.preset }} -Jobs ${{ matrix.jobs }} -Targets ps2r_core,ps2r_title_hle
+      - name: vcpkg binary cache (save)
+        if: matrix.platform == 'windows' && always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('engine/vcpkg.json') }}
+      - name: build.ps1 -NoDisc -Tests (the whole tree + component suite -- expected red until the engine's Windows arm lands)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: .\build.ps1 -NoDisc -Preset ${{ matrix.preset }} -Jobs ${{ matrix.jobs }} -Tests
+
+      - name: The no-composition binary reports itself
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: |
+          "$SLY2_BUILD_DIR/app/host/nativeee" --version
+          "$SLY2_BUILD_DIR/app/host/nativeee" --help
+
+      - name: Collect the build and test logs (the build dir is outside the checkout)
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          cp "$SLY2_BUILD_DIR"/build.sh.log "$SLY2_BUILD_DIR"/build.ps1.log ci-logs/ 2>/dev/null || true
+          cp "$SLY2_BUILD_DIR"/Testing/Temporary/LastTest.log ci-logs/ 2>/dev/null || true
+          ls -la ci-logs
+      - name: Build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.target }}
+          path: ci-logs/
+          if-no-files-found: ignore
+
+  # The title lanes: the recompiled title needs the user's disc (cmake/TitleInputs.cmake extracts
+  # SCUS_973.16 from NATIVEEE_DISC, SHA-256 gated against games/<title>/TITLE_INPUTS.sha256), which a
+  # public runner never has. The job exists so a self-hosted runner whose environment exports
+  # NATIVEEE_DISC can run the full build (recompile + MANIFEST.sha256 checks) and a bounded headless
+  # boot leg; on the public repository the variable is unset and the job is skipped.
+  title-lanes:
+    name: title lanes (disc on the runner; NATIVEEE_TITLE_LANES)
+    needs: guard
+    if: vars.NATIVEEE_TITLE_LANES == 'true'
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: The runner supplies the disc (never a repository file)
+        shell: bash
+        run: |
+          test -n "${NATIVEEE_DISC:-}" || { echo "NATIVEEE_DISC is not set on this runner"; exit 1; }
+          test -f "$NATIVEEE_DISC"
+      - name: build.sh --disc (extract, recompile, MANIFEST.sha256, nativeee + the play composition)
+        shell: bash
+        run: ./build.sh --disc "$NATIVEEE_DISC" --build-dir "$RUNNER_TEMP/build-title" --jobs 4
+      - name: Bounded headless boot leg (600 boundaries; park reported, never a hang)
+        shell: bash
+        env:
+          NATIVEEE_WATCHDOG_S: '60'
+        run: |
+          engine/verify/run_bounded.sh 240 "$RUNNER_TEMP/leg.log" -- "$RUNNER_TEMP/build-title/app/host/nativeee" \
+            --headless --frames 600 --harness-out "$RUNNER_TEMP/leg" --iso "$NATIVEEE_DISC"
+          grep -E "^(park|park_detail|boundaries|iop_modules)=" "$RUNNER_TEMP/leg/run.meta"
+          grep -q '^park=none' "$RUNNER_TEMP/leg/run.meta"
+      - name: Nothing game-derived leaves the runner (the artifact is the log and run.meta only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: title-lane-run-meta
+          path: |
+            ${{ runner.temp }}/leg/run.meta
+            ${{ runner.temp }}/leg.log
+          if-no-files-found: error

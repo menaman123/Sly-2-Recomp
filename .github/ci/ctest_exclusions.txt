@@ -1,0 +1,57 @@
+# .github/ci/ctest_exclusions.txt -- the engine tests the no-disc lanes do NOT run, one anchored
+# regex per line (joined with '|' into `ctest -E`). build.sh --tests, build.ps1 -Tests and
+# .github/workflows/ci.yml all read THIS file, so there is one list. Every row names its reason;
+# a row whose reason is gone must be deleted (the README's "Known issues" mirrors this file).
+#
+# None of these is "flaky": each fails for a stated, reproducible reason on a fresh checkout of
+# the pinned engine commit with no disc.
+
+# ---- 1. Title lanes: need the extracted game files (Root*) or the frozen original tree (Og*,
+#         PS2R_OLD_ROOT). The Og* rows SKIP 77 here already; Root* is the engine's own CI exclusion.
+^Root
+^Og
+
+# ---- 2. First-title pins. The engine's first title left tests that read ITS tables and fixture
+#         layout -- games/<title>/verify/baseline, verify/platform_ref/, verify/restore_mhash_expected.tsv,
+#         symbols/build_symbols.py, a 298-row sdk_bindings.tsv, its retail argv string -- instead of
+#         SKIPping when the title in games/ has none. Upstream issue: parametrise on the title or
+#         SKIP 77. They fail for ANY second title.
+^RecompDispatchTableLink$
+^RecompManifestIntact$
+^RecompSymbolCensus$
+^LintSdkBindingRowCount$
+^LintSdkBindingNoGameAddress$
+^SdkBindingManifestResolves$
+^LibmpegBindings$
+^BootEnvRetailArgv$
+^Render_AttractReplaySelftest$
+^VuVifGifSectionsAnchors$
+^TitleSymbolsTableSelftest$
+^VerifyAnchorsTable$
+^VerifyAnchorsTableSelftest$
+^VerifyDiffLegsSelftest$
+^VerifyScoreSelftest$
+^VerifyBatterySelftest$
+^VerifyLegSpecSelftest$
+^VerifyFreezeSessionLegSelftest$
+^VerifyPlatformIdentitySelftest$
+^VerifyProbeImagesSelftest$
+^VerifyAttributeSelftest$
+^VerifyApplyRebaselineSelftest$
+^VerifyGateRunSelftest$
+^VerifyScenePairingSelftest$
+^VerifyRetirementGateSelftest$
+
+# ---- 3. Tests of the three targets that do not build at the pinned engine commit
+#         (app/gui/restart.cmake, clock.cmake: see .github/ci/known_broken_targets.txt).
+^SessionRestart$
+^SessionRestartRuntime$
+^SessionRestoreDeadline$
+
+# ---- 4. Engine component regressions at the pinned commit (be7386a), reproduced on a fresh build:
+#         the "one stored-alpha convention" change re-pinned test_gl_alpha_convention and
+#         test_blend_ff_map but not these two, and LibsdModule's ordinal-16 expectation predates
+#         the IOP-hosting work. To be fixed in the engine; remove the rows when green.
+^Present_DrawScanoutSource$
+^Render_BlendEquationPin$
+^LibsdModule$

@@ -1,5 +1,8 @@
 # Sly 2: Band of Thieves -- a NativeEE title module
 
+[![CI](https://github.com/menaman123/Sly-2-Recomp/actions/workflows/ci.yml/badge.svg)](https://github.com/menaman123/Sly-2-Recomp/actions/workflows/ci.yml)
+<!-- the badge goes live with the first push of .github/workflows/ci.yml to GitHub -->
+
 A static-recompilation port of **Sly 2: Band of Thieves** (PlayStation 2, NTSC-U, `SCUS_973.16`) on the
 [NativeEE](https://github.com/menaman123/NativeEE) engine. This repository is the *title module*:
 the facts of this one game (its ELF identity, boot environment, SDK-library binding table) and the
@@ -67,20 +70,64 @@ games/scus_97316_sly2_band_of_thieves/   the title module (the engine's games/<s
   iop/{fileio,lgaud,snd989,spiop}/       the IOP recompiles (one MANIFEST.sha256 each), iop/iop_modules.h = bases
   vu1_library/, renderer_profile/        STATUS-only stubs (no target: nothing per-title)
   lint_denylist.txt, README.md
-build.sh                                 configure + build wrapper (the engine is the CMake source dir)
-CMakePresets.json                        the same cache variables, as documentation
+build.sh / build.ps1                     configure + build wrappers (the engine is the CMake source dir; --no-disc / -NoDisc
+                                         builds without a game file; --tests / -Tests adds the component suite)
+CMakePresets.json                        the cache variables build.sh passes, as documentation (CMake reads presets
+                                         from the source dir = engine/; see "Building")
+.github/workflows/ci.yml                 CI: asset scan + guard, the no-disc build on macOS / Linux / Windows
+.github/ci/                              ctest_exclusions.txt, known_broken_targets.txt (one reason per row), ci_lists.py
+CONTRIBUTING.md, SECURITY.md, LICENSE    how to contribute (no game data, ever), how to report, Apache-2.0
 ```
 
-## Building with your own disc
+## Building
 
-Prerequisites: cmake >= 3.21, ninja, a C++17 compiler (Apple clang / clang / gcc), python3, SDL2 and
-FFmpeg as the engine's README describes (Homebrew on macOS). Your own disc image of Sly 2 NTSC-U.
+The engine is the CMake source tree and this repository's `games/` is its title directory
+(`-DPS2R_GAMES_DIR`); `build.sh` (macOS, Linux) and `build.ps1` (Windows) spell that out and reuse the
+engine's `CMakePresets.json` for the per-platform toolchain (`cmake -S engine -B <build dir> --preset
+<engine preset>`). The build directory is always OUTSIDE the checkout (default: the sibling
+`<checkout>-build/`; `--build-dir` / `-BuildDir` / `SLY2_BUILD_DIR`) because with a disc it holds the
+extracted ELF and the recompiled code.
+
+Prerequisites per OS (the engine's README, "Developers", is the authority):
+
+- **macOS:** Xcode command line tools (Apple clang), `brew install cmake ninja sdl2 ffmpeg python`.
+  Verified: Apple clang 21, CMake 4.3, Ninja 1.13, SDL2 2.32, FFmpeg 7 on an M4 (arm64).
+- **Linux:** Clang 15+ or GCC 12+, CMake 3.21+, Ninja, Python 3, `libsdl2-dev libavcodec-dev
+  libavutil-dev libswscale-dev libgl-dev libglvnd-dev`, Mesa + `xvfb` for the GL tests without a display
+  -- `engine/tools/ci/linux_packages.txt` is the exact Ubuntu 24.04 list CI installs. The default preset is
+  `linux-release` (the environment's CC/CXX); `--preset linux-release-clang` / `linux-release-gcc` pin one.
+  Not yet run on a Linux machine from this repository (the engine's own Linux lanes are green upstream).
+- **Windows:** Visual Studio 2022 Build Tools with the *C++ Clang tools for Windows* component (clang-cl +
+  Ninja), CMake 3.21+, Python 3, a [vcpkg](https://github.com/microsoft/vcpkg) checkout with `VCPKG_ROOT`
+  set (`engine/vcpkg.json` names SDL2 and FFmpeg; the first configure builds them). `build.ps1` drives the
+  engine's `windows-release` preset. UNVERIFIED on a Windows machine: the engine's Windows arm itself has not
+  run on one yet (see "Known issues").
+
+### Without a disc (what CI does)
 
 ```
 git clone --recurse-submodules https://github.com/menaman123/Sly-2-Recomp
 cd Sly-2-Recomp
 git submodule status            # must print the pinned engine commit with no leading '-' or '+'
+./build.sh --no-disc --tests    # Windows: .\build.ps1 -NoDisc -Tests
+```
+
+No game file is needed: the engine configures, prints one `SKIPPED` line per title target (the recompiled
+program, the IOP modules, the play composition) and builds everything else -- every engine library, the
+tools, `nativeee` (a stub that reports "supplies no play composition"), the title's `ps2r_title_hle`
+(`ActiveTitleProfile()`), the component test suite. `--tests` builds the whole tree with `ninja -k 0`,
+audits the log against `.github/ci/known_broken_targets.txt` (anything else failing is an error),
+requires 0 `warning:` / 0 `ld: warning`, then runs `ctest -E <.github/ci/ctest_exclusions.txt>`.
+On the macOS reference host: 972 ninja steps, ~6 min at `-j 8`; **358 tests run, 358 pass (25 of them
+SKIP 77: private fixtures / the frozen original tree), 51 excluded** -- "Known issues" lists every exclusion.
+
+### With your own disc
+
+Your own disc image of Sly 2 NTSC-U (`SCUS_973.16`); nothing from it is ever committed.
+
+```
 ./build.sh --disc "/path/to/Sly 2 - Band of Thieves.iso"          # or: --elf /path/to/SCUS_973.16
+.\build.ps1 -Disc "X:\path\Sly 2 - Band of Thieves.iso"           # Windows (unverified, see above)
 ```
 
 `engine/` is pinned to a specific NativeEE commit (`.gitmodules` names the branch `sly2-upstream`); if the
@@ -160,9 +207,80 @@ the shadow-stack frame; needs a non-NDEBUG engine build, e.g. `--type RelWithDeb
 `-DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -g"`). The engine's own per-tag DMAC / VIF narration is
 `--log-level narrate` (`[DMAC] dmac-vif1: tag@...`, `[DMAC] dmac-gif:`, `[DMAC] dmac-sprfrom:`, `[VIF] vif1: cmd=`).
 
+## Known issues
+
+Performance and picture (the title):
+
+- **~15-20 fps in gameplay** on an M4 (intro / title screens at 60): the bound is the engine's VU1
+  interpreter on the EE render thread (~60 % of its time even after the 1.7x cached-tier work; a real VU1
+  is ~6x faster). 30 fps needs the VU1 off the EE thread (the engine's MTVU) or per-title VU1 HLE -- and
+  this port has, by design, no per-title HLE yet (`vu1_library/`, `renderer_profile/` are STATUS-only).
+- Picture gaps: strips over never-uploaded texture pages; one GL "zero texture" warning per run.
+- The 989snd handler-node corruption noted in the title README (`[IOP-RECOMP] Unresolved JALR` is 0 now).
+
+Build and test (the engine at the pinned commit, `be7386a`; each row is also in
+`.github/ci/ctest_exclusions.txt` / `known_broken_targets.txt` with the same reason, and CI reads those files):
+
+- **Three engine targets do not compile in a whole-tree build** (`app/gui/restart.cmake`, `clock.cmake`:
+  `test_session_restart`, `ps2r_product_clock`, `test_session_restart_runtime` -- engine sources added by
+  path with no include directory for the engine root). `build.sh --tests` builds with `ninja -k 0` and
+  accepts exactly these; their tests `SessionRestart`, `SessionRestartRuntime`, `SessionRestoreDeadline`
+  are excluded. Upstream fix pending; nothing else depends on them.
+- **First-title pins.** The engine's first title left tests that read its own tables and fixture layout
+  instead of SKIPping for another title: `RecompDispatchTableLink`, `RecompManifestIntact`,
+  `RecompSymbolCensus` (its recompiled TU), `LintSdkBindingRowCount` / `LintSdkBindingNoGameAddress` /
+  `SdkBindingManifestResolves` (a 298-row `sdk_bindings.tsv`; this title's has 39), `LibmpegBindings`
+  (reads `engine/games/<title>/...`, ignoring `PS2R_GAMES_DIR`), `BootEnvRetailArgv` (its retail argv
+  string), `Render_AttractReplaySelftest` (imports a module from its `verify/`), `VuVifGifSectionsAnchors`
+  (`verify/restore_mhash_expected.tsv`), `TitleSymbolsTableSelftest` (`symbols/build_symbols.py`), and the
+  `Verify*Selftest` / `VerifyAnchorsTable*` rows (`games/<title>/verify/baseline`, `verify/platform_ref/`).
+  All excluded; the upstream issue is "parametrise on the title or SKIP 77".
+- **Three engine component regressions at `be7386a`**, reproduced on a fresh build (the dev host's stale
+  test binaries had hidden them): `Present_DrawScanoutSource` and `Render_BlendEquationPin` still expect
+  the pre-"one stored-alpha convention" values (that commit re-pinned `test_gl_alpha_convention` and
+  `test_blend_ff_map` only), `LibsdModule` expects ordinal 16 to return 0. Excluded with that reason; to be
+  fixed in the engine and the rows removed.
+- **Windows is unverified.** Neither this repository's `build.ps1` nor the engine's Windows arm has run on
+  a Windows machine (engine README: no Windows GL loader yet, POSIX headers in six TUs). The CI lane is
+  `continue-on-error`: it configures with the `windows-release` preset (clang-cl, vcpkg) and builds
+  `ps2r_core` + `ps2r_title_hle`, then tries the whole tree.
+- **Linux is structurally verified only.** The CI lane is the engine's own Linux lane (its package list,
+  `linux-release-clang`, `xvfb-run` for the GL tests) pointed at this `games/`; it has not run here yet.
+- **Title lanes need the disc.** The recompile, `MANIFEST.sha256` checks and boot legs run only where the
+  runner supplies `NATIVEEE_DISC` (repository variable `NATIVEEE_TITLE_LANES`, as in the engine); on the
+  public repository that job is skipped.
+- `CMakePresets.json` at this root is documentation: CMake reads presets from the SOURCE directory, which
+  must be `engine/` (`cmake --preset sly2-elf` here fails with "does not appear to contain CMakeLists.txt").
+  `build.sh --preset` names the ENGINE's presets instead.
+
+## How this repository relates to NativeEE
+
+[NativeEE](https://github.com/menaman123/NativeEE) is the engine: the EE recompiler and the IOP
+recompiler, the EE/IOP/GS/VU/VIF/GIF/DMAC/IPU/SPU2 models, the generic GS renderer over OpenGL, the SDK
+HLE bodies, the harness and the tests. It is title-neutral and must stay so: `tests/lint/lint_engine_purity.py`
+fails on any token from `games/<title>/lint_denylist.txt` inside `engine/`. It is pinned here as the
+`engine/` submodule on its `sly2-upstream` branch -- the title-neutral fixes this port needed (the list
+below), each an upstream candidate for NativeEE `main`.
+
+This repository is one *title module* under the engine's `games/<serial>_<slug>/` contract: the facts of
+one game (ELF identity and hashes, boot environment, the SDK-binding table with disassembly evidence per
+row, which IOP modules are embedded and recompiled) and the play composition that boots it. No recompiled
+output, no extracted file, no screenshot of the game is committed -- the build regenerates everything
+from the user's disc, and the engine's asset scan proves the tree clean on every CI run.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` -- `guard` (checkout with submodules; `engine/tools/ci/asset_scan.py --tree
+games` and `--tree engine`, the asset guard over both, the tools' and lints' selftests, this workflow's
+YAML, actionlint), then `build-nodisc` on macOS arm64 / Ubuntu x86-64 / Windows x64: `./build.sh --no-disc
+--tests` (`.\build.ps1 -NoDisc` on Windows, `continue-on-error`). `title-lanes` runs only with the
+repository variable `NATIVEEE_TITLE_LANES` set on a runner that exports `NATIVEEE_DISC`. Every ctest
+exclusion lives in `.github/ci/ctest_exclusions.txt` with its reason; `.github/ci/ci_lists.py --selftest`
+checks the lists parse.
+
 ## Changes to the engine for this title (the submodule's `sly2-upstream` branch; upstream candidates)
 
-All title-neutral; none mentions Sly. Committed on NativeEE's `sly2-upstream` branch (8 commits over `main`),
+All title-neutral; none mentions Sly. Committed on NativeEE's `sly2-upstream` branch (10 commits over `main`),
 which is what the submodule pins.
 
 - `PS2R_GAMES_DIR` cache variable: title discovery and the five `add_subdirectory` calls from a
@@ -292,5 +410,7 @@ which is what the submodule pins.
 
 ## License
 
-MIT (see `LICENSE`). The engine has its own license in `engine/`. Sly 2 is the property of Sony
-Interactive Entertainment / Sucker Punch Productions; you need your own copy of the game.
+This repository (the title module, the scripts, the documentation) is licensed under the **Apache License
+2.0** (`LICENSE`). The engine, NativeEE, is **MIT** (`engine/LICENSE`); its bundled third-party notices are
+in its tree. Sly 2: Band of Thieves is the property of Sony Interactive Entertainment / Sucker Punch
+Productions; nothing of the game is in this repository and you need your own copy to build or run it.

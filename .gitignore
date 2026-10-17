@@ -30,6 +30,11 @@ iop_recompiled.cpp
 /play_sessions/
 /logs/
 
+# CI run products (the guard job's reports, the collected build logs) -- never committed
+/asset_scan_*.md
+/ci-logs/
+/engine_status.txt
+
 # python / editors / OS
 __pycache__/
 *.pyc

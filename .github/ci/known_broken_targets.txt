@@ -1,0 +1,16 @@
+# .github/ci/known_broken_targets.txt -- CMake targets of the engine that do not compile at the
+# pinned engine commit when the engine is built as a whole (`all`) from this repository.
+#
+# build.sh --tests / build.ps1 -Tests build `all` with ninja -k 0 and then audit every `FAILED:`
+# line of the build log: a failed target must be listed HERE (one name per line) or the build
+# fails. A listed target that builds again is reported so its row can be removed.
+#
+# Root cause (upstream, app/gui/restart.cmake + clock.cmake at engine commit bec0022+): the test
+# executable test_session_restart and the ps2r_product_clock library add engine sources by path
+# but no include directory for the engine root, so `#include "app/host/session_restart.h"` /
+# "engine/ee/timing/*.h" are not found; test_session_restart_runtime then has nothing to link.
+# Their tests (SessionRestart, SessionRestartRuntime, SessionRestoreDeadline) are in
+# ctest_exclusions.txt group 3. Nothing else depends on them; nativeee and every other test build.
+test_session_restart
+ps2r_product_clock
+test_session_restart_runtime
