@@ -474,13 +474,23 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         // (InvalidateTextures jobs: a1 = dbp bytes, a2 = bytes) and the pages textured draws
         // sample (TEX0 tbp0 / cbp) -- a texture page sampled but never written is the
         // "garbage strip" class (blacklevel notes: pages 448..486 all-zero at frame 600).
-        // page_target: the first page of every FRAME / ZBUF a draw rendered into (a page sampled
-        // but only ever written by draws is a render-to-texture target, not an orphan).
+        // page_target: every page of the FRAME / ZBUF footprint a draw rendered into (base ..
+        // the scissor's last row at FBW pixels of the PSM's byte width). A page sampled but only
+        // ever written by draws is a render-to-texture target (gs_pages rtt=), not an orphan: the
+        // Binocucom portraits are 128x128 PSMCT32 targets at 0x140000 / 0x150000 (Z 0x170000)
+        // drawn ~1000 times a frame and sampled by one sprite each (pages_notes.md).
         std::array<uint32_t, 512> page_written{}, page_sampled{}, page_target{};
+        void MarkTarget(uint32_t base, uint32_t fbw, uint8_t psm, uint32_t rows) {
+            const uint32_t bpp = ((psm & 0xfu) == 2u || (psm & 0xfu) == 10u) ? 2u : 4u;
+            const uint32_t first = (base >> 13u) & 511u;
+            const uint32_t last = ((base + std::max(1u, rows * fbw * bpp) - 1u) >> 13u) & 511u;
+            for (uint32_t pg = first; pg <= last && pg < 512; ++pg) ++page_target[pg];
+        }
         void OnDraw(const ps2r::gs::DrawIr& d) override {
             if (Skipped(d)) return;
-            ++page_target[(d.raster.frame.fbp >> 13u) & 511u];
-            ++page_target[(d.raster.zbuf.zbp >> 13u) & 511u];
+            const uint32_t rows = static_cast<uint32_t>(d.raster.scissor.y1) + 1u;
+            MarkTarget(d.raster.frame.fbp, d.raster.frame.fbw, d.raster.frame.psm, rows);
+            if (!d.raster.zbuf.zmsk) MarkTarget(d.raster.zbuf.zbp, d.raster.frame.fbw, d.raster.zbuf.psm, rows);
             if (d.tex_enabled) {
                 const uint32_t tp = (d.tex.tbp >> 13u) & 511u, cp = (d.tex.cbp >> 13u) & 511u;
                 ++page_sampled[tp];
@@ -1254,9 +1264,12 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // The shutdown's step census (run.meta shutdown= / the stderr line): the join ladder's steps
     // with their wall offsets, and the guest workers it had to abandon ("" = none).
     std::string shutdown_steps, guest_join_abandoned;
-    // NATIVEEE_VU1_MODE=interp|cached (boot triage): the VU1 fallback tier (engine default Cached).
+    // NATIVEEE_VU1_MODE=interp|cached|block (boot triage): the VU1 fallback tier (engine default Cached;
+    // block = the pre-resolved straight-line block tier, VU1 only).
     if (const char* env = std::getenv("NATIVEEE_VU1_MODE"))
-        vu1.dispatch().settings().vu1_mode = std::string(env) == "interp" ? VuTierMode::Interp : VuTierMode::Cached;
+        vu1.dispatch().settings().vu1_mode = std::string(env) == "interp"  ? VuTierMode::Interp
+                                             : std::string(env) == "block" ? VuTierMode::Block
+                                                                            : VuTierMode::Cached;
     // NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>] (boot triage): Vu1Case + PATH1 packet capture of
     // VU1 kicks (hle/vu1_probe.h); the probe reads `boundaries` at every kick.
     ps2r::title::sly2::Vu1Probe vu1_probe;
@@ -1318,26 +1331,40 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                                     ":raises=" + std::to_string(gs_irq_raises));
             meta->Set("gs_priv_writes", std::to_string(gs_state.Priv().Writes()));
             {
-                // gs_pages=written=<n>:sampled=<n>:sampled_never_written=<n>:<page ranges, draws>
+                // gs_pages=written=<n>:sampled=<n>:sampled_never_written=<n>:<page ranges, draws>:rtt=<ranges>:targets=<pages>
+                // rtt= : pages sampled and never transferred to but inside a drawn FRAME / ZBUF footprint
+                // (render-to-texture; served from the live target). The orphan ranges exclude them.
                 uint32_t written = 0, sampled = 0, orphan = 0;
-                std::string ranges;
+                std::string ranges, rtt;
+                const auto orphan_at = [&](uint32_t pg) { return vert_trace.page_sampled[pg] && !vert_trace.page_written[pg] && !vert_trace.page_target[pg]; };
+                const auto rtt_at = [&](uint32_t pg) { return vert_trace.page_sampled[pg] && !vert_trace.page_written[pg] && vert_trace.page_target[pg]; };
                 for (uint32_t pg = 0; pg < 512; ++pg) {
                     written += vert_trace.page_written[pg] != 0;
                     sampled += vert_trace.page_sampled[pg] != 0;
-                    if (vert_trace.page_sampled[pg] && !vert_trace.page_written[pg]) {
+                    if (orphan_at(pg)) {
                         ++orphan;
                         uint32_t end = pg, draws = 0;
-                        while (end < 512 && vert_trace.page_sampled[end] && !vert_trace.page_written[end]) draws += vert_trace.page_sampled[end++];
+                        while (end < 512 && orphan_at(end)) draws += vert_trace.page_sampled[end++];
                         ranges += ":" + std::to_string(pg) + "-" + std::to_string(end - 1) + "x" + std::to_string(draws);
                         orphan += end - 1 - pg;
+                        pg = end - 1;
+                    } else if (rtt_at(pg)) {
+                        uint32_t end = pg, draws = 0;
+                        while (end < 512 && rtt_at(end)) draws += vert_trace.page_sampled[end++];
+                        rtt += (rtt.empty() ? "" : ",") + std::to_string(pg) + "-" + std::to_string(end - 1) + "x" + std::to_string(draws);
                         pg = end - 1;
                     }
                 }
                 std::string targets;
-                for (uint32_t pg = 0; pg < 512; ++pg)
-                    if (vert_trace.page_target[pg]) targets += (targets.empty() ? "" : ",") + std::to_string(pg) + "x" + std::to_string(vert_trace.page_target[pg]);
+                for (uint32_t pg = 0; pg < 512; ++pg) {
+                    if (!vert_trace.page_target[pg]) continue;
+                    uint32_t end = pg;
+                    while (end < 512 && vert_trace.page_target[end]) ++end;
+                    targets += (targets.empty() ? "" : ",") + std::to_string(pg) + "-" + std::to_string(end - 1) + "x" + std::to_string(vert_trace.page_target[pg]);
+                    pg = end - 1;
+                }
                 meta->Set("gs_pages", "written=" + std::to_string(written) + ":sampled=" + std::to_string(sampled) +
-                                          ":sampled_never_written=" + std::to_string(orphan) + ranges + ":targets=" + targets);
+                                          ":sampled_never_written=" + std::to_string(orphan) + ranges + ":rtt=" + rtt + ":targets=" + targets);
             }
             meta->Set("gs_csr", Hex(gs_state.Priv().Read(ps2r::gs::GsPrivRegs::kCsr)));
             meta->Set("gs_draws", std::to_string(draw_sink.Draws()));
@@ -1450,7 +1477,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                                       ":vu1_kicks=" + std::to_string(VuMacroBridge::Stats().vu1_kicks));
             // The VU1 fallback tier's work: bundles retired by the cached tier (the title's
             // microprograms interpreted on the kicking EE thread), the unit's cycle count.
-            meta->Set("vu1_tier", "bundles=" + std::to_string(vu1.dispatch().cached().bundles()) + ":cycle=" + std::to_string(vu1.cycle()) +
+            meta->Set("vu1_tier", "bundles=" + std::to_string(vu1.dispatch().bundles()) + ":cycle=" + std::to_string(vu1.cycle()) +
                                       ":dropped_kicks=" + std::to_string(vu1.DroppedKicks()));
         }
     };
