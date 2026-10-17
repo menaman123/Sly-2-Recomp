@@ -40,9 +40,18 @@ never commit it.
   identifying instruction sequence, the SDK stamp (`PsII<lib>` 3000) or the call site that proves the
   address is that function. A row with a guessed address is a bug waiting in a hot path; the engine's
   `lint_sdk_bindings.py` checks the form, you supply the proof.
-- `hle/boot_leg.cpp`, `video_stack.*`, `frame_dump.*`, `iop_host.*`, `vu1_probe.*` -- the play
-  composition: how the engine's generic pieces are wired for this title. Title-specific *behaviour*
-  (a replaced EE function, a VU1 program, a renderer class) is per-title HLE and belongs in
+- `hle/boot_leg.cpp` + `hle/leg_*.{h,cpp}` (with `video_stack.*`, `frame_dump.*`, `iop_host.*`,
+  `vu1_probe.*`, `pad_script.*`, `pad_recorder.*`, `store_watch.*`, `vert_trace_sink.*`,
+  `gif_trace_sink.*`, `audio_dump.*`) -- the play composition: how the engine's generic pieces are
+  wired for this title. `boot_leg.cpp` is the entry (`TitlePlayMain`, the launcher hand-over) and
+  `RunLeg`, which is nothing but the construction order of the phase objects; each phase is one class
+  in its own `leg_<phase>.{h,cpp}` pair (the engine's one-class-per-pair rule, declarations-only
+  headers, the size budgets of `engine/tests/lint/`), and the chain's order is the first title's
+  phase order so object lifetimes nest the same way. A new piece of wiring goes into the phase that
+  owns the objects it touches (the `README.md` layout map says what each owns); a new census row goes
+  into `leg_census.cpp` at its place in the frozen order; a new `NATIVEEE_*` knob is parsed in
+  `leg_knobs.cpp` (the title's ONE `getenv` site) and documented where it is used. Title-specific
+  *behaviour* (a replaced EE function, a VU1 program, a renderer class) is per-title HLE and belongs in
   `vu1_library/` / `renderer_profile/` / a new `hle/` TU once it exists -- today there is none, and
   "it renders wrong" is first an engine question (see below).
 - `recomp/INVOCATION.md`, `recomp/MANIFEST.sha256`, `iop/*/MANIFEST.sha256` -- how the recompiler was

@@ -1,0 +1,302 @@
+// games/scus_97316_sly2_band_of_thieves/hle/leg_census.cpp -- LegCensus (leg_census.h). The row order is
+// the single-file composition's write_census, cut into the five groups below at the same keys.
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
+
+#include <cstdio>
+#include <string>
+
+#include "engine/cdvd/hle/libcdvd_bindings.h"
+#include "engine/dmac/dmac_channel.h"
+#include "engine/ee/hle/sdk_binding_manifest.h"
+#include "engine/ee/hle/syscall_table.h"
+#include "engine/ee/sched/ee_run_token.h"
+#include "engine/ee/sched/ee_yield_point.h"
+#include "engine/gs/state/gs_priv_regs.h"
+#include "engine/sif/hle/sce_sif.h"
+#include "engine/vu/macro/vu_macro_bridge.h"
+#include "engine/vu/tiers/vu_tier_dispatch.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_text.h"
+
+namespace ps2r::title::sly2 {
+
+void LegCensus::Write() {
+    ps2r::verify::RunMeta* meta = p_.host.Meta();
+    if (!meta) return;
+    WriteKernel(meta);
+    WriteGs(meta);
+    WritePlay(meta);
+    WriteDevices(meta);
+    WriteVu1(meta);
+}
+
+void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
+    LegCore& core = p_.core;
+    Intc& intc = core.intc;
+    LegInterrupts& irq = p_.interrupts;
+    meta->Set("threads", LegPark::ThreadCensus());
+    meta->Set("first_syscalls", core.first_syscalls);
+    meta->Set("syscall_count", std::to_string(core.syscall_count));
+    meta->Set("boundaries", std::to_string(p_.park.boundaries));
+    meta->Set("domain_tick", std::to_string(core.domain.DomainTick()));
+    const SceSif::HeapCensus heap = SceSif::Heap();
+    meta->Set("iop_heap_allocs", std::to_string(heap.allocs));
+    meta->Set("iop_heap_refused", std::to_string(heap.refused));
+    meta->Set("sif_init_rpc_calls", std::to_string(SceSif::InitRpcCalls()));
+    meta->Set("sif_dma_bytes", std::to_string(SyscallTable::Instance().SifDmaBytes()));
+    meta->Set("iop_module_loads", std::to_string(p_.image.iop_module_loads));
+    meta->Set("iop_modules", p_.image.iop_modules);
+    meta->Set("sif_bound", p_.services.rpc_router.BoundCensus());
+    meta->Set("sif_cmds_delivered", std::to_string(SceSif::CommandsDelivered()));
+    meta->Set("sif_cmds_dropped", std::to_string(SceSif::CommandsDropped()));
+    meta->Set("sif_cmds_pending", std::to_string(SceSif::PendingCommands()));
+    meta->Set("rpc_end_callbacks", std::to_string(p_.pad.rpc_end_callbacks) + ":pending=" + std::to_string(p_.services.rpc_router.PendingCount()));
+    p_.iop.iop_host.WriteCensus(meta);
+    meta->Set("cd_read_calls", std::to_string(LibcdvdBindings::ReadCalls()));
+    meta->Set("boundary_site", p_.title.gs.vblank_wait_entry ? Hex(p_.title.gs.vblank_wait_entry) : "sceGsSyncV");
+    meta->Set("boundary_site_hits", std::to_string(p_.image.boundary_site_hits));
+    meta->Set("sdk_rows_hit", std::to_string(SdkBindingManifest::Instance().HitTotal()));
+    meta->Set("sdk_rows_hit_list", SdkBindingManifest::Instance().HitList());
+    meta->Set("ee_yield", EeYieldPoint::Instance().Stats().Format());
+    meta->Set("ee_yield_budget", std::to_string(LegIop::kYieldBudget));
+    meta->Set("vblank_waits", std::to_string(EeRunToken::Instance().VblankWaits()) + ":idle=" +
+                                  std::to_string(EeRunToken::Instance().VblankWaitsIdle()));
+    meta->Set("syscall_entry_isrs", std::to_string(irq.syscall_entry_isrs) + ":deferred=" + std::to_string(irq.syscall_entry_isrs_deferred));
+    meta->Set("intc_raises", std::to_string(intc.RaiseCount()));
+    meta->Set("intc_dispatches", std::to_string(intc.DispatchCount()));
+    // Refusals are a cause raised WHILE a handler ran (the console: EXL masks interrupts
+    // inside the handler; the cause stays pending in STAT and is taken at the next dispatch
+    // point). intc_refused names them: site/<cause in dispatch>><cause refused>=n.
+    // intc_edges=<cause>:raised/dispatched/guest-acked/still-pending -- a lost edge would be
+    // raised > dispatched + acked + pending.
+    meta->Set("intc_nested_refusals", std::to_string(intc.NestedRefusals()));
+    meta->Set("intc_refused", intc.RefusalCensus());
+    meta->Set("intc_edges", intc.EdgeCensus());
+    meta->Set("gs_irq", "events=" + std::to_string(irq.gs_irq_events) + ":masked=" + std::to_string(irq.gs_irq_masked) +
+                            ":raises=" + std::to_string(irq.gs_irq_raises));
+    meta->Set("gs_priv_writes", std::to_string(p_.gs.gs_state.Priv().Writes()));
+}
+
+void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
+    LegGs& gs = p_.gs;
+    std::unique_ptr<MtvuStack>& mtvu = p_.mtvu.mtvu;
+    GifArbiter& gif_arbiter = p_.devices.gif_arbiter;
+    meta->Set("mtvu", mtvu ? mtvu->Census() + ",idle_wait_entries=" + std::to_string(p_.interrupts.mtvu_idle_wait_entries) +
+                                 ",arbiter_slots=" + std::to_string(gif_arbiter.PendingSlots()) +
+                                 ",arbiter_sealed_ready=" + (gif_arbiter.hasSealedReady() ? "1" : "0") +
+                                 ",worker_busy=" + (mtvu->worker().IsBusy() ? "1" : "0")
+                           : "off");
+    WriteGsPages(meta);
+    meta->Set("gs_csr", Hex(gs.gs_state.Priv().Read(ps2r::gs::GsPrivRegs::kCsr)));
+    meta->Set("gs_draws", std::to_string(gs.draw_sink.Draws()));
+    meta->Set("gs_frames", std::to_string(gs.draw_sink.Frames()));
+    meta->Set("video", gs.video_live ? "gl" : "stub");
+    if (gs.video_live) {
+        meta->Set("gl_renderer", gs.video.Renderer());
+        meta->Set("gl_version", gs.video.GlVersion());
+        meta->Set("gs_window", std::to_string(gs.video.WindowW()) + "x" + std::to_string(gs.video.WindowH()) +
+                                   ":rebinds=" + std::to_string(gs.video.Rebinds()) +
+                                   ":output_frames=" + std::to_string(gs.video.OutputFrames()));
+        if (gs.consumer) {
+            const ps2r::gs::DrawIrQueueConsumer::Counters& c = gs.consumer->Count();
+            meta->Set("gs_consumer", "draws=" + std::to_string(c.draws) + ":jobs=" + std::to_string(c.jobs) +
+                                         ":frames=" + std::to_string(c.frames) + ":uploads=" + std::to_string(c.uploads) +
+                                         ":uploads_dropped=" + std::to_string(c.uploads_dropped) +
+                                         ":resizes=" + std::to_string(c.resizes) + ":presents=" + std::to_string(c.presents) +
+                                         ":grab_empty=" + std::to_string(c.grab_empty));
+        }
+        if (gs.gs_queue) {
+            const ps2r::gs::DrawIrThreadQueue::Counters& q = gs.gs_queue->Count();
+            meta->Set("gs_queue", std::string(gs.gs_queue->policy() == ps2r::gs::DrawIrThreadQueue::Policy::Lockstep ? "lockstep" : "pipelined") +
+                                      (gs.gs_queue->FrameSkip() ? ":frame_skip" : "") +
+                                      ":enqueued=" + std::to_string(q.enqueued) + ":consumed=" + std::to_string(q.consumed) +
+                                      ":frames=" + std::to_string(q.frames) + ":frames_dropped=" + std::to_string(q.frames_dropped) +
+                                      ":frame_waits=" + std::to_string(q.frame_waits) +
+                                      ":max_depth=" + std::to_string(q.max_depth) + ":payload_bytes=" + std::to_string(q.payload_bytes) +
+                                      ":vram_ops=" + std::to_string(q.vram_ops) + ":snapshots=" + std::to_string(q.snapshots) +
+                                      ":l2l=" + std::to_string(q.l2l_ee_served) + "/" + std::to_string(q.l2l_snapshot_served) + "/" +
+                                      std::to_string(q.l2l_stale_max) + "/" + std::to_string(q.l2l_unserved) +
+                                      ":faulted=" + (gs.gs_queue->Faulted() ? "1" : "0"));
+        } else {
+            meta->Set("gs_queue", "inline");
+        }
+        meta->Set("gs_grab_sources", "grabs=" + std::to_string(gs.grabs) + ",local_memory=" + std::to_string(gs.grab_local_memory) +
+                                         ",fallback=" + std::to_string(gs.grab_fallback));
+        meta->Set("dump_frames", gs.frame_dump.Enabled() ? gs.frame_dump.Dir() + ":written=" + std::to_string(gs.frame_dump.Written()) +
+                                                               ":failed=" + std::to_string(gs.frame_dump.Failed())
+                                                         : std::string("off"));
+    }
+}
+
+void LegCensus::WriteGsPages(ps2r::verify::RunMeta* meta) {
+    // gs_pages=written=<n>:sampled=<n>:sampled_never_written=<n>:<page ranges, draws>:rtt=<ranges>:targets=<pages>
+    // rtt= : pages sampled and never transferred to but inside a drawn FRAME / ZBUF footprint
+    // (render-to-texture; served from the live target). The orphan ranges exclude them.
+    const VertTraceSink& vert_trace = p_.gs.vert_trace;
+    uint32_t written = 0, sampled = 0, orphan = 0;
+    std::string ranges, rtt;
+    const auto orphan_at = [&](uint32_t pg) { return vert_trace.page_sampled[pg] && !vert_trace.page_written[pg] && !vert_trace.page_target[pg]; };
+    const auto rtt_at = [&](uint32_t pg) { return vert_trace.page_sampled[pg] && !vert_trace.page_written[pg] && vert_trace.page_target[pg]; };
+    for (uint32_t pg = 0; pg < 512; ++pg) {
+        written += vert_trace.page_written[pg] != 0;
+        sampled += vert_trace.page_sampled[pg] != 0;
+        if (orphan_at(pg)) {
+            ++orphan;
+            uint32_t end = pg, draws = 0;
+            while (end < 512 && orphan_at(end)) draws += vert_trace.page_sampled[end++];
+            ranges += ":" + std::to_string(pg) + "-" + std::to_string(end - 1) + "x" + std::to_string(draws);
+            orphan += end - 1 - pg;
+            pg = end - 1;
+        } else if (rtt_at(pg)) {
+            uint32_t end = pg, draws = 0;
+            while (end < 512 && rtt_at(end)) draws += vert_trace.page_sampled[end++];
+            rtt += (rtt.empty() ? "" : ",") + std::to_string(pg) + "-" + std::to_string(end - 1) + "x" + std::to_string(draws);
+            pg = end - 1;
+        }
+    }
+    std::string targets;
+    for (uint32_t pg = 0; pg < 512; ++pg) {
+        if (!vert_trace.page_target[pg]) continue;
+        uint32_t end = pg;
+        while (end < 512 && vert_trace.page_target[end]) ++end;
+        targets += (targets.empty() ? "" : ",") + std::to_string(pg) + "-" + std::to_string(end - 1) + "x" + std::to_string(vert_trace.page_target[pg]);
+        pg = end - 1;
+    }
+    meta->Set("gs_pages", "written=" + std::to_string(written) + ":sampled=" + std::to_string(sampled) +
+                              ":sampled_never_written=" + std::to_string(orphan) + ranges + ":rtt=" + rtt + ":targets=" + targets);
+}
+
+void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
+    LegPad& pad = p_.pad;
+    LegAudio& audio = p_.audio;
+    LegPlay& play = p_.play;
+    BoundaryProtocol& protocol = p_.core.protocol;
+    meta->Set("pad_stamps", std::to_string(pad.pad_stamps));
+    meta->Set("pad_served", "active=" + std::to_string(pad.pad_served_active) + ":last=" + (pad.pad_served_last.empty() ? "none" : pad.pad_served_last));
+    pad.pad_recorder.Close();   // every exit path: the open run + the header counts land before _Exit
+    meta->Set("pad_record", pad.pad_recorder.Census());
+    meta->Set("pad_script", pad.pad_script.Census());
+    if (play.live_input) {
+        meta->Set("pad_live", play.live_input->Census());
+        meta->Set("input_sources", play.live_input->Sources());
+    }
+    if (play.session) meta->Set("session_presents", std::to_string(play.session->Presents()));
+    // The audio device (play): quanta pushed to the ring / with a non-zero sample, the
+    // ring's own counters (frames pushed/pulled, underruns, padded frames, re-latches, trimmed).
+    meta->Set("audio_device", audio.audio_sink.Running() || audio.audio_device_quanta
+                                  ? "sdl:" + std::to_string(audio.audio_sink.DeviceSampleRate()) + "hz:quanta=" + std::to_string(audio.audio_device_quanta) +
+                                        ":nonsilent=" + std::to_string(audio.audio_device_nonsilent) + ":pushed=" + std::to_string(audio.audio_ring.pushed()) +
+                                        ":pulled=" + std::to_string(audio.audio_ring.pulled()) + ":underruns=" + std::to_string(audio.audio_ring.underruns()) +
+                                        ":padded=" + std::to_string(audio.audio_ring.padded()) + ":relatches=" + std::to_string(audio.audio_ring.relatches()) +
+                                        ":trimmed=" + std::to_string(audio.audio_ring.trimmed()) +
+                                        ":field_pumps=" + std::to_string(audio.audio_field_pumps) +
+                                        ":lead=" + std::to_string(audio.audio_ring.LeadQuanta())
+                                  : std::string("none"));
+    meta->Set("audio_mixed", "pumps=" + std::to_string(p_.services.mixer.Pumps()) + ":frames=" + std::to_string(p_.services.mixer.FramesMixed()));
+    // The pace census (play; the pacer's protocol): boundaries that parked for the wall
+    // edge / arrived late, the longest frame's work, the first long frames with the
+    // TickProfile breakdown (Boundary / GifDrain / ... / other = recompiled code), the
+    // per-site totals (ms/calls).
+    meta->Set("pace", "parks=" + std::to_string(protocol.PaceParks()) + ":late=" + std::to_string(protocol.PaceLate()) +
+                          ":timeouts=" + std::to_string(protocol.PaceTimeouts()) + ":late_fields=" + std::to_string(p_.core.sequencer.PaceLateFields()) +
+                          ":slept_ms=" + std::to_string(protocol.PaceSleptUs() / 1000) + ":work_max_ms=" + std::to_string(protocol.WorkMaxUs() / 1000) +
+                          ":long=" + std::to_string(protocol.LongTraceCount()));
+    meta->Set("pace_work_max_breakdown", protocol.WorkMaxBreakdown().empty() ? std::string("none") : protocol.WorkMaxBreakdown());
+    meta->Set("pace_long_trace", protocol.LongTrace().empty() ? std::string("none") : protocol.LongTrace());
+    meta->Set("tick_profile", protocol.SiteTotals());
+    meta->Set("boundary_wall_ms", p_.park.boundary_wall.empty() ? std::string("none") : p_.park.boundary_wall);
+    meta->Set("shutdown", p_.park.shutdown_steps.empty() ? std::string("none") : p_.park.shutdown_steps);
+}
+
+void LegCensus::WriteDevices(ps2r::verify::RunMeta* meta) {
+    LegDevices& devices = p_.devices;
+    const GsStateSink& gs_state_sink = devices.gs_state_sink;
+    Dmac& dmac = devices.dmac;
+    const ps2r::ipu::IpuDevice& ipu = p_.dma_ipu.ipu;
+    meta->Set("gif_sink", "tags=" + std::to_string(gs_state_sink.Tags()) +
+                          ":p1=" + std::to_string(gs_state_sink.TagsOn(GifPath::Path1)) +
+                          ":p2=" + std::to_string(gs_state_sink.TagsOn(GifPath::Path2)) +
+                          ":p3=" + std::to_string(gs_state_sink.TagsOn(GifPath::Path3)) +
+                          ":regs=" + std::to_string(gs_state_sink.RegisterWrites()) +
+                          ":packed=" + std::to_string(gs_state_sink.PackedWrites()) +
+                          ":kicks=" + std::to_string(gs_state_sink.Kicks()) +
+                          ":image_qw=" + std::to_string(gs_state_sink.ImageQwords()) +
+                          ":eops=" + std::to_string(gs_state_sink.Eops()) +
+                          ":p3_finishes=" + std::to_string(gs_state_sink.Path3Finishes()) +
+                          ":drained=" + std::to_string(devices.gif_arbiter.DrainedPackets()) +
+                          ":pending=" + std::to_string(devices.gif_arbiter.PendingBytes()));
+    meta->Set("dmac_int1_raises", std::to_string(p_.dma_ipu.dmac_int1_raises));
+    {
+        const DmacTransferStats& ts = dmac.TransferStats();
+        std::string spr;
+        for (int m = 0; m < 4; ++m)
+            spr += (m ? ",from" : "from") + std::to_string(m) + "=" + std::to_string(ts.spr_from[m].starts) + "/" +
+                   std::to_string(ts.spr_from[m].completed) + "/" + std::to_string(ts.spr_from[m].rejected) +
+                   ",to" + std::to_string(m) + "=" + std::to_string(ts.spr_to[m].starts) + "/" +
+                   std::to_string(ts.spr_to[m].completed) + "/" + std::to_string(ts.spr_to[m].rejected);
+        meta->Set("dmac_spr", spr);  // per MOD: starts/completed/rejected
+    }
+    std::string dmac_chcr;
+    for (int ch = 0; ch < kDmacChannelCount; ++ch)
+        dmac_chcr += (ch ? "," : "") + std::to_string(ch) + "=" + Hex(dmac.channel(ch).chcr) + "/" +
+                     std::to_string(dmac.channel(ch).qwc);
+    meta->Set("dmac_chcr_qwc", dmac_chcr);
+    std::string ipu_cmds;
+    for (uint8_t code = 0; code < 10; ++code)
+        if (ipu.CommandCount(code))
+            ipu_cmds += (ipu_cmds.empty() ? "" : ",") + std::to_string(code) + "=" + std::to_string(ipu.CommandCount(code)) +
+                        "/" + std::to_string(ipu.UnsupportedCommandCount(code));
+    meta->Set("ipu_commands", ipu_cmds.empty() ? "none" : ipu_cmds);
+    meta->Set("ipu_fifo", "in=" + std::to_string(ipu.InputSize()) + ":out=" + std::to_string(ipu.OutputSize()));
+    meta->Set("ipu_fifo_port", "in_bytes=" + std::to_string(p_.dma_ipu.ipu_fifo.InBytes()) + ":out_bytes=" + std::to_string(p_.dma_ipu.ipu_fifo.OutBytes()) + ":unhandled=" + std::to_string(p_.dma_ipu.ipu_fifo.Unhandled()));
+    meta->Set("vu_macro", "vu0_calls=" + std::to_string(VuMacroBridge::Stats().vu0_calls) +
+                              ":vu1_kicks=" + std::to_string(VuMacroBridge::Stats().vu1_kicks));
+}
+
+void LegCensus::WriteVu1(ps2r::verify::RunMeta* meta) {
+    // The VU1 fallback tier's work: bundles retired by the cached tier (the title's
+    // microprograms interpreted on the kicking EE thread), the unit's cycle count.
+    // Under MTVU the worker's unit is the live VU1 (the inline unit's counters stay 0).
+    const bool worker = static_cast<bool>(p_.mtvu.mtvu);
+    VuUnit& live_vu1 = p_.mtvu.LiveVu1();
+    // block_ns= / block_ns_per_bundle= : the block tier's wall time inside its runs (the AOT tier's native
+    // path runs there too), the per-frame VU1 cost the gameplay fps is bounded by.
+    const VuBlockTier::Stats& bs = live_vu1.dispatch().block().stats();
+    char bnpb[32];
+    std::snprintf(bnpb, sizeof(bnpb), "%.2f", live_vu1.dispatch().block().bundles()
+                                                   ? static_cast<double>(bs.run_ns) / static_cast<double>(live_vu1.dispatch().block().bundles())
+                                                   : 0.0);
+    // xgkick= : arms / packets submitted / bytes / stagings that allocated (the PATH1 hand-off census).
+    const XgKick::Census* xc = live_vu1.xgkick() ? &live_vu1.xgkick()->census() : nullptr;
+    const std::string xg = xc ? ":xgkick=" + std::to_string(xc->arms) + "/" + std::to_string(xc->submits) + "/" +
+                                    std::to_string(xc->submit_bytes) + "/" + std::to_string(xc->staging_allocs)
+                              : std::string();
+    meta->Set("vu1_tier", "bundles=" + std::to_string(live_vu1.dispatch().bundles()) + ":cycle=" + std::to_string(live_vu1.cycle()) +
+                              ":dropped_kicks=" + std::to_string(live_vu1.DroppedKicks()) + ":unit=" + (worker ? "worker" : "inline") +
+                              ":mode=" + (live_vu1.dispatch().settings().vu1_mode == VuTierMode::Aot ? "aot"
+                                          : live_vu1.dispatch().settings().vu1_mode == VuTierMode::Block ? "block"
+                                          : live_vu1.dispatch().settings().vu1_mode == VuTierMode::Interp ? "interp" : "cached") +
+                              ":block_runs=" + std::to_string(bs.runs) + ":block_ns=" + std::to_string(bs.run_ns) + ":block_ns_per_bundle=" + bnpb + xg);
+    // The AOT tier: images seen / verified / refused / pending a verdict, kicks run native vs
+    // on the fallback, ns per bundle on the native path, the corpus and verifier census.
+    if (live_vu1.dispatch().settings().vu1_mode == VuTierMode::Aot) {
+        const Vu1AotTier& aot = live_vu1.dispatch().aot();
+        if (p_.mtvu.vu1_aot_cache) {
+            meta->Set("vu1_aot", p_.mtvu.vu1_aot_cache->CensusRow());
+            // The code generator: compiler, images built / cached / refused, compile and
+            // re-verify wall, block functions installed on the live table.
+            if (p_.mtvu.vu1_aot_builder) meta->Set("vu1_aot_codegen", p_.mtvu.vu1_aot_builder->CensusRow());
+            else meta->Set("vu1_aot_codegen", p_.cfg.engine.vu1_aot_codegen ? "no_compiler:1" : "off:1");
+        } else {
+            char ns[32];
+            std::snprintf(ns, sizeof(ns), "%.2f", aot.native_ns_per_bundle());
+            meta->Set("vu1_aot", "programs:" + std::to_string(aot.images()) + ":verified:" + std::to_string(aot.verified()) +
+                                     ":refused:" + std::to_string(aot.refused()) + ":pending:0:native_kicks:" +
+                                     std::to_string(aot.stats().native_kicks) + ":fallback_kicks:" +
+                                     std::to_string(aot.stats().fallback_kicks) + ":native_bundles:" +
+                                     std::to_string(aot.stats().native_bundles) + ":ns_per_bundle:" + ns +
+                                     (aot.assume_verified() ? ":assume_verified:1" : ":no_cache:1"));
+        }
+    }
+}
+
+}  // namespace ps2r::title::sly2

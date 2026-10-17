@@ -6,9 +6,15 @@
 #                  Per-title HLE (native replacements for EE functions, services, workarounds) is
 #                  what grows this target later; at the boot stage there is none.
 # ps2r_title_play  (optional; app/host links it when present, engine/title/title_play.h) -- the
-#                  composition: boot_leg.cpp's TitlePlayMain, the cold-boot leg over the engine's
-#                  fallbacks (headless harness leg, headless --dump-frames, or the play arm: the
-#                  SessionRuntime window + live pad), plus iop_host.cpp: the title's three embedded
+#                  composition: boot_leg.cpp's TitlePlayMain and RunLeg -- the cold-boot leg over the
+#                  engine's fallbacks (headless harness leg, headless --dump-frames, or the play arm: the
+#                  SessionRuntime window + live pad) as a chain of phase classes, one per leg_*.{h,cpp}
+#                  pair in the first title's construction order (leg_knobs = the NATIVEEE_* knobs, the
+#                  title's one getenv site; leg_core, leg_gs, leg_devices, leg_mtvu, leg_dma_ipu,
+#                  leg_interrupts, leg_disc, leg_services, leg_audio, leg_play, leg_iop, leg_pad,
+#                  leg_image, leg_park, leg_census, leg_park_sink, leg_verify_slot, leg_watchdog; the
+#                  trace sinks vert_trace_sink / gif_trace_sink and audio_dump are their own classes),
+#                  plus iop_host.cpp: the title's three embedded
 #                  IOP modules (lgAud, 989snd, spiop; ../iop) hosted on the engine's IOP kernel, the
 #                  stock Sony modules served by the engine's HLE; video_stack.cpp: the generic GS
 #                  renderer over GL (DrawPipeline with no class renderers, an empty VramLayout) into
@@ -32,12 +38,35 @@ target_link_libraries(ps2r_title_hle PUBLIC ps2r_title_api)   # the TitleProfile
 
 if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
     add_library(ps2r_title_play STATIC
+        audio_dump.cpp
         boot_leg.cpp
         frame_dump.cpp
+        gif_trace_sink.cpp
         iop_host.cpp
+        leg_audio.cpp
+        leg_census.cpp
+        leg_core.cpp
+        leg_devices.cpp
+        leg_disc.cpp
+        leg_dma_ipu.cpp
+        leg_gs.cpp
+        leg_image.cpp
+        leg_interrupts.cpp
+        leg_iop.cpp
+        leg_knobs.cpp
+        leg_mtvu.cpp
+        leg_pad.cpp
+        leg_park.cpp
+        leg_park_sink.cpp
+        leg_play.cpp
+        leg_services.cpp
+        leg_text.cpp
+        leg_verify_slot.cpp
+        leg_watchdog.cpp
         pad_recorder.cpp
         pad_script.cpp
         store_watch.cpp
+        vert_trace_sink.cpp
         video_stack.cpp
         vu1_probe.cpp
     )

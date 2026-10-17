@@ -81,8 +81,29 @@ games/scus_97316_sly2_band_of_thieves/   the title module (the engine's games/<s
                                          IOP modules, IOPRP300.IMG's FILEIO) -- hashes only, extracted at build time
   hle/title_profile.cpp                  TitleProfile: identity, ELF facts, boot env
   hle/sdk_bindings.tsv                   the SDK-library binding table (39 rows: libkernl, libcdvd, libmc; each with its evidence)
-  hle/boot_leg.cpp                       the play composition (TitlePlayMain): the launcher hand-over, headless legs, the SDL
-                                         window + audio device + live pad, the pipelined GS queue, the shutdown ladder
+  hle/boot_leg.cpp                       the play composition (TitlePlayMain): the launcher hand-over, then RunLeg = the leg's
+                                         phase objects constructed in the first title's order (one class per hle/leg_*.{h,cpp}
+                                         pair, below) and the cold boot
+  hle/leg_knobs.*                        LegKnobs: every NATIVEEE_* env knob parsed once (the title's ONE getenv site)
+  hle/leg_core.*                         LegCore: memory + MMIO sink, time domain, INTC + timers, SIF regs, the boundary, kernel seams
+  hle/leg_gs.*                           LegGs: GsState, the video stack, the DrawIR queue / consumer chain, the frame dump,
+                                         the slot-0 GS frame boundary; vert_trace_sink.* = the gs_pages census + GS_VERTS / GS_SKIP_*
+  hle/leg_devices.*                      LegDevices: GS MMIO, GIF (+ gif_trace_sink.*), VU0 / VU1 + the tier choice, VIF, DMAC
+  hle/leg_mtvu.*                         LegMtvu: the MTVU worker stack, the VU1 AOT cache + code generator
+  hle/leg_dma_ipu.*                      LegDmaIpu: the VIF / VU / DMAC / IPU register windows, the IPU channel wiring, COP2
+  hle/leg_interrupts.*                   LegInterrupts: the GS interrupt observer, the DMAC handler install, the syscall-entry ISR rules
+  hle/leg_disc.*, leg_services.*         LegDisc: IsoFs / ReadEngine over --iso; LegServices: RpcRouter + the mcserv / padman / sdrdrv
+                                         faces, SpuCore, Mixer
+  hle/leg_audio.*, leg_play.*            LegAudio: the SDL audio device + ring (+ audio_dump.*); LegPlay: the live pad + the
+                                         SessionRuntime window + the presented-image output
+  hle/leg_iop.*, leg_pad.*               LegIop: IopHost, the SIF wiring, the IOP boundary steps, the back-edge yield;
+                                         LegPad: the slot-4 pad stamp with the pad script / recorder / key script overlays
+  hle/leg_image.*                        LegImage: the ELF image + BootEnv, the generated dispatch, the SDK manifest install
+  hle/leg_park.*, leg_census.*           LegPark: LegCloser + the boundary / wall / shutdown counters, Vu1Probe; LegCensus: the
+                                         run.meta rows in their frozen order
+  hle/leg_park_sink.*                    LegParkSink: the terminate hook + the GuestPark sink, the IOP reboot image boot
+  hle/leg_verify_slot.*, leg_watchdog.*  LegVerifySlot: the slot-7 lanes / present / dump / harness verbs / frames cap, the session
+                                         workers, the join ladder; LegWatchdog: the no-boundary watchdog
   hle/video_stack.*, frame_dump.*        the GS -> GL video stack and the --dump-frames writer
   hle/iop_host.*                         hosts the recompiled IOP modules on the engine's cooperative IOP kernel
   hle/vu1_probe.*                        NATIVEEE_VU1_CAP: VU1 kick capture for tests/vu/test_vu1_capture_replay

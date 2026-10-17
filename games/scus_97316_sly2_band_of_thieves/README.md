@@ -36,10 +36,25 @@ else runs as recompiled MIPS. The frame boundary is the game's own vsync wait (`
 `TitleProfile::Gs::vblank_wait_entry`): the composition installs the engine's `WaitForVblank` mirror
 there because this ELF links no `sceGsSyncV`.
 
-`hle/boot_leg.cpp` (the composition) also: opens the disc image (`--iso`, else
-`<game_files>/<disc_image_file>`) for the libcdvd rows; hosts the IOP (`hle/iop_host.cpp`, see below);
-and answers the kernel's transfer id for `sceSifSetDma` lists without the command attribute (the engine
-keeps its first title's rule there -- an upstream question, see the work notes).
+The composition (`hle/boot_leg.cpp` + the `hle/leg_*.{h,cpp}` phase classes) also: opens the disc image
+(`--iso`, else `<game_files>/<disc_image_file>`) for the libcdvd rows (`leg_disc`); hosts the IOP
+(`leg_iop` over `hle/iop_host.cpp`, see below); and answers the kernel's transfer id for `sceSifSetDma`
+lists without the command attribute (`leg_disc`; the engine keeps its first title's rule there -- an
+upstream question, see the work notes).
+
+`hle/boot_leg.cpp` is `TitlePlayMain` (the launcher hand-over) and `RunLeg`, which is only the
+construction order of the leg's phases, one class per `.h/.cpp` pair under `hle/` (the engine's
+LintOneClass / LintSizeBudget / LintHeaderGlobals rules apply to the title tree; every `NATIVEEE_*` knob
+is read once in `leg_knobs.cpp`): `LegCore` (memory, MMIO sink, time domain, INTC + timers, SIF regs, the
+boundary, kernel seams) -> `LegGs` (GsState, video stack, DrawIR queue, frame dump, the GS frame boundary)
+-> `LegDevices` (GS MMIO, GIF, VU0/VU1, VIF, DMAC) -> `LegMtvu` (MTVU worker, VU1 AOT) -> `LegDmaIpu`
+(register windows, IPU, COP2) -> `LegInterrupts` (GS IRQ observer, syscall-entry ISRs) -> `LegDisc` ->
+`LegServices` (RpcRouter, mcserv / padman / sdrdrv faces, SPU2 + mixer) -> `LegAudio` -> `LegPlay`
+(live pad, session window) -> `LegIop` -> `LegPad` (slot-4 pad stamp + scripts) -> `LegImage` (ELF,
+dispatch, SDK manifest) -> `LegPark` (LegCloser + counters) -> `LegCensus` (the run.meta rows) ->
+`LegParkSink` (park / terminate hooks, the IOP reboot image) -> `LegVerifySlot` (slot-7 lanes / present /
+dump / frames cap, the join ladder) -> `LegWatchdog` -> the cold boot. The repository README's layout
+map says what each pair owns.
 
 ## The IOP arm (`iop/`, `hle/iop_host.cpp`)
 
@@ -76,7 +91,7 @@ target exists, so nothing is skipped or edited.
 - `iop/`: four modules recompiled at build time (fileio 53 functions, lgAud 140, 989snd 503, spiop 89;
   0 unimplemented instructions), all four boot and stay resident (`iop_hosted=` in run.meta; lgAud
   returns 2 = removable, its "no RPC server" path with `rpc=0`); `iop_imports_unresolved=` empty.
-- `hle/boot_leg.cpp`: the play composition. Boots through the FMV / legal / logo / memory-card screens
+- `hle/boot_leg.cpp` + `hle/leg_*`: the play composition. Boots through the FMV / legal / logo / memory-card screens
   (the libpad SDK-3 padman face, the libmc rows over the engine's host card), the intro cinematic, the
   title screen, New Game, the Binocucom briefings and the first playable area (the Cairo museum): the
   left stick walks Sly and the camera follows (a windowed run with the keyboard 'A' held 2 s changes
