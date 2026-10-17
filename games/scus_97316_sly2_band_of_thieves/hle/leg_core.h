@@ -12,7 +12,9 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <functional>
+#include <mutex>
 #include <string>
 
 #include "engine/core/config/config.h"
@@ -36,6 +38,7 @@
 #include "engine/sif/sif_state.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/store_watch.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/text_watch.h"
 
 namespace ps2r::title::sly2 {
 
@@ -84,6 +87,13 @@ public:
     SyscallTable::GuestCall guest_call;
     std::string first_syscalls;   // run.meta first_syscalls=: the first 40 syscalls, name(num)
     uint64_t syscall_count = 0;
+    std::deque<std::string> last_syscalls;   // run.meta last_syscalls=: the last 24 syscalls (park / exit triage)
+    // run.meta guest_call_unknown=: guest calls (SetSyscall-redirected numbers, INTC/DMAC handlers, alarms)
+    // whose target is NO generated function start -- DispatchTable::Invoke is silent for those (the body
+    // runs nothing, $v0 stays stale), so they are counted and listed here (the overlay census, item ii).
+    std::atomic<uint64_t> guest_call_unknown{0};
+    std::mutex guest_call_unknown_mutex;
+    std::string guest_call_unknown_list;   // up to 16 entries addr@caller_pc
 
 private:
     bool attached_ = false;

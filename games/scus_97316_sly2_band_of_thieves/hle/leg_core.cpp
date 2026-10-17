@@ -14,6 +14,7 @@
 #include "engine/ee/recomp_abi/recomp_abi.h"
 #include "engine/ee/sched/ee_event_queue.h"
 #include "engine/gs/hle/sce/gs_sync.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_text.h"
 
 namespace ps2r::title::sly2 {
 
@@ -33,7 +34,8 @@ LegCore::LegCore(const ps2r::Config& cfg, const LegKnobs& knobs)
     RecompAbi::BindMemory(&fast_mem);
     // NATIVEEE_WATCH=<hexaddr>,<bytes>[;...][;max=<n>][;val=<hex>]: print every EE store overlapping
     // the guest ranges (store_watch.h; boot triage, non-NDEBUG builds).
-    store_watch.Install(knobs.watch ? knobs.watch->c_str() : nullptr);
+    // The `text` mode of the knob is TextWatch's (text_watch.h; armed after the ELF load in RunLeg).
+    store_watch.Install(knobs.watch && !TextWatch::IsTextSpec(knobs.watch->c_str()) ? knobs.watch->c_str() : nullptr);
 
     // --- time domain, boundary owner, INTC + timers, SIF registers -------------------------------
     intc.Register(mmio);
@@ -69,16 +71,26 @@ LegCore::LegCore(const ps2r::Config& cfg, const LegKnobs& knobs)
     // --- kernel clocks + seams --------------------------------------------------------------------
     clocks.InstallKernelClocks(SyscallTable::Instance(), protocol.WaitHook());
     GsSync::Bind(&sequencer, &clocks);
-    guest_call = [](uint32_t addr, CpuContext& ctx) {
+    guest_call = [this](uint32_t addr, CpuContext& ctx) {
+        if (DispatchTable::IdOf(addr) >= DispatchTable::FunctionCount()) {
+            // Not a generated function start: Invoke runs nothing. Count + list (the SDK's libkernl kernel
+            // patches do this at boot: syscall 0x5b -> 0x8007[456]000; see the title README, overlays).
+            if (guest_call_unknown++ < 16) {
+                std::lock_guard<std::mutex> lock(guest_call_unknown_mutex);
+                guest_call_unknown_list += (guest_call_unknown_list.empty() ? "" : ",") + Hex(addr) + "@ra" +
+                                           Hex(ctx.cpuRegs.GPR.r[31].UL[0]);
+            }
+        }
         DispatchTable::Invoke(addr, ctx);
         return true;
     };
     SyscallTable::Instance().SetGuestCall(guest_call);
     SyscallTable::Instance().SetTrace([this](int num, const char* name) {
         constexpr uint64_t kKeep = 40;
-        if (syscall_count++ < kKeep)
-            first_syscalls += (first_syscalls.empty() ? "" : ",") + std::string(name ? name : "?") + "(" +
-                              std::to_string(num) + ")";
+        const std::string entry = std::string(name ? name : "?") + "(" + std::to_string(num) + ")";
+        if (syscall_count++ < kKeep) first_syscalls += (first_syscalls.empty() ? "" : ",") + entry;
+        if (last_syscalls.size() >= 24) last_syscalls.pop_front();
+        last_syscalls.push_back(entry);
     });
     SyscallTable::Instance().BindIntcMask(intc.MaskWord());
     intc.SetGuestCall(guest_call);

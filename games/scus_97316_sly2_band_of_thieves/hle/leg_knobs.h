@@ -12,7 +12,8 @@
 namespace ps2r::title::sly2 {
 
 struct LegKnobs {
-    // NATIVEEE_WATCH=<hexaddr>,<bytes>[;...][;max=<n>][;val=<hex>] -- store_watch.h (nullopt = unset).
+    // NATIVEEE_WATCH=<hexaddr>,<bytes>[;...][;max=<n>][;val=<hex>] -- store_watch.h (nullopt = unset);
+    // NATIVEEE_WATCH=text[;<hexaddr>,<bytes>...][;every=<n>][;max=<n>][;ramdump=<file>] -- text_watch.h.
     std::optional<std::string> watch;
     // NATIVEEE_GS_VERTS=<key>: trace the draws of the frame ending at present key <key> (0 = off).
     uint32_t gs_verts_key = 0;
@@ -51,6 +52,11 @@ struct LegKnobs {
     // NATIVEEE_GS_RT_DUMP=<key>,<fbp hex>[,cap=<n>][,at=<i>[+<i>...]][,noclass][,nofbmsk][,nopost]: the target
     // dump of one frame (engine target_dump.h; parsed in leg_gs.cpp, armed by the Verify slot).
     std::optional<std::string> gs_rt_dump;
+    // NATIVEEE_TEX_DUMP=<from>,<to>: the texture oracle dump -- every DISTINCT texture the resolver decodes
+    // during the frames that END at present keys [from, to] (engine TextureDumpSink; written once each to
+    // <dump dir or harness out>/textures/<hash>.{ppm,alpha.pgm,json,win,clut}; parsed in leg_gs.cpp, armed /
+    // disarmed by the Verify slot). tex_dump_to 0 = off.
+    uint32_t tex_dump_from = 0, tex_dump_to = 0;
     // NATIVEEE_WATCHDOG_S=<s> (default 60; 0 = off) / NATIVEEE_RAM_DUMP=<file> at the watchdog park.
     uint64_t watchdog_s = 60;
     std::optional<std::string> ram_dump;

@@ -33,13 +33,15 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_play.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/text_watch.h"
 
 namespace ps2r::title::sly2 {
 
 class LegVerifySlot {
 public:
     LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, const LegKnobs& knobs, LegCore& core, LegGs& gs,
-                  LegMtvu& mtvu, LegServices& services, LegAudio& audio, LegPlay& play, LegPark& park, LegCensus& census);
+                  LegMtvu& mtvu, LegServices& services, LegAudio& audio, LegPlay& play, LegPark& park, LegCensus& census,
+                  TextWatch& text_watch);
     LegVerifySlot(const LegVerifySlot&) = delete;
     LegVerifySlot& operator=(const LegVerifySlot&) = delete;
 
@@ -73,6 +75,7 @@ private:
     LegPlay& play_;
     LegPark& park_;
     LegCensus& census_;
+    TextWatch& text_watch_;
     bool failed_ = false;
 };
 

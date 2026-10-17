@@ -39,3 +39,11 @@ continuations: 6573 bodies, 72345 exact entries, 2 restartable wait thunks; 32 b
 ```
 Determinism: the standalone probe run (different cwd and --input path) produced byte-identical files (`diff -rq` empty).
 "Unhandled OP Code" sites in the shards: 0.
+
+## Regeneration 2026-10-17 (overlays stage, E210)
+
+Tool change `tools/recompiler_v2/recompiler_tool/discovery/{rv2_decode.h,functions.cpp}`: the walk stops at the
+kernel's no-return syscalls (`addiu v1,zero,{0x04 Exit, 0x23 ExitThread, 0x24 ExitDeleteThread}; syscall`).
+Report: `continuations: 6575 bodies, 72351 exact entries, 2 restartable wait thunks` (was 6574 bodies); the new
+function is 0x100228 (crt0's root 0x100220 now ends at 0x100228); recompiled_shard_000.cpp, recompiled.h,
+recompiled.cpp and continuations.h changed, the 31 other shards are byte-identical. MANIFEST.sha256 re-recorded.

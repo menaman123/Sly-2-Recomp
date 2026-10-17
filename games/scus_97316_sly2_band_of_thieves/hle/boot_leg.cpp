@@ -51,6 +51,7 @@
 //   LegPark        LegCloser, the boundary / wall counters, Vu1Probe, the main context pointer
 //   LegCensus      the run.meta census rows
 //   LegParkSink    the terminate hook + the GuestPark sink, the IOP reboot image boot
+//   TextWatch      the NATIVEEE_WATCH=text code-range snapshot compare (armed after the ELF load)
 //   LegVerifySlot  the slot-7 Verify step (lanes, present / dump, harness verbs, frames cap), the
 //                  session workers + tick thread, the join ladder, the session hooks
 //   LegWatchdog    the no-boundary watchdog thread
@@ -171,11 +172,13 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegPad pad(knobs, core, services, play);
     LegImage image(cfg, host, title, elf_path, title_dir, knobs, core, disc, services, iop);
     if (image.Error()) return image.Error();
+    // NATIVEEE_WATCH=text[;...]: the code-range snapshot compare (text_watch.h) -- after the ELF load.
+    TextWatch text_watch(knobs.watch ? knobs.watch->c_str() : nullptr, core.ram);
     LegPark park(host, knobs, core, devices, mtvu);
     LegCensus census(LegCensus::Phases{cfg, host, title, core, gs, devices, mtvu, dma_ipu, interrupts, services, audio, play, iop,
-                                       pad, image, park});
+                                       pad, image, text_watch, park});
     LegParkSink park_sink(host, census, park, play, disc, iop);
-    LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, park, census);
+    LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, park, census, text_watch);
     if (verify.Failed()) return 2;
     LegWatchdog watchdog(host, knobs, core, park, census);
 

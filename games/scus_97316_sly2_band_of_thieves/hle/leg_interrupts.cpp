@@ -6,6 +6,8 @@
 
 #include "engine/core/threads/park.h"
 #include "engine/dmac/dmac_handler_registry.h"
+#include "engine/ee/cpu/shadow_call_stack.h"
+#include "engine/ee/hle/thread_manager.h"
 #include "engine/ee/hle/syscall_table.h"
 #include "engine/ee/sched/ee_run_token.h"
 #include "engine/gs/hle/sce/gs_sync.h"
@@ -89,6 +91,17 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
     // worker's progress (MtvuSync::WaitProgress: seal / idle, drain, re-check) instead of blocking
     // with nothing left to deliver the interrupt -- the console's idle loop taking the GS interrupt.
     SyscallTable::Instance().SetPreDispatch([this, isr_trace, &dmac, &mtvu_stack, &intc](int num, CpuContext& ctx) {
+        if (num == 4 || num == 35 || num == 37 || num == 38) {
+            // Exit / ExitThread / TerminateThread / iTerminateThread: the site (a thread exit ends the leg when
+            // it is tid 1's) -- one line each, shadow frames innermost first.
+            ShadowCallStack::Frame f0{}, f1{}, f2{};
+            ShadowCallStack::Top(0, f0);
+            ShadowCallStack::Top(1, f1);
+            ShadowCallStack::Top(2, f2);
+            std::fprintf(stderr, "thread-exit: syscall %d tid=%d a0=0x%08x ra=0x%08x frames=0x%08x/ra0x%08x<-0x%08x<-0x%08x\n", num,
+                         ThreadManager::Instance().CurrentTid(), ctx.cpuRegs.GPR.r[4].UL[0], ctx.cpuRegs.GPR.r[31].UL[0],
+                         f0.func_addr, f0.ra, f1.func_addr, f2.func_addr);
+        }
         const bool blocking = SyscallTable::IsBlockingWait(num);
         if (blocking) dmac.ObserveAtKernelWait();
         for (;;) {

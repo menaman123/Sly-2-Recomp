@@ -42,6 +42,11 @@ LegKnobs LegKnobs::FromEnvironment() {
     k.vu1_cap = Text(std::getenv("NATIVEEE_VU1_CAP"));
     k.gs_routes = Text(std::getenv("NATIVEEE_GS_ROUTES"));
     k.gs_rt_dump = Text(std::getenv("NATIVEEE_GS_RT_DUMP"));
+    if (const char* env = std::getenv("NATIVEEE_TEX_DUMP")) {
+        char* end = nullptr;
+        k.tex_dump_from = static_cast<uint32_t>(std::strtoul(env, &end, 10));
+        k.tex_dump_to = (end && *end == ',') ? static_cast<uint32_t>(std::strtoul(end + 1, nullptr, 10)) : k.tex_dump_from;
+    }
     if (const char* env = std::getenv("NATIVEEE_WATCHDOG_S")) k.watchdog_s = std::strtoull(env, nullptr, 10);
     k.ram_dump = Text(std::getenv("NATIVEEE_RAM_DUMP"));
     k.unpaced = std::getenv("NATIVEEE_UNPACED") != nullptr;

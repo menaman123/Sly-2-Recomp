@@ -27,6 +27,7 @@ void LegCensus::Write() {
     WritePlay(meta);
     WriteDevices(meta);
     WriteVu1(meta);
+    p_.text_watch.Report(p_.host);   // text_watch= / text_watch_pages= (NATIVEEE_WATCH=text only)
 }
 
 void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
@@ -36,6 +37,10 @@ void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
     meta->Set("threads", LegPark::ThreadCensus());
     meta->Set("first_syscalls", core.first_syscalls);
     meta->Set("syscall_count", std::to_string(core.syscall_count));
+    std::string last;
+    for (const std::string& s : core.last_syscalls) last += (last.empty() ? "" : ",") + s;
+    meta->Set("last_syscalls", last);
+    meta->Set("guest_call_unknown", std::to_string(core.guest_call_unknown.load()) + ":" + core.guest_call_unknown_list);
     meta->Set("boundaries", std::to_string(p_.park.boundaries));
     meta->Set("domain_tick", std::to_string(core.domain.DomainTick()));
     const SceSif::HeapCensus heap = SceSif::Heap();
@@ -225,6 +230,17 @@ void LegCensus::WriteDevices(ps2r::verify::RunMeta* meta) {
                           ":drained=" + std::to_string(devices.gif_arbiter.DrainedPackets()) +
                           ":pending=" + std::to_string(devices.gif_arbiter.PendingBytes()));
     meta->Set("dmac_int1_raises", std::to_string(p_.dma_ipu.dmac_int1_raises));
+    {
+        // gs_xfer=: the GS transfer engine's counters + host->local starts per BITBLTBUF.DPSM (hex field=count).
+        const ps2r::gs::TransferEngine::Counters& xc = p_.gs.gs_state.Xfer().Stats();
+        std::string by;
+        for (uint32_t f = 0; f < 64; ++f)
+            if (xc.host_local_by_dpsm[f]) by += (by.empty() ? "" : ",") + Hex(f) + "=" + std::to_string(xc.host_local_by_dpsm[f]);
+        meta->Set("gs_xfer", "bitbltbuf=" + std::to_string(xc.bitbltbuf) + ":trxdir=" + std::to_string(xc.trxdir) +
+                                 ":hwreg=" + std::to_string(xc.hwreg) + ":completed=" + std::to_string(xc.completed) +
+                                 ":l2l=" + std::to_string(xc.local_local) + ":l2h=" + std::to_string(xc.local_host) +
+                                 ":owned=" + std::to_string(xc.owned) + ":dpsm=" + (by.empty() ? "none" : by));
+    }
     {
         const DmacTransferStats& ts = dmac.TransferStats();
         std::string spr;

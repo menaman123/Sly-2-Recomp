@@ -24,12 +24,13 @@ constexpr uint64_t kGuestJoinDeadlineMs = 5000;
 }  // namespace
 
 LegVerifySlot::LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, const LegKnobs& knobs, LegCore& core, LegGs& gs,
-                             LegMtvu& mtvu, LegServices& services, LegAudio& audio, LegPlay& play, LegPark& park, LegCensus& census)
+                             LegMtvu& mtvu, LegServices& services, LegAudio& audio, LegPlay& play, LegPark& park, LegCensus& census,
+                             TextWatch& text_watch)
     : verify_spans{{core.ram.Data(), core.ram.Size()}, {core.spad.Data(), core.spad.Size()}},
       tick_thread(core.tick_source, core.sequencer.Ticks(), core.protocol),
       session_workers(ThreadManager::Instance(), core.running, [this] { tick_thread.Stop(); }, [&core] { core.protocol.NotifyTick(); }),
       cfg_(cfg), host_(host), knobs_(knobs), core_(core), gs_(gs), mtvu_(mtvu), services_(services), audio_(audio), play_(play),
-      park_(park), census_(census) {
+      park_(park), census_(census), text_watch_(text_watch) {
     // --set harness.inject_key=<KEY>@N[-M][,...]: KEY = F1..F12 or an SDL key name (Escape, Space ...).
     // The validator pinned the format; an unknown name is refused here.
     for (std::string rest = cfg.harness.inject_key; !rest.empty();) {
@@ -134,6 +135,7 @@ void LegVerifySlot::VerifyStep() {
     play_.PushAudioRing(mixer.Output());
     const uint64_t boundary = host_.OnBoundary(mixer.Output(), ps2r::sound::Mixer::kFramesPerVsync, verify_spans);
     park_.boundaries = boundary + 1;
+    text_watch_.OnBoundary(park_.boundaries);   // NATIVEEE_WATCH=text: the code-range snapshot compare
     park_.NoteBoundaryWall();
     RingLog::SetFrame(static_cast<uint32_t>(park_.boundaries));
     if (gs_.consumer) {
@@ -148,6 +150,27 @@ void LegVerifySlot::VerifyStep() {
                 std::fprintf(stderr, "nativeee: NATIVEEE_GS_RT_DUMP key %u fbp 0x%x: %u files in %s\n", gs_.rt_dump_key,
                              gs_.rt_dump_req.fbp, td.Written(), gs_.rt_dump_req.dir.c_str());
                 td.Disarm();
+            }
+        }
+        // NATIVEEE_TEX_DUMP=<from>,<to> (leg_knobs.h): the texture oracle dump of the frames ending at present
+        // keys [from, to] -- armed at the boundary that opens frame `from`, disarmed after the boundary that
+        // closes frame `to` (headless lockstep: the consumer is idle at the boundary).
+        if (knobs_.tex_dump_to && gs_.video.Pipe() && !core_.sequencer.WallLocked()) {
+            ps2r::gs::TextureDumpSink& sink = gs_.video.Pipe()->Resolver().DumpSink();
+            if (present_key + 1 == knobs_.tex_dump_from && !sink.Armed()) {
+                const std::string dir = (gs_.frame_dump.Enabled() ? gs_.frame_dump.Dir() : cfg_.harness.out_dir) + "/textures";
+                if (!sink.Arm(dir)) std::fprintf(stderr, "nativeee: NATIVEEE_TEX_DUMP: cannot create %s\n", dir.c_str());
+            } else if (sink.Armed() && (present_key >= knobs_.tex_dump_to ||
+                                        (cfg_.harness.frames > 0 && boundary + 1 >= static_cast<uint64_t>(cfg_.harness.frames)))) {
+                sink.Disarm();
+                const ps2r::gs::TextureDumpSink::Stats& st = sink.GetStats();
+                std::fprintf(stderr,
+                             "nativeee: NATIVEEE_TEX_DUMP keys %u..%u: decodes=%llu distinct=%llu oracle_b_bad=%llu serves=%llu "
+                             "files=%llu failed=%llu\n",
+                             knobs_.tex_dump_from, knobs_.tex_dump_to, static_cast<unsigned long long>(st.decodes),
+                             static_cast<unsigned long long>(st.distinct), static_cast<unsigned long long>(st.oracle_b_bad),
+                             static_cast<unsigned long long>(st.serves), static_cast<unsigned long long>(st.written),
+                             static_cast<unsigned long long>(st.failed));
             }
         }
         const bool wall_locked = core_.sequencer.WallLocked();

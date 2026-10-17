@@ -25,6 +25,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_play.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/text_watch.h"
 
 namespace ps2r::title::sly2 {
 
@@ -47,6 +48,7 @@ public:
         LegIop& iop;
         LegPad& pad;
         LegImage& image;
+        TextWatch& text_watch;
         LegPark& park;
     };
 

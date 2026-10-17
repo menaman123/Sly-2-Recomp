@@ -84,9 +84,64 @@ never includes `app/host/iop_arm.h`. For this title the kernel-hosted IOP IS the
 and streaming owners are its own modules); `LintPlayBinaryNoIop` is registered only when an oracle
 target exists, so nothing is skipped or edited.
 
+## The texture gate (`verify/judge_textures.py`)
+
+Every distinct texture the resolver decodes in a leg is dumped by the engine's `TextureDumpSink`
+when the composition arms it: `NATIVEEE_TEX_DUMP=<from>,<to>` (present keys; `hle/leg_knobs.h`,
+armed / disarmed at the frame boundaries by the Verify slot) writes `<dump dir | harness out>/
+textures/<hash>.{ppm,alpha.pgm,json,win,clut}` once per distinct (tuple, bytes) with the engine's
+own Oracle B verdict (fast decode tier == the per-pixel PsmLayout reference) in the json, and
+`serves.tsv` for the reads served from targets. `verify/judge_textures.py --textures <dir>
+[--pcsx2 <PCSX2 HWDumpDirectory with SaveTexture + SaveAlpha + SaveInfo dumps>] [--artefacts <dir>]`
+is the judge: PASS only with 0 Oracle B differences and 0 PCSX2-matched textures beyond tolerance
+(mean abs error <= 1/255 per channel, no structural periodicity; 16-bit-sourced colours at 5-bit
+precision), findings attributed to a class (swizzle / clut / format_tbw / source / value) with a
+contact sheet (ours | oracle | diff). ctest rows (`verify/CMakeLists.txt`, registered by the engine's
+tests/ after `enable_testing()`): `Sly2_JudgeTexturesSelftest` always; `Sly2_JudgeTexturesCairo` over
+the Cairo-opening fixture under `$NATIVEEE_PRIVATE_FIXTURES/games/<this title>/verify/textures/
+cairo_opening/{textures,pcsx2}` (game-derived images: never in the repository; SKIP 77 without them).
+The gate's first run found every PSMT4 texture of the opening wrong (the engine dropped PSMT4
+uploads); after the engine fix all 132 PCSX2-matched textures are byte-identical. The census row
+`gs_xfer=` (run.meta) counts host->local transfers per BITBLTBUF.DPSM.
+
+## Overlays -- does the game load code outside the recompiled image? NO
+
+Verdict (overlays stage, 2026-10-17; `$WORK/overlay_notes.md`): the recompiled image is the whole EE code
+of this title. Three independent evidences, each over the boot + the Cairo prologue + the Episode 1 (Paris,
+world `nightclub`) load reached through the game's pause-menu "Advance to Episode 1" code:
+
+1. Writes into the code ranges: `NATIVEEE_WATCH=text[;<hexaddr>,<bytes>...][;every=<n>][;max=<n>][;ramdump=<file>]`
+   (`hle/text_watch.{h,cpp}`, class `TextWatch`) snapshots `.text`+`.vutext` `[0x100000,0x262380)` once the ELF is
+   in RAM and memcmp's it at every EE boundary (any writer: CPU stores, the sceCdRead block copy, SIF/IPU/VIF DMA
+   -- unlike `StoreWatch`, which rides FastMem's Debug-only observer). 9000 boundaries, `text_watch=...dirty_boundaries=1:
+   events=1041:pages=3` -- and those 1041 words are all in the extra range `0x74000,0x3000`, at boundary 1: the SDK's
+   three libkernl kernel patches (the game's own self-installed code, the only one): `_InitSys` 0x2396c0 ->
+   0x2397e8 (0x7a8 bytes `.data` 0x2c4ac0 -> 0x80074000), 0x239968 (0x740 bytes 0x2c5288 -> 0x80076000),
+   0x23b290 (0x330 bytes 0x2c5a68 -> 0x80075000), each copied with the kernel's syscall 0x5a and registered with
+   SetSyscall (0x5b, then the TLB helpers 0x54..0x58) -- reached only through the HLE'd syscall table, never
+   dispatched as EE code. `.text` itself: 0 events in every run.
+2. Jumps outside the function table: every indirect target resolves through `find_containing_function`
+   (tiers 1-3) or parks `fatal_no_jump`; all runs end `park=none`. The composition also counts guest calls the
+   kernel makes to a non-function-start (`guest_call_unknown=` in run.meta): 13, all at boot, all the kernel-patch
+   blobs above (`DispatchTable::Invoke` is silent for them; the patched TLB helpers are replaced by the engine's
+   `hle_InitTLB`). A RAM census (`$WORK/code_census.py`, MIPS function-shape idioms per 4 KiB page) after the Paris
+   load finds code-shaped pages outside `.text` ONLY at 0x74000..0x77000 (the patches), 0x2c4000..0x2c6000 (their
+   `.data` source) and 0x473000..0x4be000 (the `.irx` section = IOP MIPS code).
+3. Disc: the game reads raw sectors only (36 `sceCdRead` for the FMV + the `intro` world, 28 more for `nightclub`
+   LBA 0x53420/0x53430 header + stream 0x56640..0x57b1e, all through the one wrapper 0x14bc78); the streams are
+   LZ-compressed. A sector scan of the whole 2.85 GB image finds code-shaped sectors only in LBA 271..1675 = the
+   ELF + IOPRP300.IMG. IOP: `iop_module_loads=9` before and after the Paris load (the nine ELF-embedded IRX; no
+   disc-side module exists).
+
+The transition exposed E210 (fixed, `tools/recompiler_v2`): the discovery walk fell through the kernel's no-return
+`ExitThread` syscall of crt0's InitMainThread root (0x100220) into the address-taken function 0x100228 (the first
+Splice native, pointed to from `.data` 0x2ac8e0), so an indirect call into it entered at the ExitThread and killed the
+main thread as soon as Paris ran its first script native. `rv2_decode.h is_noreturn_syscall_imm` makes
+`addiu v1,zero,{0x04,0x23,0x24}; syscall` a hard stop; 6575 functions, `recomp/MANIFEST.sha256` re-recorded.
+
 ## STATUS
 
-- `recomp/`: generated at build time (`recomp/INVOCATION.md`, `MANIFEST.sha256`); 6574 functions,
+- `recomp/`: generated at build time (`recomp/INVOCATION.md`, `MANIFEST.sha256`); 6575 functions,
   0 unhandled instructions, no glue TUs needed.
 - `iop/`: four modules recompiled at build time (fileio 53 functions, lgAud 140, 989snd 503, spiop 89;
   0 unimplemented instructions), all four boot and stay resident (`iop_hosted=` in run.meta; lgAud
