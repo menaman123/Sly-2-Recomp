@@ -58,6 +58,7 @@
 #include "app/host/session_workers.h"
 #include "app/host/tick_thread.h"
 #include "app/host/user_data.h"
+#include "app/host/vu1_aot_cache.h"
 #include "engine/cdvd/hle/libcdvd_bindings.h"
 #include "engine/cdvd/iso_fs.h"
 #include "engine/cdvd/read_engine.h"
@@ -543,13 +544,27 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     VuUnit vu1(1, &gif_arbiter, title.quirks.xgkick_defer);
     Vu0Registry vu0_registry;
     Vif vif(vu0, vu1, gif_arbiter, gif_regs);
-    // NATIVEEE_VU1_MODE=interp|cached|block (boot triage): the VU1 fallback tier (engine default Cached;
-    // block = the pre-resolved straight-line block tier, VU1 only). Applied here, before the MTVU
-    // stack copies the inline dispatch's settings for the worker's unit.
-    if (const char* env = std::getenv("NATIVEEE_VU1_MODE"))
-        vu1.dispatch().settings().vu1_mode = std::string(env) == "interp"  ? VuTierMode::Interp
-                                             : std::string(env) == "block" ? VuTierMode::Block
-                                                                            : VuTierMode::Cached;
+    // The VU1 fallback tier from Config engine.vu1_mode (hle = the library ladder, which this title
+    // has none of: cached; cached; interp; block = the pre-resolved straight-line block tier;
+    // aot = the generic run-time recompiler: a verified image on its specialised block table,
+    // the rest on engine.vu1_aot_fallback), then NATIVEEE_VU1_MODE=interp|cached|block|aot (boot
+    // triage) on top. Applied here, before the MTVU stack copies the inline dispatch's settings
+    // for the worker's unit (the AOT tier's status map and cache attach to the LIVE unit below).
+    {
+        auto tier_of = [](const std::string& name, VuTierMode fallback) {
+            return name == "interp" ? VuTierMode::Interp
+                 : name == "block"  ? VuTierMode::Block
+                 : name == "aot"    ? VuTierMode::Aot
+                 : name == "cached" ? VuTierMode::Cached
+                                    : fallback;
+        };
+        VuTierMode mode = cfg.engine.vu1_mode == ps2r::Vu1Mode::Interp ? VuTierMode::Interp
+                        : cfg.engine.vu1_mode == ps2r::Vu1Mode::Block  ? VuTierMode::Block
+                        : cfg.engine.vu1_mode == ps2r::Vu1Mode::Aot    ? VuTierMode::Aot
+                                                                       : VuTierMode::Cached;
+        if (const char* env = std::getenv("NATIVEEE_VU1_MODE")) mode = tier_of(env, mode);
+        vu1.dispatch().settings().vu1_mode = mode;
+    }
     Dmac dmac(ram, spad, vif, gif_arbiter);
     // --- MTVU: VU1 (and the VIF1 stream that drives it) on its own host thread -------------------
     // app/host/mtvu_stack.h, the first title's bundle: the worker's own VU1 unit, the staged VIF1
@@ -585,6 +600,34 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         mtvu->Start(/*with_drain_thread=*/false);
         PS2R_LOG(HOST, Info, "MTVU: VU1 worker started (drain inline, terminal boundary sync, depth_frames=%d)",
                  cfg.engine.mtvu_depth);
+    }
+    // The AOT tier's persistent side (app/host/vu1_aot_cache.h) on the LIVE VU1 unit (the worker's
+    // under MTVU: its dispatch copied the settings above): the manifest under
+    // <user_data>/vu1_aot/<build>/ seeds the verdicts, the corpus (collected under
+    // <user_data>/vu1_aot/corpus at first run, plus engine.vu1_aot_corpus) is verified on a
+    // background thread, the kick observer collects new images. Only when the tier is selected.
+    std::unique_ptr<ps2r::app::Vu1AotCache> vu1_aot_cache;
+    {
+        VuUnit& live = mtvu ? mtvu->WorkerVu1() : vu1;
+        live.dispatch().aot().set_fallback(cfg.engine.vu1_aot_fallback == ps2r::Vu1AotFallback::Interp
+                                               ? Vu1AotTier::Fallback::Interp
+                                               : Vu1AotTier::Fallback::Block);
+        live.dispatch().aot().set_assume_verified(!cfg.engine.vu1_aot_verify);
+    }
+    if (vu1.dispatch().settings().vu1_mode == VuTierMode::Aot && cfg.engine.vu1_aot_verify) {
+        VuUnit& live = mtvu ? mtvu->WorkerVu1() : vu1;
+        ps2r::app::Vu1AotCache::Settings aot_settings;
+        aot_settings.root = (cfg.paths.user_data.empty() ? std::string(".") : cfg.paths.user_data) + "/vu1_aot";
+        aot_settings.build_id = g_build_id;
+        aot_settings.extra_corpus = cfg.engine.vu1_aot_corpus;
+        vu1_aot_cache = std::make_unique<ps2r::app::Vu1AotCache>(live.dispatch().aot(), aot_settings);
+        std::string note;
+        if (!vu1_aot_cache->Open(&note)) {
+            std::fprintf(stderr, "nativeee: %s (the AOT tier runs its fallback for every image)\n", note.c_str());
+            vu1_aot_cache.reset();
+        } else {
+            PS2R_LOG(HOST, Info, "%s", note.c_str());
+        }
     }
     VifMmioGate vif_gate(vif);
     MmioHandler& vif1_window = mtvu ? mtvu->Vif1Window(vif_gate) : static_cast<MmioHandler&>(vif_gate);
@@ -765,7 +808,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                 ++syscall_entry_isrs_deferred;
                 break;
             }
-            const int ran = intc.DispatchPending(ctx);
+            const int ran = intc.DispatchPending(ctx, Intc::kSiteSyscallEntry);
             syscall_entry_isrs += static_cast<uint64_t>(ran);
             if (ran == 0) break;  // pending but refused (nested) or without a handler: nothing more to do here
         }
@@ -1317,7 +1360,14 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             meta->Set("syscall_entry_isrs", std::to_string(syscall_entry_isrs) + ":deferred=" + std::to_string(syscall_entry_isrs_deferred));
             meta->Set("intc_raises", std::to_string(intc.RaiseCount()));
             meta->Set("intc_dispatches", std::to_string(intc.DispatchCount()));
+            // Refusals are a cause raised WHILE a handler ran (the console: EXL masks interrupts
+            // inside the handler; the cause stays pending in STAT and is taken at the next dispatch
+            // point). intc_refused names them: site/<cause in dispatch>><cause refused>=n.
+            // intc_edges=<cause>:raised/dispatched/guest-acked/still-pending -- a lost edge would be
+            // raised > dispatched + acked + pending.
             meta->Set("intc_nested_refusals", std::to_string(intc.NestedRefusals()));
+            meta->Set("intc_refused", intc.RefusalCensus());
+            meta->Set("intc_edges", intc.EdgeCensus());
             meta->Set("gs_irq", "events=" + std::to_string(gs_irq_events) + ":masked=" + std::to_string(gs_irq_masked) +
                                     ":raises=" + std::to_string(gs_irq_raises));
             meta->Set("gs_priv_writes", std::to_string(gs_state.Priv().Writes()));
@@ -1478,8 +1528,36 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             // microprograms interpreted on the kicking EE thread), the unit's cycle count.
             // Under MTVU the worker's unit is the live VU1 (the inline unit's counters stay 0).
             VuUnit& live_vu1 = mtvu ? mtvu->WorkerVu1() : vu1;
+            // block_ns= / block_ns_per_bundle= : the block tier's wall time inside its runs (the AOT tier's native
+            // path runs there too), the per-frame VU1 cost the gameplay fps is bounded by.
+            const VuBlockTier::Stats& bs = live_vu1.dispatch().block().stats();
+            char bnpb[32];
+            std::snprintf(bnpb, sizeof(bnpb), "%.2f", live_vu1.dispatch().block().bundles()
+                                                           ? static_cast<double>(bs.run_ns) / static_cast<double>(live_vu1.dispatch().block().bundles())
+                                                           : 0.0);
             meta->Set("vu1_tier", "bundles=" + std::to_string(live_vu1.dispatch().bundles()) + ":cycle=" + std::to_string(live_vu1.cycle()) +
-                                      ":dropped_kicks=" + std::to_string(live_vu1.DroppedKicks()) + ":unit=" + (mtvu ? "worker" : "inline"));
+                                      ":dropped_kicks=" + std::to_string(live_vu1.DroppedKicks()) + ":unit=" + (mtvu ? "worker" : "inline") +
+                                      ":mode=" + (live_vu1.dispatch().settings().vu1_mode == VuTierMode::Aot ? "aot"
+                                                  : live_vu1.dispatch().settings().vu1_mode == VuTierMode::Block ? "block"
+                                                  : live_vu1.dispatch().settings().vu1_mode == VuTierMode::Interp ? "interp" : "cached") +
+                                      ":block_runs=" + std::to_string(bs.runs) + ":block_ns=" + std::to_string(bs.run_ns) + ":block_ns_per_bundle=" + bnpb);
+            // The AOT tier: images seen / verified / refused / pending a verdict, kicks run native vs
+            // on the fallback, ns per bundle on the native path, the corpus and verifier census.
+            if (live_vu1.dispatch().settings().vu1_mode == VuTierMode::Aot) {
+                const Vu1AotTier& aot = live_vu1.dispatch().aot();
+                if (vu1_aot_cache) {
+                    meta->Set("vu1_aot", vu1_aot_cache->CensusRow());
+                } else {
+                    char ns[32];
+                    std::snprintf(ns, sizeof(ns), "%.2f", aot.native_ns_per_bundle());
+                    meta->Set("vu1_aot", "programs:" + std::to_string(aot.images()) + ":verified:" + std::to_string(aot.verified()) +
+                                             ":refused:" + std::to_string(aot.refused()) + ":pending:0:native_kicks:" +
+                                             std::to_string(aot.stats().native_kicks) + ":fallback_kicks:" +
+                                             std::to_string(aot.stats().fallback_kicks) + ":native_bundles:" +
+                                             std::to_string(aot.stats().native_bundles) + ":ns_per_bundle:" + ns +
+                                             (aot.assume_verified() ? ":assume_verified:1" : ":no_cache:1"));
+                }
+            }
         }
     };
     using ps2r::triage::TriageBundle;
@@ -1713,6 +1791,8 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         note("pacer");
         if (mtvu) mtvu->Stop();   // drains its queue, joins, unbinds VIF1 (no producer is left)
         note("mtvu_worker");
+        if (vu1_aot_cache) vu1_aot_cache->Close(/*drain=*/false);   // the live unit is quiet: no more kicks to observe
+        note("vu1_aot");
         if (gs_queue) gs_queue->Quiesce();
         note("gs_quiesce");
         if (audio_sink.Running()) audio_sink.Close();

@@ -51,8 +51,17 @@ worker's frames are byte-identical to lockstep's). Before that the VU1 cached ti
 kernels under `PS2R_SIMD=ON` -- which build.sh now passes; every step proven byte-identical by replaying
 720 captured VU1 kicks on both tiers). The floor is now the VU1 execution itself: the title waits for the
 FINISH at the end of each chain it kicks, so the frame is a ping-pong between the EE and the worker and only
-the GIF drain overlaps; ~1.08 M VU1 bundles per frame at ~25-28 ns each is 27-30 ms. 30 fps needs a cheaper
-per-bundle block tier (or per-title VU1 HLE), not more threading.
+the GIF drain overlaps; ~1.08 M VU1 bundles per frame at ~18-21 ns each is 20-23 ms of the worker's time.
+The engine's generic VU1 AOT tier (`engine.vu1_mode=aot` / `NATIVEEE_VU1_MODE=aot`, engine/vu/vu1_aot/) runs
+a microprogram image native -- its block table re-resolved to instruction bodies specialised on each slot's
+kind and dest mask -- once the image is VERIFIED against the title's VU1 corpus (every captured kick of that
+image replays identically to the interpreter: registers, memory, clock, kicked bytes); the corpus is collected
+at first run and the verdicts cached under the user data dir (`<user_data>/vu1_aot/`, keyed by image hash and
+engine build), anything unverified runs on the block tier. Measured on the gameplay window with the worker on:
+block 24.4 fps p50 / 19.1 ns per bundle, aot 24.9 fps p50 / 18.4 ns per bundle on the same host and minute
+(the stall model's writeback-ring removal that landed with it took the block and cached tiers down 9-12 % on the bench); the 30 fps target is
+not met -- the remaining cost is the per-op glue of the block loop (~40 % of VU1 time), which only generated
+per-block code would remove.
 Not done: no per-title HLE of any kind (VU1 program library, renderer profile); the 989snd
 handler-node corruption noted in the title README remains.
 
@@ -125,8 +134,8 @@ tools, `nativeee` (a stub that reports "supplies no play composition"), the titl
 (`ActiveTitleProfile()`), the component test suite. `--tests` builds the whole tree with `ninja -k 0`,
 audits the log against `.github/ci/known_broken_targets.txt` (anything else failing is an error),
 requires 0 `warning:` / 0 `ld: warning`, then runs `ctest -E <.github/ci/ctest_exclusions.txt>`.
-On the macOS reference host: 972 ninja steps, ~6 min at `-j 8`; **358 tests run, 358 pass (25 of them
-SKIP 77: private fixtures / the frozen original tree), 51 excluded** -- "Known issues" lists every exclusion.
+On the macOS reference host: 972 ninja steps, ~6 min at `-j 8`; **359 tests run, 359 pass (25 of them
+SKIP 77: private fixtures / the frozen original tree), 50 excluded** -- "Known issues" lists every exclusion.
 
 ### With your own disc
 
@@ -258,8 +267,12 @@ queue depth in frames.
 every DrawIr with its vertices; `NATIVEEE_IPU_OUT_DUMP=<file>` is the fromIPU side of `NATIVEEE_IPU_DUMP`;
 `NATIVEEE_AUDIO_DUMP=<file.wav>` writes the DEVICE audio stream (pads included) as 48 kHz stereo int16 (play mode);
 `NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>]` records VU1 kicks as `Vu1Case` files + their PATH1 packets
-(hle/vu1_probe.h; replay with `tests/vu/test_vu1_capture_replay <case.bin> [--trace]`); `NATIVEEE_VU1_MODE=interp`
-selects the VU1 interpreter tier; `NATIVEEE_PAD_SCRIPT=<text or file>` with `<stamp>:<buttons_hex>:<hold>[:<lx>,<ly>[,<rx>,<ry>]][,...]`
+(hle/vu1_probe.h; replay with `tests/vu/test_vu1_capture_replay <case.bin> [--trace] [--cached|--block|--aot]`);
+`NATIVEEE_VU1_MODE=interp|cached|block|aot` selects the VU1 tier over Config `engine.vu1_mode` (aot: the generic
+recompiler -- `engine.vu1_aot_corpus=<dir>` adds a corpus of captured cases to verify against at start,
+`engine.vu1_aot_fallback=block|interp` is where an unverified image runs, `engine.vu1_aot_verify=off` runs every image
+native unverified -- a bench knob; run.meta `vu1_aot=programs:..:verified:..:native_kicks:..:ns_per_bundle:..` and
+`vu1_tier=...:block_ns_per_bundle=` are the census); `NATIVEEE_PAD_SCRIPT=<text or file>` with `<stamp>:<buttons_hex>:<hold>[:<lx>,<ly>[,<rx>,<ry>]][,...]`
 presses buttons / holds the sticks over the live pad (`500:8:10,650:8:10` = START twice: skip the intro, New
 Game; `3950:0:120:0,128` = left stick full left for 120 boundaries; a file in the same grammar -- blanks and
 newlines separate like commas, `#` comments -- is what `NATIVEEE_PAD_RECORD` writes); `NATIVEEE_KEY_SCRIPT=<stamp>:<sdl_scancode>:<hold>`
@@ -280,12 +293,13 @@ the shadow-stack frame; needs a non-NDEBUG engine build, e.g. `--type RelWithDeb
 
 Performance and picture (the title):
 
-- **23-27 fps in gameplay** on an M4 (intro / title screens at 60; 19-24 with MTVU off, `--set engine.mtvu=0`):
-  the bound is the engine's VU1 block tier itself, now on the MTVU worker thread (~1.08 M bundles per frame
-  at ~25-28 ns = 27-30 ms; a real VU1 is ~6x faster). The title waits for each kicked chain's FINISH before
-  building the next, so the EE and the worker alternate rather than overlap. 30 fps needs a cheaper
-  per-bundle tier or per-title VU1 HLE -- and this port has, by design, no per-title HLE yet
-  (`vu1_library/`, `renderer_profile/` are STATUS-only).
+- **24-29 fps in gameplay** on an M4 (intro / title screens at 60; 19-24 with MTVU off, `--set engine.mtvu=0`):
+  the bound is the engine's VU1 tier itself on the MTVU worker thread (~1.08 M bundles per frame at ~18-21 ns
+  = 20-23 ms; a real VU1 is ~6x faster). The generic AOT tier (`engine.vu1_mode=aot`) and the stall model's
+  ring removal bought ~10-13 % per bundle over the block tier of the previous round, not the ~25 % the target
+  needs; the title waits for each kicked chain's FINISH before building the next, so the EE and the worker
+  alternate rather than overlap. 30 fps needs generated per-block code (the AOT tier's next step) or per-title
+  VU1 HLE -- and this port has, by design, no per-title HLE yet (`vu1_library/`, `renderer_profile/` are STATUS-only).
 - Picture gaps: strips over never-uploaded texture pages; one GL "zero texture" warning per run.
 - The 989snd handler-node corruption noted in the title README (`[IOP-RECOMP] Unresolved JALR` is 0 now).
 
@@ -306,11 +320,14 @@ Build and test (the engine at the pinned commit, `be7386a`; each row is also in
   (`verify/restore_mhash_expected.tsv`), `TitleSymbolsTableSelftest` (`symbols/build_symbols.py`), and the
   `Verify*Selftest` / `VerifyAnchorsTable*` rows (`games/<title>/verify/baseline`, `verify/platform_ref/`).
   All excluded; the upstream issue is "parametrise on the title or SKIP 77".
-- **Three engine component regressions at `be7386a`**, reproduced on a fresh build (the dev host's stale
-  test binaries had hidden them): `Present_DrawScanoutSource` and `Render_BlendEquationPin` still expect
-  the pre-"one stored-alpha convention" values (that commit re-pinned `test_gl_alpha_convention` and
-  `test_blend_ff_map` only), `LibsdModule` expects ordinal 16 to return 0. Excluded with that reason; to be
-  fixed in the engine and the rows removed.
+- **Two engine component regressions at `be7386a`**, reproduced on a fresh build (the dev host's stale
+  test binaries had hidden them): `Present_DrawScanoutSource` still expects the pre-"one stored-alpha
+  convention" values (that commit re-pinned `test_gl_alpha_convention` and `test_blend_ff_map` only),
+  `LibsdModule` expects ordinal 16 to return 0. Excluded with that reason; to be fixed in the engine and
+  the rows removed. (`Render_BlendEquationPin` was a third: the test uploaded its texel alpha under the
+  old x2 GPU rescale, so a stored 0xFF read as alpha 2.0 and both halves of the "As halves the additive
+  contribution" check saturated. The engine's MODULATE/As path matched the GS User's Manual; the test's
+  texture now carries the stored alpha bytes 0x80/0x40 and passes 35/35.)
 - **Windows is unverified.** Neither this repository's `build.ps1` nor the engine's Windows arm has run on
   a Windows machine (engine README: no Windows GL loader yet, POSIX headers in six TUs). The CI lane is
   `continue-on-error`: it configures with the `windows-release` preset (clang-cl, vcpkg) and builds

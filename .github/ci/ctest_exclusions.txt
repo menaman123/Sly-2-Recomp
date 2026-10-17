@@ -50,8 +50,9 @@
 
 # ---- 4. Engine component regressions at the pinned commit (be7386a), reproduced on a fresh build:
 #         the "one stored-alpha convention" change re-pinned test_gl_alpha_convention and
-#         test_blend_ff_map but not these two, and LibsdModule's ordinal-16 expectation predates
-#         the IOP-hosting work. To be fixed in the engine; remove the rows when green.
+#         test_blend_ff_map but not Present_DrawScanoutSource, and LibsdModule's ordinal-16
+#         expectation predates the IOP-hosting work. To be fixed in the engine; remove the rows
+#         when green. (Render_BlendEquationPin was the third: its texture upload still used the
+#         pre-convention x2 alpha; re-pinned to stored alpha bytes in the engine working tree.)
 ^Present_DrawScanoutSource$
-^Render_BlendEquationPin$
 ^LibsdModule$
