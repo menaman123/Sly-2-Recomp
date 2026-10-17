@@ -57,11 +57,18 @@ a microprogram image native -- its block table re-resolved to instruction bodies
 kind and dest mask -- once the image is VERIFIED against the title's VU1 corpus (every captured kick of that
 image replays identically to the interpreter: registers, memory, clock, kicked bytes); the corpus is collected
 at first run and the verdicts cached under the user data dir (`<user_data>/vu1_aot/`, keyed by image hash and
-engine build), anything unverified runs on the block tier. Measured on the gameplay window with the worker on:
-block 24.4 fps p50 / 19.1 ns per bundle, aot 24.9 fps p50 / 18.4 ns per bundle on the same host and minute
-(the stall model's writeback-ring removal that landed with it took the block and cached tiers down 9-12 % on the bench); the 30 fps target is
-not met -- the remaining cost is the per-op glue of the block loop (~40 % of VU1 time), which only generated
-per-block code would remove.
+engine build), anything unverified runs on the block tier. Above the specialised table sits the CODE GENERATOR
+(`engine.vu1_aot_codegen`, on by default): once an image is verified, its blocks are emitted as C++ -- one function
+per block of the block tier's table, every slot a compile-time constant through the engine's own instruction
+bodies -- compiled with a C++ compiler found on the host at run time (`engine.vu1_aot_compiler`, else the one that
+built the engine, `/usr/bin/clang++`, `c++`, `g++`, `clang++`) on a background thread (~7-9 s per image at -O2 on an
+idle M4), loaded, RE-VERIFIED on the same corpus, and only then swapped into the live block table; the library is
+cached under `<user_data>/vu1_aot/<build>/` and reused on the next run. No compiler on the host = one notice, the
+specialised tier continues. Measured on the gameplay window with the worker on, same host hour (load 7-9):
+block 25.9 fps p50 / 20.7 ns per bundle, aot (specialised only) 25.5 / 18.8, aot + generated code 28.4 / 17.1
+(whole run 31.1); on the bench the generated code is 10.2-10.8 ns per bundle against the block tier's 13.4-14.9
+(-25 %). The 30 fps target is still not met: with the generated code the VU1 worker idles ~55 % of the frame
+(it was busy 77 % before), and the remaining time is the EE guest render thread and the GS side, not VU1.
 Not done: no per-title HLE of any kind (VU1 program library, renderer profile); the 989snd
 handler-node corruption noted in the title README remains.
 
@@ -271,8 +278,12 @@ every DrawIr with its vertices; `NATIVEEE_IPU_OUT_DUMP=<file>` is the fromIPU si
 `NATIVEEE_VU1_MODE=interp|cached|block|aot` selects the VU1 tier over Config `engine.vu1_mode` (aot: the generic
 recompiler -- `engine.vu1_aot_corpus=<dir>` adds a corpus of captured cases to verify against at start,
 `engine.vu1_aot_fallback=block|interp` is where an unverified image runs, `engine.vu1_aot_verify=off` runs every image
-native unverified -- a bench knob; run.meta `vu1_aot=programs:..:verified:..:native_kicks:..:ns_per_bundle:..` and
-`vu1_tier=...:block_ns_per_bundle=` are the census); `NATIVEEE_PAD_SCRIPT=<text or file>` with `<stamp>:<buttons_hex>:<hold>[:<lx>,<ly>[,<rx>,<ry>]][,...]`
+native unverified -- a bench knob; `engine.vu1_aot_codegen=off` keeps the specialised tier without generated code,
+`engine.vu1_aot_compiler=<c++>` / `engine.vu1_aot_prelude=<dir>` / `engine.vu1_aot_opt=1|2` steer the run-time
+compile; run.meta `vu1_aot=programs:..:verified:..:native_kicks:..:ns_per_bundle:..`,
+`vu1_aot_codegen=compiler:..:jobs:..:cached:..:compiled:..:native:..:refused:..:installs:..` and
+`vu1_tier=...:block_ns_per_bundle=` are the census; `tests/app/test_vu1_aot_native <case dir>... [--keep <dir>]` builds and
+re-verifies the generated libraries of a corpus, `test_vu1_capture_replay --bench N --aot --native <dir>` benches them); `NATIVEEE_PAD_SCRIPT=<text or file>` with `<stamp>:<buttons_hex>:<hold>[:<lx>,<ly>[,<rx>,<ry>]][,...]`
 presses buttons / holds the sticks over the live pad (`500:8:10,650:8:10` = START twice: skip the intro, New
 Game; `3950:0:120:0,128` = left stick full left for 120 boundaries; a file in the same grammar -- blanks and
 newlines separate like commas, `#` comments -- is what `NATIVEEE_PAD_RECORD` writes); `NATIVEEE_KEY_SCRIPT=<stamp>:<sdl_scancode>:<hold>`
@@ -293,13 +304,15 @@ the shadow-stack frame; needs a non-NDEBUG engine build, e.g. `--type RelWithDeb
 
 Performance and picture (the title):
 
-- **24-29 fps in gameplay** on an M4 (intro / title screens at 60; 19-24 with MTVU off, `--set engine.mtvu=0`):
-  the bound is the engine's VU1 tier itself on the MTVU worker thread (~1.08 M bundles per frame at ~18-21 ns
-  = 20-23 ms; a real VU1 is ~6x faster). The generic AOT tier (`engine.vu1_mode=aot`) and the stall model's
-  ring removal bought ~10-13 % per bundle over the block tier of the previous round, not the ~25 % the target
-  needs; the title waits for each kicked chain's FINISH before building the next, so the EE and the worker
-  alternate rather than overlap. 30 fps needs generated per-block code (the AOT tier's next step) or per-title
-  VU1 HLE -- and this port has, by design, no per-title HLE yet (`vu1_library/`, `renderer_profile/` are STATUS-only).
+- **26-29 fps in gameplay** on an M4 (intro / title screens at 60; 19-24 with MTVU off, `--set engine.mtvu=0`):
+  the engine's VU1 tier on the MTVU worker thread was the bound (~1.08 M bundles per frame at ~18-21 ns = 20-23 ms;
+  a real VU1 is ~6x faster); the generic AOT tier's generated per-block code (`engine.vu1_mode=aot`, a C++
+  compiler on the host) takes the worker to ~17 ns per bundle in game (10 on the bench) and the worker now idles
+  ~55 % of the frame -- gameplay 28.4 fps p50 against the block tier's 25.9 in the same hour. The title waits for
+  each kicked chain's FINISH before building the next, so the EE and the worker alternate rather than overlap, and
+  the rest of the frame is the EE guest render thread and the GS pipeline (target refresh / decode-cache eviction /
+  vertex kick), which the VU1 tier cannot shorten; per-title VU1 HLE would remove the kicks themselves -- and this
+  port has, by design, no per-title HLE yet (`vu1_library/`, `renderer_profile/` are STATUS-only).
 - Picture gaps: strips over never-uploaded texture pages; one GL "zero texture" warning per run.
 - The 989snd handler-node corruption noted in the title README (`[IOP-RECOMP] Unresolved JALR` is 0 now).
 

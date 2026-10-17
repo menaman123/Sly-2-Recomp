@@ -58,6 +58,7 @@
 #include "app/host/session_workers.h"
 #include "app/host/tick_thread.h"
 #include "app/host/user_data.h"
+#include "app/host/vu1_aot_builder.h"
 #include "app/host/vu1_aot_cache.h"
 #include "engine/cdvd/hle/libcdvd_bindings.h"
 #include "engine/cdvd/iso_fs.h"
@@ -606,6 +607,12 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // <user_data>/vu1_aot/<build>/ seeds the verdicts, the corpus (collected under
     // <user_data>/vu1_aot/corpus at first run, plus engine.vu1_aot_corpus) is verified on a
     // background thread, the kick observer collects new images. Only when the tier is selected.
+    // The code generator above it (app/host/vu1_aot_builder.h; engine.vu1_aot_codegen): a verified
+    // image's blocks emitted as C++, compiled by the host toolchain on the builder's thread, loaded,
+    // re-verified on the corpus and handed to the tier, which swaps the block functions at the next
+    // kick. Declared BEFORE the cache (destroyed after it: the tier may hold its functions until the
+    // VU is quiet). No compiler on the host = one notice, the specialised tier continues.
+    std::unique_ptr<ps2r::app::Vu1AotBuilder> vu1_aot_builder;
     std::unique_ptr<ps2r::app::Vu1AotCache> vu1_aot_cache;
     {
         VuUnit& live = mtvu ? mtvu->WorkerVu1() : vu1;
@@ -621,6 +628,23 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         aot_settings.build_id = g_build_id;
         aot_settings.extra_corpus = cfg.engine.vu1_aot_corpus;
         vu1_aot_cache = std::make_unique<ps2r::app::Vu1AotCache>(live.dispatch().aot(), aot_settings);
+        if (cfg.engine.vu1_aot_codegen) {
+            ps2r::app::Vu1AotBuilder::Settings bs;
+            bs.root = aot_settings.root;
+            bs.build_id = g_build_id;
+            bs.compiler = cfg.engine.vu1_aot_compiler;
+            bs.prelude_dir = cfg.engine.vu1_aot_prelude;
+            bs.opt_level = cfg.engine.vu1_aot_opt;
+            vu1_aot_builder = std::make_unique<ps2r::app::Vu1AotBuilder>(live.dispatch().aot(), bs);
+            std::string bnote;
+            if (vu1_aot_builder->Open(&bnote)) {
+                PS2R_LOG(HOST, Info, "%s", bnote.c_str());
+                vu1_aot_cache->SetBuilder(vu1_aot_builder.get());
+            } else {
+                std::fprintf(stderr, "nativeee: %s\n", bnote.c_str());
+                vu1_aot_builder.reset();
+            }
+        }
         std::string note;
         if (!vu1_aot_cache->Open(&note)) {
             std::fprintf(stderr, "nativeee: %s (the AOT tier runs its fallback for every image)\n", note.c_str());
@@ -1547,6 +1571,10 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                 const Vu1AotTier& aot = live_vu1.dispatch().aot();
                 if (vu1_aot_cache) {
                     meta->Set("vu1_aot", vu1_aot_cache->CensusRow());
+                    // The code generator: compiler, images built / cached / refused, compile and
+                    // re-verify wall, block functions installed on the live table.
+                    if (vu1_aot_builder) meta->Set("vu1_aot_codegen", vu1_aot_builder->CensusRow());
+                    else meta->Set("vu1_aot_codegen", cfg.engine.vu1_aot_codegen ? "no_compiler:1" : "off:1");
                 } else {
                     char ns[32];
                     std::snprintf(ns, sizeof(ns), "%.2f", aot.native_ns_per_bundle());
@@ -1793,6 +1821,8 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         note("mtvu_worker");
         if (vu1_aot_cache) vu1_aot_cache->Close(/*drain=*/false);   // the live unit is quiet: no more kicks to observe
         note("vu1_aot");
+        if (vu1_aot_builder) vu1_aot_builder->Close();   // a running compile finishes; queued images are dropped
+        note("vu1_aot_codegen");
         if (gs_queue) gs_queue->Quiesce();
         note("gs_quiesce");
         if (audio_sink.Running()) audio_sink.Close();
