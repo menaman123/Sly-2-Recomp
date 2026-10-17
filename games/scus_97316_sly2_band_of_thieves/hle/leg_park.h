@@ -39,6 +39,9 @@ public:
 
     LegCloser closer;
     uint64_t boundaries = 0;
+    // The GameBoundary completed-consumer calls (the session's boundary runs there, play): a count
+    // below `boundaries` = boundaries whose completion the dispatch could not schedule (run.meta).
+    uint64_t boundary_consumer_calls = 0;
     const std::chrono::steady_clock::time_point leg_t0;
     std::string boundary_wall;
     std::string shutdown_steps, guest_join_abandoned;   // run.meta shutdown= ("" = no ladder ran / none abandoned)

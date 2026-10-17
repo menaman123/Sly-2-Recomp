@@ -24,13 +24,14 @@ constexpr uint64_t kGuestJoinDeadlineMs = 5000;
 }  // namespace
 
 LegVerifySlot::LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, const LegKnobs& knobs, LegCore& core, LegGs& gs,
-                             LegMtvu& mtvu, LegServices& services, LegAudio& audio, LegPlay& play, LegPark& park, LegCensus& census,
-                             TextWatch& text_watch)
+                             LegMtvu& mtvu, LegServices& services, LegAudio& audio, LegPlay& play, LegSaves& saves, LegPark& park,
+                             LegCensus& census, TextWatch& text_watch)
     : verify_spans{{core.ram.Data(), core.ram.Size()}, {core.spad.Data(), core.spad.Size()}},
       tick_thread(core.tick_source, core.sequencer.Ticks(), core.protocol),
       session_workers(ThreadManager::Instance(), core.running, [this] { tick_thread.Stop(); }, [&core] { core.protocol.NotifyTick(); }),
+      display_sequence(cfg.harness.display_sequence),
       cfg_(cfg), host_(host), knobs_(knobs), core_(core), gs_(gs), mtvu_(mtvu), services_(services), audio_(audio), play_(play),
-      park_(park), census_(census), text_watch_(text_watch) {
+      saves_(saves), park_(park), census_(census), text_watch_(text_watch) {
     // --set harness.inject_key=<KEY>@N[-M][,...]: KEY = F1..F12 or an SDL key name (Escape, Space ...).
     // The validator pinned the format; an unknown name is refused here.
     for (std::string rest = cfg.harness.inject_key; !rest.empty();) {
@@ -52,6 +53,7 @@ LegVerifySlot::LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& 
         }
         harness_keys.push_back(k);
     }
+    census.SetDisplaySequence(&display_sequence);
     core.sequencer.SetStep(BoundarySequencer::Step::Verify, [this](CpuContext&) {
         VerifyStep();
         return true;
@@ -62,6 +64,18 @@ LegVerifySlot::LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& 
         // window and enforcing the shutdown deadline); the boundary thread sees
         // Boundary() == false and unwinds, the waiters wake terminated.
         hooks.stop = [this] { session_workers.Cancel(); };
+        // The pause (F9, the pause menu's Escape): on the game owner at its boundary -- the
+        // field ticker stops (no wall edges accumulate behind a paused game) and the audio
+        // device is paused on main (the device callback is main's); resume restarts both.
+        // The paced leg only: an unpaced / headless composition has no ticker to stop.
+        hooks.pause = [this](bool paused) {
+            if (paused) tick_thread.Stop(); else if (core_.play_mode && gs_.video_live && !knobs_.unpaced) tick_thread.Start();
+            if (audio_.audio_sink.Running() && play_.session) {
+                if (!play_.session->OnMain([this, paused] { audio_.audio_sink.SetPaused(paused); }) && !play_.session->Closing())
+                    std::fprintf(stderr, "nativeee: pause: the audio owner (main) did not take the %s\n", paused ? "pause" : "resume");
+            }
+            ++pauses;
+        };
         // The game worker, after the cold boot returned: the join ladder, then the census.
         hooks.stopped = [this] {
             JoinLadder();
@@ -69,7 +83,20 @@ LegVerifySlot::LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& 
             park_.closer.Close("none", 0, 0, "window_closed");
             std::fflush(stdout);
         };
+        // F5 / F8: the capture and the live restore (LegSaves) bound before the hooks are set.
+        saves.Bind(hooks, session_workers, tick_thread, audio);
         play.session->SetHooks(std::move(hooks));
+        // The session's boundary (pause / step / F5 capture / F8 restore / the close) runs in the
+        // GameBoundary's COMPLETED consumer -- after the boundary's slots, when the vblank wait's
+        // installed body has returned (DeferServiceReturn -> DispatchTable::AfterCurrentReturn): the
+        // only scope GameBoundary::FreshThreads accepts (the F5 capture needs the completed caller
+        // chain). False = the window was closed OR an F8 restore is unwinding this game owner: the
+        // boundary thread unwinds (ThreadExitUnwind); the close's census + closer run in the
+        // `stopped` hook, the restore's supervisor relaunches the restored threads (SessionRestart).
+        core.game_boundary.SetConsumer([this](uint64_t frame) {
+            ++park_.boundary_consumer_calls;
+            if (play_.session && !play_.session->Boundary(frame)) throw ThreadExitUnwind{};
+        });
     }
 }
 
@@ -98,6 +125,19 @@ void LegVerifySlot::HarnessVerbs(uint64_t at_boundary) {
             std::fprintf(stderr, "nativeee: harness.inject_key %s released at boundary %llu\n", k.name.c_str(),
                          static_cast<unsigned long long>(at_boundary));
         }
+    }
+    if (!display_sequence.Empty()) {
+        display_sequence.OnBoundary(at_boundary, audio_.audio_ring.padded(), [this, at_boundary](const ps2r::app::DisplaySequence::Step& step) {
+            const uint64_t id = play_.session->Controls().Submit(step.action, step.value);
+            std::fprintf(stderr, "nativeee: harness.display_sequence %s at boundary %llu: %s\n", step.mode.c_str(),
+                         static_cast<unsigned long long>(at_boundary), id ? "submitted to the presenter" : "refused by SessionControls");
+            return id;
+        }, [this](uint64_t id) {
+            const auto snapshot = play_.session->Controls().Read();
+            for (const auto& result : snapshot.recent)
+                if (result.request.id == id) return true;
+            return false;
+        });
     }
     if (cfg_.harness.close_at_frame > 0 && !close_pushed && at_boundary >= static_cast<uint64_t>(cfg_.harness.close_at_frame)) {
         close_pushed = true;
@@ -203,10 +243,8 @@ void LegVerifySlot::VerifyStep() {
         }
     }
     if (cfg_.harness.frames > 0 && boundary + 1 >= static_cast<uint64_t>(cfg_.harness.frames)) EndLegFromBoundary("frames_cap");
-    // The session's boundary (pause / step / the close): false = the window was closed --
-    // the leg ends here with its census (the stop hook on main may be closing it too; the
-    // closer closes exactly once) and the guest workers unwind.
-    if (play_.session && !play_.session->Boundary(park_.boundaries)) EndLegFromBoundary("session_closed");
+    // The session's boundary (pause / step / F5 / F8 / the close) runs in the GameBoundary's completed
+    // consumer (the constructor), not here: see the consumer's comment.
 }
 
 void LegVerifySlot::WriteRoutes(uint32_t present_key, const ps2r::gs::DrawPipeline::Frame& fr) {
@@ -240,24 +278,39 @@ void LegVerifySlot::JoinLadder() {
     // the queue's own Stop/join and the video stack's teardown run in the frame's destructor order,
     // on main), the audio device, the census.
     const auto t0 = std::chrono::steady_clock::now();
+    // Each step is also entered in the session's ShutdownCensus (play): main's shutdown watchdog
+    // names the step in progress when the deadline passes.
+    ps2r::app::ShutdownCensus* shutdown = play_.session ? &play_.session->Shutdown() : nullptr;
+    auto enter = [&](const char* step) { if (shutdown) shutdown->Enter(step); };
     auto note = [&](const char* step) {
+        if (shutdown) shutdown->Leave();
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
         park_.shutdown_steps += (park_.shutdown_steps.empty() ? "" : ",") + std::string(step) + "@" + std::to_string(ms) + "ms";
     };
+    enter("guest_join");
     if (session_workers.Join(kGuestJoinDeadlineMs, &park_.guest_join_abandoned) > 0)
         std::fprintf(stderr, "nativeee: shutdown: guest workers abandoned after %llu ms: %s\n",
                      static_cast<unsigned long long>(kGuestJoinDeadlineMs), park_.guest_join_abandoned.c_str());
     note("guest_join");
+    enter("pacer");
     tick_thread.Stop();
     note("pacer");
+    enter("savestate_writer");
+    saves_.JoinWriter();   // the F5 writer (no new captures: the workers are joined)
+    note("savestate_writer");
+    enter("mtvu_worker");
     if (mtvu_.mtvu) mtvu_.mtvu->Stop();   // drains its queue, joins, unbinds VIF1 (no producer is left)
     note("mtvu_worker");
+    enter("vu1_aot");
     if (mtvu_.vu1_aot_cache) mtvu_.vu1_aot_cache->Close(/*drain=*/false);   // the live unit is quiet: no more kicks to observe
     note("vu1_aot");
+    enter("vu1_aot_codegen");
     if (mtvu_.vu1_aot_builder) mtvu_.vu1_aot_builder->Close();   // a running compile finishes; queued images are dropped
     note("vu1_aot_codegen");
+    enter("gs_quiesce");
     if (gs_.gs_queue) gs_.gs_queue->Quiesce();
     note("gs_quiesce");
+    enter("audio_close");
     if (audio_.audio_sink.Running()) audio_.audio_sink.Close();
     audio_.audio_ring.SetPullTap(nullptr, nullptr);   // the device callback has returned (Close waits for it)
     audio_.audio_dump.Close();

@@ -22,8 +22,10 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_iop.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_mtvu.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_pad.h"
+#include "app/host/display_sequence.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_play.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/text_watch.h"
 
@@ -45,12 +47,16 @@ public:
         LegServices& services;
         LegAudio& audio;
         LegPlay& play;
+        LegSaves& saves;
         LegIop& iop;
         LegPad& pad;
         LegImage& image;
         TextWatch& text_watch;
         LegPark& park;
+        // Set by LegVerifySlot (constructed after the census): the harness display sequence's census.
+        const ps2r::app::DisplaySequence* verify_display_sequence = nullptr;
     };
+    void SetDisplaySequence(const ps2r::app::DisplaySequence* seq) { p_.verify_display_sequence = seq; }
 
     explicit LegCensus(const Phases& p) : p_(p) {}
     LegCensus(const LegCensus&) = delete;

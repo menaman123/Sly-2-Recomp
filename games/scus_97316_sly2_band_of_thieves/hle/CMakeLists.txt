@@ -59,6 +59,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         leg_park.cpp
         leg_park_sink.cpp
         leg_play.cpp
+        leg_saves.cpp
         leg_services.cpp
         leg_text.cpp
         leg_verify_slot.cpp

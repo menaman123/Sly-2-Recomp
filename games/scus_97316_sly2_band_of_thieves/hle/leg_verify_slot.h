@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "app/host/display_sequence.h"
 #include "app/host/session_workers.h"
 #include "app/host/tick_thread.h"
 #include "engine/core/config/config.h"
@@ -32,6 +33,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_mtvu.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_play.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/text_watch.h"
 
@@ -40,8 +42,8 @@ namespace ps2r::title::sly2 {
 class LegVerifySlot {
 public:
     LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, const LegKnobs& knobs, LegCore& core, LegGs& gs,
-                  LegMtvu& mtvu, LegServices& services, LegAudio& audio, LegPlay& play, LegPark& park, LegCensus& census,
-                  TextWatch& text_watch);
+                  LegMtvu& mtvu, LegServices& services, LegAudio& audio, LegPlay& play, LegSaves& saves, LegPark& park,
+                  LegCensus& census, TextWatch& text_watch);
     LegVerifySlot(const LegVerifySlot&) = delete;
     LegVerifySlot& operator=(const LegVerifySlot&) = delete;
 
@@ -56,7 +58,11 @@ public:
     TickThread tick_thread;
     ps2r::app::SessionWorkers session_workers;
     std::vector<HarnessKeyPress> harness_keys;
+    // --set harness.display_sequence=<frame>:<mode>[,...]: the Display page's requests through the
+    // same SessionControls route the menu widget takes (run.meta display_sequence=).
+    ps2r::app::DisplaySequence display_sequence;
     bool close_pushed = false;
+    uint64_t pauses = 0;   // census: pause hook calls (pause + resume)
 
 private:
     [[noreturn]] void EndLegFromBoundary(const char* detail);
@@ -73,6 +79,7 @@ private:
     LegServices& services_;
     LegAudio& audio_;
     LegPlay& play_;
+    LegSaves& saves_;
     LegPark& park_;
     LegCensus& census_;
     TextWatch& text_watch_;

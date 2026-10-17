@@ -43,7 +43,11 @@
 //   LegServices    RpcRouter, the memory card store + model + MCSERV face, PadProtocol + the padman
 //                  face, SpuCore, Mixer, SdBlockTrans + the SDRDRV face
 //   LegAudio       the SDL audio device + pull ring (+ AudioDump)
-//   LegPlay        the live pad + the SessionRuntime window, the presented-image output
+//   LegPlay        the live pad + the SessionRuntime window, the presented-image output, the
+//                  player's menu pages (Display / Controls / the pause menu)
+//   LegSaves       the save states: the section registry (RAM / SPAD / GCLK / VU / THRD / kernel /
+//                  INTC / DMAC / TIMR / VIFS / GS / GIFS / PADS / VU1R / SPU2 / MCHL), the F5 capture,
+//                  the F8 live restore (bound into the session's hooks by LegVerifySlot)
 //   LegIop         IopHost, the SIF DMA copy, the padman facts, the IopDispatch / EeStreamRpc steps, the
 //                  SIF command path, the back-edge yield
 //   LegPad         PadScript / PadRecorder / the key script, the slot-4 MaintDuties step
@@ -103,6 +107,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park_sink.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_play.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_verify_slot.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_watchdog.h"
@@ -168,6 +173,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegAudio audio(cfg, knobs, core);
     LegPlay play(cfg, title, core, gs, audio);
     if (play.Failed()) return 2;
+    LegSaves saves(cfg, host, title, core, gs, devices, mtvu, services, play, g_build_id);
     LegIop iop(cfg, core, devices, mtvu, interrupts, disc, services);
     LegPad pad(knobs, core, services, play);
     LegImage image(cfg, host, title, elf_path, title_dir, knobs, core, disc, services, iop);
@@ -175,10 +181,10 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // NATIVEEE_WATCH=text[;...]: the code-range snapshot compare (text_watch.h) -- after the ELF load.
     TextWatch text_watch(knobs.watch ? knobs.watch->c_str() : nullptr, core.ram);
     LegPark park(host, knobs, core, devices, mtvu);
-    LegCensus census(LegCensus::Phases{cfg, host, title, core, gs, devices, mtvu, dma_ipu, interrupts, services, audio, play, iop,
-                                       pad, image, text_watch, park});
+    LegCensus census(LegCensus::Phases{cfg, host, title, core, gs, devices, mtvu, dma_ipu, interrupts, services, audio, play, saves,
+                                       iop, pad, image, text_watch, park});
     LegParkSink park_sink(host, census, park, play, disc, iop);
-    LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, park, census, text_watch);
+    LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);
     if (verify.Failed()) return 2;
     LegWatchdog watchdog(host, knobs, core, park, census);
 
@@ -218,6 +224,9 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         std::string release_error;
         if (!ThreadManager::Instance().ReleaseCurrentThread(&release_error) && !failure)
             failure = std::make_exception_ptr(std::runtime_error(release_error));
+        // An F8 restore unwound this owner: the session's supervisor relaunches the restored threads
+        // (the leg goes on; nothing is closed here -- the census and the closer run at the real end).
+        if (session && session->RestorePending() && !failure) return 0;
         core.running.store(false);
         // Headless: this thread joins the rest (the session's `stopped` ladder does it in play).
         if (!session) verify.JoinLadder();

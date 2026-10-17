@@ -139,6 +139,39 @@ Splice native, pointed to from `.data` 0x2ac8e0), so an indirect call into it en
 main thread as soon as Paris ran its first script native. `rv2_decode.h is_noreturn_syscall_imm` makes
 `addiu v1,zero,{0x04,0x23,0x24}; syscall` a hard stop; 6575 functions, `recomp/MANIFEST.sha256` re-recorded.
 
+## Controls, the pause menu and the save states (`hle/leg_play.cpp`, `hle/leg_saves.cpp`)
+
+Keyboard defaults (`engine/platform/sdl/input/default_bindings.ini`; rebind in the menu's Controls page):
+WASD = left stick, mouse = right stick, Space = cross, Left Shift = square, right mouse button = circle,
+E = triangle, 1/2/3/4 = L1/L2/R1/R2, 5/6 = L3/R3, Y = START, Tab = SELECT, arrow keys = D-pad. A game
+controller uses SDL's standard layout (A cross, B circle, X square, Y triangle).
+
+Host keys (the engine's SessionGui, title-neutral): **Escape** = the pause menu (the game pauses; Resume /
+Quit), **F1** = the same menu without the pause, **F5** = save state, **F8** = load the newest save state,
+**F9** = pause / resume, **F10** = one tick while paused. The menu's pages: *Display* (display mode, aspect
+ratio, internal scale, render rate, vsync, texture filter, anisotropic filtering, performance overlay --
+applied live by the presenter / the GL device and persisted to `<user data>/ps2r.ini`; the internal scale
+takes effect at the next start in this title), *Controls* (click a PS2 button, press a key: written to
+`<user data>/bindings.ini`, `input.bindings_file` in ps2r.ini, applied to the live pad at once),
+*Reproduction saves* (F5 / F8 slots under `<save root>/savestates/slot<save.slot>.ps2st` + `.meta`; the
+save root is `paths.save_dir`, else the harness out dir, else `paths.log_dir`).
+
+Save states (`LegSaves`): the section registry carries RAM0, SPAD, GCLK, VU0/VU1 memories, THRD (threads +
+parked contexts + shadow call chains), SEMA/EVFL, INTC, DMAC, TIMR, VIFS, VRAM/GSPR/GSST, GIFS, PADS,
+VU1R, SDRX/SNDC (SPU2), MCHL (libmc) -- 23 sections, every one required to have an owner. F8 is the LIVE
+route: the guest workers unwind at a boundary, every section restores on the live composition and the
+threads relaunch from their continuations. The hosted IOP modules (lgAud / 989snd / spiop) have NO
+section: a restore rewinds the EE while the IOP keeps its live state (run.meta `f8=live,iop=retained`).
+Harness: `--set harness.inject_key=F5@N,F8@M` presses the keys; `--set harness.display_sequence=
+<frame>:<mode>` submits a Display row (modes: windowed|fullscreen|borderless|scale1..4|vsync|novsync|
+aspect_<auto|4_3|16_9|16_10|21_9>|filter_<title|point|bilinear|trilinear>|aniso<1|2|4|8|16>|overlay|
+nooverlay|rate60|ratedisplay). Census rows: `savestate_sections=`, `savestate_capture=`, `f8=`,
+`restores=`, `restored_vsync_frame=`, `restore_mhash=`, `restore_sections=`, `boundary_consumer=`,
+`settings_persisted=`, `display_sequence=`.
+
+Agent runs: NEVER on the user's card -- every nativeee run passes `--set paths.mc_dir=<private copy>`
+(and `--set paths.user_data=<private dir>` when the menu may write ps2r.ini / bindings.ini).
+
 ## STATUS
 
 - `recomp/`: generated at build time (`recomp/INVOCATION.md`, `MANIFEST.sha256`); 6575 functions,

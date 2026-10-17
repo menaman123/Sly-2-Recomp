@@ -8,12 +8,24 @@
 // p<n>.ppm with n = the OUTPUT frame ordinal (under frame skip the presents and the EE boundaries no
 // longer pair 1:1, so the play dump is keyed by the picture, not the boundary). Both objects stay null
 // outside play mode / without a live GL stack.
+//
+// The player's menu (the engine's SessionGui, all title-neutral): Escape = the pause menu (the game
+// pauses; Resume / Quit), F1 the same menu without the pause; its Display page (display mode, aspect,
+// vsync, render rate, texture filter + anisotropy, perf overlay -- each applied live by the presenter /
+// the GL device and persisted to <user data>/ps2r.ini through SettingsFile, the one writer), its
+// Controls page (the keyboard rows' press-to-bind over <user data>/bindings.ini + the live mapper
+// reload: ControlsPageBinding), the Reproduction saves page (F5 / F8, LegSaves). The seeds are the
+// Config's (video.*, ui.perf_overlay); the aspect / texture-filter selections are shared with the
+// session window (the picture's fit) and the video stack's GL device (the samplers).
 #pragma once
 
 #include <memory>
 
+#include "app/host/controls_page_binding.h"
 #include "app/host/platform_input.h"
 #include "app/host/session_runtime.h"
+#include "engine/gs/hle/present/aspect_selection.h"
+#include "engine/render/texture_filter_selection.h"
 #include "engine/core/config/config.h"
 #include "engine/title/title_profile.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
@@ -35,6 +47,12 @@ public:
 
     std::unique_ptr<PlatformInput> live_input;
     std::unique_ptr<ps2r::app::SessionRuntime> session;
+    // The Display page's shared selections (the session window fits the picture at `aspect`;
+    // the GL device samples through `texture_filter`), the Controls page's binding model.
+    std::shared_ptr<ps2r::gs::AspectSelection> aspect;
+    std::shared_ptr<ps2r::render::TextureFilterSelection> texture_filter;
+    std::unique_ptr<ps2r::app::ControlsPageBinding> controls_page;
+    uint64_t settings_persisted = 0, settings_persist_failed = 0;   // census: ps2r.ini writes
 
 private:
     const ps2r::Config& cfg_;

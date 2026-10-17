@@ -185,6 +185,16 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
         meta->Set("input_sources", play.live_input->Sources());
     }
     if (play.session) meta->Set("session_presents", std::to_string(play.session->Presents()));
+    // The player's settings + save states: ps2r.ini writes, the Controls page's bindings saves, the
+    // section registry, the F5 capture census, the F8 route and the restore rows.
+    meta->Set("settings_persisted", std::to_string(play.settings_persisted) + ":failed=" + std::to_string(play.settings_persist_failed) +
+                                        ":bindings_saves=" + std::to_string(play.controls_page ? play.controls_page->Saves() : 0) +
+                                        ":bindings_reloads=" + std::to_string(play.live_input ? play.live_input->BindingsReloads() : 0));
+    p_.saves.WriteCensus(*meta);
+    if (p_.verify_display_sequence && !p_.verify_display_sequence->Empty())
+        meta->Set("display_sequence", p_.verify_display_sequence->Census(audio.audio_ring.padded(), protocol.WorkMaxUs()));
+    meta->Set("boundary_consumer", std::to_string(p_.park.boundary_consumer_calls) + "/" + std::to_string(p_.park.boundaries) +
+                                       ":rejected_returns=" + std::to_string(p_.core.sequencer.RejectedServiceReturns()));
     // The audio device (play): quanta pushed to the ring / with a non-zero sample, the
     // ring's own counters (frames pushed/pulled, underruns, padded frames, re-latches, trimmed).
     meta->Set("audio_device", audio.audio_sink.Running() || audio.audio_device_quanta

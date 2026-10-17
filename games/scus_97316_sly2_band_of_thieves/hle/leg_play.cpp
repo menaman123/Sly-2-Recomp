@@ -7,9 +7,34 @@
 #include <utility>
 #include <vector>
 
+#include "app/host/user_data.h"
+#include "engine/core/config/settings_file.h"
+#include "engine/core/log/log.h"
 #include "engine/platform/host/platform.h"
 
 namespace ps2r::title::sly2 {
+
+namespace {
+
+// Config's enums onto the engine's selections (the same order; pinned here).
+ps2r::gs::AspectSelection::Shape ShapeOf(ps2r::AspectSel a) {
+    static_assert(static_cast<int>(ps2r::gs::AspectSelection::Shape::Auto) == static_cast<int>(ps2r::AspectSel::Auto) &&
+                  static_cast<int>(ps2r::gs::AspectSelection::Shape::Narrow) == static_cast<int>(ps2r::AspectSel::R4_3) &&
+                  static_cast<int>(ps2r::gs::AspectSelection::Shape::Wide16_9) == static_cast<int>(ps2r::AspectSel::R16_9) &&
+                  static_cast<int>(ps2r::gs::AspectSelection::Shape::Wide16_10) == static_cast<int>(ps2r::AspectSel::R16_10) &&
+                  static_cast<int>(ps2r::gs::AspectSelection::Shape::Wide21_9) == static_cast<int>(ps2r::AspectSel::R21_9));
+    return static_cast<ps2r::gs::AspectSelection::Shape>(a);
+}
+
+ps2r::render::TextureFilter FilterOf(ps2r::TextureFilterSel f) {
+    static_assert(static_cast<int>(ps2r::render::TextureFilter::Title) == static_cast<int>(ps2r::TextureFilterSel::Title) &&
+                  static_cast<int>(ps2r::render::TextureFilter::Point) == static_cast<int>(ps2r::TextureFilterSel::Point) &&
+                  static_cast<int>(ps2r::render::TextureFilter::Bilinear) == static_cast<int>(ps2r::TextureFilterSel::Bilinear) &&
+                  static_cast<int>(ps2r::render::TextureFilter::Trilinear) == static_cast<int>(ps2r::TextureFilterSel::Trilinear));
+    return static_cast<ps2r::render::TextureFilter>(f);
+}
+
+}  // namespace
 
 LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& core, LegGs& gs, LegAudio& audio)
     : cfg_(cfg), audio_(audio) {
@@ -29,6 +54,39 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         session->ConfigurePresentation(cfg.video.vsync, cfg.video.fps_cap);
         session->SetWindowTitle(title.display_name.empty() ? title.serial : title.display_name);
         session->SetEventTrace(cfg.dev.log_level == ps2r::LogLevelSetting::Narrate);
+        // The player's settings: seeded from Config, persisted to <user data>/ps2r.ini by the one
+        // writer (SettingsFile), never to the memory card. A write failure is loud, never silent.
+        const std::string settings_file = ps2r::app::UserData::SettingsFile(cfg);
+        session->ConfigureSettings(cfg.ui.perf_overlay, [this, settings_file](const std::string& key, const std::string& value) {
+            std::string err;
+            if (ps2r::SettingsFile::Set(settings_file, key, value, &err)) {
+                ++settings_persisted;
+                PS2R_LOG(HOST, Info, "settings: %s=%s -> %s", key.c_str(), value.c_str(), settings_file.c_str());
+            } else {
+                ++settings_persist_failed;
+                std::fprintf(stderr, "nativeee: settings: %s=%s not saved: %s\n", key.c_str(), value.c_str(), err.c_str());
+            }
+        });
+        // The Display page: the presenter's rows (mode, aspect, vsync, render rate) seeded from
+        // video.*; the aspect selection fits the picture in the session window; the texture
+        // filter selection is the GL device's sampler choice (video.texture_filter / anisotropy).
+        // video.scale is persisted by the row and read at the next start (this video stack builds
+        // its ScalePolicy once, at Create).
+        session->ConfigureDisplayRows({cfg.video.scale, static_cast<int>(cfg.video.aspect), static_cast<int>(cfg.video.render_rate),
+                                       static_cast<int>(cfg.video.fullscreen), cfg.harness.display_hz});
+        aspect = std::make_shared<ps2r::gs::AspectSelection>(ShapeOf(cfg.video.aspect));
+        session->SetAspect(aspect);
+        texture_filter = std::make_shared<ps2r::render::TextureFilterSelection>(FilterOf(cfg.video.texture_filter), cfg.video.anisotropy);
+        gs.video.Device().SetTextureFilter(texture_filter);
+        session->SetTextureFilter(texture_filter);
+        // The pause menu (Escape) and the Controls page (press-to-bind over <user data>/bindings.ini,
+        // applied to the live pad at once).
+        session->ConfigurePauseMenu(true);
+        // --dump-frames <dir> in play: the presented WINDOW image the session ends on (<dir>/w_final.ppm:
+        // the picture plus the menu overlays -- what the user saw), the pin for the menu pages.
+        if (gs.frame_dump.Enabled()) session->ConfigureWindowDump(gs.frame_dump.Dir());
+        controls_page = std::make_unique<ps2r::app::ControlsPageBinding>(cfg.paths.user_data, settings_file, live_input.get());
+        session->ConfigureControlsPage(controls_page->Model());
         // The consumer thread's presented image goes to the session window and, with --dump-frames,
         // every dump_every-th one is written as p<n>.ppm (n = the OUTPUT frame ordinal).
         gs.video.SetOutput([this, &gs](std::vector<uint8_t> rgba, int w, int h) {
