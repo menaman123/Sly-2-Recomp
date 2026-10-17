@@ -1559,12 +1559,17 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             std::snprintf(bnpb, sizeof(bnpb), "%.2f", live_vu1.dispatch().block().bundles()
                                                            ? static_cast<double>(bs.run_ns) / static_cast<double>(live_vu1.dispatch().block().bundles())
                                                            : 0.0);
+            // xgkick= : arms / packets submitted / bytes / stagings that allocated (the PATH1 hand-off census).
+            const XgKick::Census* xc = live_vu1.xgkick() ? &live_vu1.xgkick()->census() : nullptr;
+            const std::string xg = xc ? ":xgkick=" + std::to_string(xc->arms) + "/" + std::to_string(xc->submits) + "/" +
+                                            std::to_string(xc->submit_bytes) + "/" + std::to_string(xc->staging_allocs)
+                                      : std::string();
             meta->Set("vu1_tier", "bundles=" + std::to_string(live_vu1.dispatch().bundles()) + ":cycle=" + std::to_string(live_vu1.cycle()) +
                                       ":dropped_kicks=" + std::to_string(live_vu1.DroppedKicks()) + ":unit=" + (mtvu ? "worker" : "inline") +
                                       ":mode=" + (live_vu1.dispatch().settings().vu1_mode == VuTierMode::Aot ? "aot"
                                                   : live_vu1.dispatch().settings().vu1_mode == VuTierMode::Block ? "block"
                                                   : live_vu1.dispatch().settings().vu1_mode == VuTierMode::Interp ? "interp" : "cached") +
-                                      ":block_runs=" + std::to_string(bs.runs) + ":block_ns=" + std::to_string(bs.run_ns) + ":block_ns_per_bundle=" + bnpb);
+                                      ":block_runs=" + std::to_string(bs.runs) + ":block_ns=" + std::to_string(bs.run_ns) + ":block_ns_per_bundle=" + bnpb + xg);
             // The AOT tier: images seen / verified / refused / pending a verdict, kicks run native vs
             // on the fallback, ns per bundle on the native path, the corpus and verifier census.
             if (live_vu1.dispatch().settings().vu1_mode == VuTierMode::Aot) {
