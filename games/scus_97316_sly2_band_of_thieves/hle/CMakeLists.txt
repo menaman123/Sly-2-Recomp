@@ -13,7 +13,10 @@
 #                  stock Sony modules served by the engine's HLE; video_stack.cpp: the generic GS
 #                  renderer over GL (DrawPipeline with no class renderers, an empty VramLayout) into
 #                  a hidden window whose presented image feeds the session window / frame_dump.cpp
-#                  (the --dump-frames P6 writer). Defined only when the recompiled
+#                  (the --dump-frames P6 writer); pad_script.cpp / pad_recorder.cpp: the
+#                  NATIVEEE_PAD_SCRIPT overlay and the NATIVEEE_PAD_RECORD writer (record a session,
+#                  replay it headless); store_watch.cpp: the NATIVEEE_WATCH store observer (boot
+#                  triage). Defined only when the recompiled
 #                  code exists (ps2r_title_recomp, ps2r_title_iop): with no ELF given there is
 #                  nothing to run and nativeee keeps its "supplies no play composition" report.
 #
@@ -32,6 +35,9 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         boot_leg.cpp
         frame_dump.cpp
         iop_host.cpp
+        pad_recorder.cpp
+        pad_script.cpp
+        store_watch.cpp
         video_stack.cpp
         vu1_probe.cpp
     )

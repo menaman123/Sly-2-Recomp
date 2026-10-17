@@ -50,6 +50,7 @@
 
 #include "app/host/build_id.h"
 #include "app/host/leg_closer.h"
+#include "app/host/mtvu_stack.h"
 #include "app/host/first_run.h"
 #include "app/host/launcher.h"
 #include "app/host/platform_input.h"
@@ -66,6 +67,7 @@
 #include "engine/core/log/log.h"
 #include "engine/core/log/logger.h"
 #include "engine/core/log/ring_log.h"
+#include "engine/core/threads/park.h"
 #include "engine/core/triage/triage_bundle.h"
 #include "engine/core/verify/frame_cap.h"
 #include "engine/core/verify/memory_checkpointer.h"
@@ -150,6 +152,9 @@
 #include "engine/vu/vu_unit.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/frame_dump.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/iop_host.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/pad_recorder.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/pad_script.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/store_watch.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/video_stack.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/vu1_probe.h"
 #include "games/scus_97316_sly2_band_of_thieves/iop/iop_modules.h"
@@ -226,63 +231,11 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     MmioRouter mmio(sink);
     FastMem fast_mem(ram, map, mmio);
     RecompAbi::BindMemory(&fast_mem);
-    // NATIVEEE_WATCH=<hexaddr>,<bytes>[;<hexaddr>,<bytes>...][;max=<n>][;val=<hex>]: print every EE store that
-    // overlaps one of the guest ranges (thread, innermost shadow-stack frame + its ra, the caller
-    // frame, address, width, old -> new bits). Boot triage only; needs a non-NDEBUG engine build
-    // (FastMem's observer is compiled out of Release). DMA writes (fromSPR / IPU / VIF) do not pass
-    // through FastMem: a watched quadword that changes without a line here was written by a device
-    // or never written at all. The observer sees the hull of the ranges; the callback filters.
-    struct WatchState {
-        std::vector<std::pair<uint32_t, uint32_t>> ranges;   // [lo, hi) physical
-        uint64_t printed = 0, max = 2000;
-        std::vector<uint64_t> vals;                          // val=<hex> (repeatable): only stores of these values
-    } watch_state;
-    if (const char* env = std::getenv("NATIVEEE_WATCH")) {
-        std::string spec(env);
-        uint32_t hull_lo = 0xFFFFFFFFu, hull_hi = 0;
-        size_t pos = 0;
-        while (pos < spec.size()) {
-            size_t semi = spec.find(';', pos);
-            if (semi == std::string::npos) semi = spec.size();
-            const std::string item = spec.substr(pos, semi - pos);
-            pos = semi + 1;
-            if (item.rfind("max=", 0) == 0) { watch_state.max = std::strtoull(item.c_str() + 4, nullptr, 0); continue; }
-            if (item.rfind("val=", 0) == 0) { watch_state.vals.push_back(std::strtoull(item.c_str() + 4, nullptr, 16)); continue; }
-            char* end = nullptr;
-            const uint32_t lo = static_cast<uint32_t>(std::strtoul(item.c_str(), &end, 16)) & 0x1FFFFFFFu;
-            const uint32_t bytes = (end && *end == ',') ? static_cast<uint32_t>(std::strtoul(end + 1, nullptr, 0)) : 16u;
-            watch_state.ranges.emplace_back(lo, lo + bytes);
-            hull_lo = std::min(hull_lo, lo);
-            hull_hi = std::max(hull_hi, lo + bytes);
-        }
-        if (!watch_state.ranges.empty() && !FastMem::HasWriteObserver()) {
-            FastMem::SetWriteObserver([](void* user, uint32_t addr, unsigned width, uint64_t old_bits, uint64_t new_bits) {
-                auto* st = static_cast<WatchState*>(user);
-                const uint32_t phys = addr & 0x1FFFFFFFu;
-                bool hit = false;
-                for (const auto& r : st->ranges) hit = hit || (phys < r.second && phys + width > r.first);
-                if (!hit) return;
-                if (!st->vals.empty()) {
-                    const uint64_t mask = width >= 8 ? ~0ull : ((1ull << (8 * width)) - 1);
-                    bool match = false;
-                    for (uint64_t v : st->vals) match = match || (new_bits & mask) == (v & mask);
-                    if (!match) return;
-                }
-                if (st->printed++ >= st->max) return;
-                ShadowCallStack::Frame f0{}, f1{};
-                ShadowCallStack::Top(0, f0);
-                ShadowCallStack::Top(1, f1);
-                std::fprintf(stderr, "watch: tid=%d fn=0x%08x ra=0x%08x caller=0x%08x addr=0x%08x w=%u old=0x%016llx new=0x%016llx\n",
-                             ThreadManager::Instance().CurrentTid(), f0.func_addr, f0.ra, f1.func_addr, addr, width,
-                             (unsigned long long)old_bits, (unsigned long long)new_bits);
-            }, &watch_state, hull_lo, hull_hi);
-            std::fprintf(stderr, "watch: %zu range(s), hull [0x%08x, 0x%08x) max=%llu\n", watch_state.ranges.size(), hull_lo, hull_hi,
-                         (unsigned long long)watch_state.max);
-        }
-#ifdef NDEBUG
-        std::fprintf(stderr, "watch: NDEBUG build -- FastMem compiles the observer out; use a RelWithDebInfo/-UNDEBUG build\n");
-#endif
-    }
+    // NATIVEEE_WATCH=<hexaddr>,<bytes>[;...][;max=<n>][;val=<hex>]: print every EE store overlapping
+    // the guest ranges (store_watch.h; boot triage, non-NDEBUG builds). Lives on this frame: the
+    // FastMem observer is process-wide and never cleared.
+    ps2r::title::sly2::StoreWatch store_watch;
+    store_watch.Install(std::getenv("NATIVEEE_WATCH"));
 
     // --- time domain, boundary owner, INTC + timers, SIF registers -------------------------------
     Intc& intc = Intc::Instance();
@@ -590,15 +543,61 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     VuUnit vu1(1, &gif_arbiter, title.quirks.xgkick_defer);
     Vu0Registry vu0_registry;
     Vif vif(vu0, vu1, gif_arbiter, gif_regs);
+    // NATIVEEE_VU1_MODE=interp|cached|block (boot triage): the VU1 fallback tier (engine default Cached;
+    // block = the pre-resolved straight-line block tier, VU1 only). Applied here, before the MTVU
+    // stack copies the inline dispatch's settings for the worker's unit.
+    if (const char* env = std::getenv("NATIVEEE_VU1_MODE"))
+        vu1.dispatch().settings().vu1_mode = std::string(env) == "interp"  ? VuTierMode::Interp
+                                             : std::string(env) == "block" ? VuTierMode::Block
+                                                                            : VuTierMode::Cached;
+    Dmac dmac(ram, spad, vif, gif_arbiter);
+    // --- MTVU: VU1 (and the VIF1 stream that drives it) on its own host thread -------------------
+    // app/host/mtvu_stack.h, the first title's bundle: the worker's own VU1 unit, the staged VIF1
+    // feed on the DMAC's chain walker (the walk, the deferred-kick model and the channel's
+    // completion stay on the EE; the VIF1 bytes cross to the worker, copied), the GIF arbiter's
+    // order markers (the worker's PATH1/PATH2 packets land at the stream position the inline path
+    // would have produced them at; the EE's PATH3 behind), MtvuSync on the inline dispatch (an EE
+    // kick of VU1 syncs and runs on the worker's unit), the VIF1 register window that syncs first.
+    // Play mode: Config engine.mtvu (default on). Headless / --dump-frames: the lockstep inline path
+    // (the frames lane's determinism) unless NATIVEEE_MTVU=1 asks for the worker (the Config default
+    // is on and the loader records no "was set", so the env knob is the headless opt-in).
+    // The drain stays INLINE on the EE (Crash's rule with a live GL stack: the drain owner runs
+    // GifParser -> GsState -> the DrawIR sink; GsState is EE-side state). Boundaries are NOT
+    // deferred: Sly 2's render thread waits for both of its GS FINISHes before the vblank wait, so
+    // the worker is caught up at every boundary by the game's own semantics; the terminal
+    // Sync(SceGsSyncV) keeps every present complete and the frames lane keyed by boundary. Kick drop
+    // OFF: Sly's FINISH rides a DIRECT packet of the same chain -- a dropped program would still
+    // deliver the FINISH, silently (a frame of missing geometry). Started here, before any producer
+    // traffic (the ELF is not loaded yet); stopped in the join ladder / destroyed before the DMAC.
+    // NATIVEEE_MTVU=1|0 (boot triage) forces the stack on / off in every mode (the deterministic
+    // profile pins engine.mtvu=off; =1 under it is the frame-identity oracle for the worker).
+    const char* mtvu_env = std::getenv("NATIVEEE_MTVU");
+    const bool mtvu_wanted = mtvu_env ? std::string(mtvu_env) == "1" : (cfg.engine.mtvu && play_mode);
+    std::unique_ptr<MtvuStack> mtvu;
+    if (mtvu_wanted) {
+        MtvuSettings mtvu_settings;
+        mtvu_settings.enabled = true;
+        mtvu_settings.depth_frames = cfg.engine.mtvu_depth;
+        mtvu = std::make_unique<MtvuStack>(vif, dmac.walker(), gif_arbiter, vu1.dispatch(), vu1.dispatch().settings(),
+                                           title.quirks.xgkick_defer, mtvu_settings, &running);
+        mtvu->SetKickDrop(false);
+        mtvu->SetDeferBoundaries(false);
+        mtvu->Start(/*with_drain_thread=*/false);
+        PS2R_LOG(HOST, Info, "MTVU: VU1 worker started (drain inline, terminal boundary sync, depth_frames=%d)",
+                 cfg.engine.mtvu_depth);
+    }
     VifMmioGate vif_gate(vif);
+    MmioHandler& vif1_window = mtvu ? mtvu->Vif1Window(vif_gate) : static_cast<MmioHandler&>(vif_gate);
     mmio.Register(Vif::kVif0Base, Vif::kRegsSize, vif_gate, "VIF0");
-    mmio.Register(Vif::kVif1Base, Vif::kRegsSize, vif_gate, "VIF1");
-    mmio.Register(Vif::kVif1FifoBase, Vif::kFifoSize, vif_gate, "VIF1_FIFO");
+    mmio.Register(Vif::kVif1Base, Vif::kRegsSize, vif1_window, "VIF1");
+    mmio.Register(Vif::kVif1FifoBase, Vif::kFifoSize, vif1_window, "VIF1_FIFO");
+    // The VU memory windows map the INLINE units (the first title's composition did the same under
+    // MTVU): an EE-side access to VU1 memory while the worker owns the unit is not a path this
+    // title takes (its microprograms and data arrive through VIF1 MPG / UNPACK).
     map.RegisterHwWindow(0x11000000u, 0x1000u, vu0.state().micro, "VU0_MICRO");
     map.RegisterHwWindow(0x11004000u, 0x1000u, vu0.state().data, "VU0_DATA");
     map.RegisterHwWindow(0x11008000u, 0x4000u, vu1.state().micro, "VU1_MICRO");
     map.RegisterHwWindow(0x1100C000u, 0x4000u, vu1.state().data, "VU1_DATA");
-    Dmac dmac(ram, spad, vif, gif_arbiter);
     mmio.Register(0x10008000u, 0x6064u, dmac, "DMAC");
     mmio.Register(0x1000F520u, 0x10u, dmac, "D_ENABLER");
     mmio.Register(0x1000F590u, 0x10u, dmac, "D_ENABLEW");
@@ -648,7 +647,20 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     VuMacroBridge::Bind(&vu0, &vu1, &vu0_registry);
     struct VuMacroUnbind { ~VuMacroUnbind() { VuMacroBridge::Unbind(); } } vu_macro_unbind;
     // The deferred VIF1 kick's observation points at the frame boundary / sceGsSyncPath.
-    GsSync::BindDmac([&dmac] { dmac.ChaseVif1Tail(); }, [&dmac] { dmac.FlushDeferredVif1(); });
+    // Under MTVU the chase is followed by the frame sync: the frame's VIF1 feed is complete; the
+    // terminal Sync(SceGsSyncV) finishes every queued span (the chase's resumed END slots included)
+    // before the boundary runs. Absent the stack both hooks are exactly the chase / the flush.
+    GsSync::BindDmac(
+        [&dmac, &mtvu] {
+            dmac.ChaseVif1Tail();
+            if (mtvu) mtvu->FrameSync(GsSync::SyncVCount(), ps2r::Park::NowNs());
+        },
+        [&dmac, &mtvu] {
+            // "Is the path idle": with boundaries not deferred this is a real wait (the stack's
+            // SiteSync would skip it under the deferral rule); unbound in this title's manifest.
+            if (mtvu) mtvu->sync().Sync(SyncSite::SceGsSyncPath);
+            dmac.FlushDeferredVif1();
+        });
     // The kernel's DMAC handler records reach the DMAC's registry before every dispatch.
     auto install_dmac_handlers = [&dmac] {
         std::vector<DmacHandler> records;
@@ -717,15 +729,33 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     uint64_t syscall_entry_isrs = 0, syscall_entry_isrs_deferred = 0;
     // NATIVEEE_ISR_TRACE also prints one line per syscall entry that finds an INTC cause
     // pending -- tid, syscall, the pending/mask words and the decision.
+    // Under MTVU the chain the observer flushes is STAGED to the worker and its FINISH arrives later,
+    // through the GIF drain on this thread: every entry drains the sealed prefix first (the packets
+    // the worker finished since the last entry reach the GS, their FINISH / SIGNAL the INTC), and a
+    // BLOCKING wait that finds no other READY thread while the worker still runs idles on the
+    // worker's progress (MtvuSync::WaitProgress: seal / idle, drain, re-check) instead of blocking
+    // with nothing left to deliver the interrupt -- the console's idle loop taking the GS interrupt.
+    uint64_t mtvu_idle_wait_entries = 0;
     SyscallTable::Instance().SetPreDispatch([&](int num, CpuContext& ctx) {
         const bool blocking = SyscallTable::IsBlockingWait(num);
         if (blocking) dmac.ObserveAtKernelWait();
         for (;;) {
+            if (mtvu) mtvu->sync().TryDrainPending();
             if (dmac.CheckInterrupt()) {
                 install_dmac_handlers();
                 dmac.DispatchInterrupt(ctx);
             }
-            if (!intc.Pending()) break;
+            if (!intc.Pending()) {
+                // No "is the worker busy" test here: the worker publishes idle AFTER its last seal,
+                // so a busy test that read idle could block with that marker undrained; WaitProgress
+                // answers at once (after one drain) when nothing is outstanding.
+                if (blocking && mtvu && !EeRunToken::Instance().AnyReadyBesides(EeRunToken::Instance().CurrentTid())) {
+                    ++mtvu_idle_wait_entries;
+                    if (!mtvu->sync().WaitProgress()) continue;   // progress delivered, the worker still runs
+                    if (intc.Pending()) continue;                 // the last drain raised a cause
+                }
+                break;
+            }
             EeRunToken& token = EeRunToken::Instance();
             const bool defer = blocking && token.AnyReadyBesides(token.CurrentTid());
             if (isr_trace)
@@ -947,53 +977,20 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // the pad script, the key script -- whatever reached the title), and the last such sample.
     uint64_t pad_served_active = 0;
     std::string pad_served_last;
-    // NATIVEEE_PAD_SCRIPT=<frame>:<buttons_hex>:<hold>[:<lx>,<ly>[,<rx>,<ry>]][,<frame>:...] (boot triage):
-    // press `buttons` (libpad active-high order: CIRCLE 0x2000, CROSS 0x4000, START 0x0008, SQUARE
-    // 0x8000, D-pad UP 0x0010 RIGHT 0x0020 DOWN 0x0040 LEFT 0x0080) and, when given, hold the sticks at
-    // lx,ly[,rx,ry] (0..255, 128 = centre; e.g. 0,128 = left stick full left) for `hold` boundaries
-    // starting at the `frame`-th pad stamp (one per boundary), over the live / neutral pad.
-    // Steps overlap by OR (buttons) / last-wins (sticks). Parsed by comma tokens: a token with a
-    // ':' starts a step, a bare number continues the previous step's stick tuple -- so a step
-    // giving only lx,ly may be followed by another step (an earlier greedy read took the next
-    // step's frame as rx and dropped the rest of the script).
-    struct PadScriptStep { uint64_t frame; uint16_t buttons; uint64_t hold; bool sticks; uint8_t lx, ly, rx, ry; };
-    std::vector<PadScriptStep> pad_script;
+    // NATIVEEE_PAD_SCRIPT=<script text | file> (boot triage / replay): hle/pad_script.h -- press buttons /
+    // hold the sticks over the live / neutral pad from the `frame`-th pad stamp (one per boundary) for
+    // `hold` stamps; a file in the same grammar is what NATIVEEE_PAD_RECORD writes (the replay).
+    ps2r::title::sly2::PadScript pad_script;
     if (const char* env = std::getenv("NATIVEEE_PAD_SCRIPT")) {
-        unsigned stick_slot = 4;   // the next stick value to fill: 1 = ly, 2 = rx, 3 = ry, 4 = none
-        for (const char* p = env; *p;) {
-            const char* comma = std::strchr(p, ',');
-            const std::string tok(p, comma ? static_cast<size_t>(comma - p) : std::strlen(p));
-            if (tok.find(':') != std::string::npos) {
-                char* e = nullptr;
-                PadScriptStep st{};
-                st.lx = st.ly = st.rx = st.ry = 0x80;
-                stick_slot = 4;
-                st.frame = std::strtoull(tok.c_str(), &e, 10);
-                if (*e != ':') break;
-                st.buttons = static_cast<uint16_t>(std::strtoul(e + 1, &e, 16));
-                if (*e != ':') break;
-                st.hold = std::strtoull(e + 1, &e, 10);
-                if (*e == ':') {
-                    st.sticks = true;
-                    st.lx = static_cast<uint8_t>(std::strtoul(e + 1, &e, 10));
-                    stick_slot = 1;
-                }
-                pad_script.push_back(st);
-            } else if (!pad_script.empty() && pad_script.back().sticks && stick_slot < 4) {
-                const uint8_t v = static_cast<uint8_t>(std::strtoul(tok.c_str(), nullptr, 10));
-                PadScriptStep& st = pad_script.back();
-                if (stick_slot == 1) st.ly = v;
-                else if (stick_slot == 2) st.rx = v;
-                else st.ry = v;
-                ++stick_slot;
-            } else {
-                std::fprintf(stderr, "nativeee: NATIVEEE_PAD_SCRIPT: stray token '%s' (script truncated here)\n", tok.c_str());
-                break;
-            }
-            if (!comma) break;
-            p = comma + 1;
-        }
+        if (!pad_script.Load(env)) std::fprintf(stderr, "nativeee: NATIVEEE_PAD_SCRIPT=%s: file not readable (ignored)\n", env);
+        if (!pad_script.Warning().empty())
+            std::fprintf(stderr, "nativeee: NATIVEEE_PAD_SCRIPT: stray token '%s' (script truncated here)\n", pad_script.Warning().c_str());
     }
+    // NATIVEEE_PAD_RECORD=<file>: hle/pad_recorder.h -- every stamp's SERVED sample (live pad + script
+    // overlay) run-length encoded in PadScript's grammar; NATIVEEE_PAD_SCRIPT=<file> replays it.
+    ps2r::title::sly2::PadRecorder pad_recorder;
+    if (const char* env = std::getenv("NATIVEEE_PAD_RECORD"))
+        if (!pad_recorder.Open(env, g_build_id)) std::fprintf(stderr, "nativeee: NATIVEEE_PAD_RECORD=%s: cannot open (ignored)\n", env);
     // NATIVEEE_KEY_SCRIPT=<frame>:<sdl_scancode>:<hold>[,...] (boot triage, play mode): hold a KEYBOARD key
     // (SDL scancode: A 4, D 7, S 22, W 26, Space 44, Up 82 ...) from the `frame`-th pad stamp for `hold`
     // boundaries through PlatformInput::HoldKey -- the engine's held-key overlay on the kbm backend, so
@@ -1028,11 +1025,8 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                 }
             }
         PadProtocol::Input in = live_input ? live_input->Sample() : PadProtocol::Input{};
-        for (const PadScriptStep& st : pad_script)
-            if (pad_stamps >= st.frame && pad_stamps < st.frame + st.hold) {
-                in.buttons |= st.buttons;
-                if (st.sticks) { in.lx = st.lx; in.ly = st.ly; in.rx = st.rx; in.ry = st.ry; }
-            }
+        pad_script.Apply(pad_stamps, &in);
+        pad_recorder.Record(pad_stamps, in);
         if (in.buttons || in.lx != 0x80 || in.ly != 0x80 || in.rx != 0x80 || in.ry != 0x80) {
             ++pad_served_active;
             pad_served_last = std::to_string(pad_stamps) + ":" + Hex(in.buttons) + ":" + std::to_string(in.lx) + "," + std::to_string(in.ly) + "," +
@@ -1096,11 +1090,14 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         };
         yd.queue = &EeEventQueue::Instance();
         yd.inhibit = [&sequencer] { return sequencer.InFlight() != 0; };
-        yd.pump_devices = [&iop_host](CpuContext& ctx) {
+        yd.pump_devices = [&iop_host, &mtvu](CpuContext& ctx) {
             // The IOP's threads run on their own clock while the EE spins (an RPC status
             // poll into a hosted module needs the module to progress); its SIF commands land.
             iop_host.Table().PumpFromParkLoop();
             SceSif::DeliverPendingCommands(ctx);
+            // A guest loop spinning on a GS flag the worker's packets set (CSR.FINISH, a
+            // SIGNAL) has no kernel call to drain at: the sealed prefix lands here.
+            if (mtvu) mtvu->sync().TryDrainPending();
         };
         yd.budget = kYieldBudget;
         EeYieldPoint::Instance().Bind(std::move(yd));
@@ -1264,17 +1261,11 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // The shutdown's step census (run.meta shutdown= / the stderr line): the join ladder's steps
     // with their wall offsets, and the guest workers it had to abandon ("" = none).
     std::string shutdown_steps, guest_join_abandoned;
-    // NATIVEEE_VU1_MODE=interp|cached|block (boot triage): the VU1 fallback tier (engine default Cached;
-    // block = the pre-resolved straight-line block tier, VU1 only).
-    if (const char* env = std::getenv("NATIVEEE_VU1_MODE"))
-        vu1.dispatch().settings().vu1_mode = std::string(env) == "interp"  ? VuTierMode::Interp
-                                             : std::string(env) == "block" ? VuTierMode::Block
-                                                                            : VuTierMode::Cached;
     // NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>] (boot triage): Vu1Case + PATH1 packet capture of
     // VU1 kicks (hle/vu1_probe.h); the probe reads `boundaries` at every kick.
     ps2r::title::sly2::Vu1Probe vu1_probe;
     if (const char* env = std::getenv("NATIVEEE_VU1_CAP"))
-        if (!vu1_probe.Install(env, vu1, gif_arbiter, &boundaries, &vif)) std::fprintf(stderr, "nativeee: NATIVEEE_VU1_CAP=%s: malformed or unmakeable (ignored)\n", env);
+        if (!vu1_probe.Install(env, mtvu ? mtvu->WorkerVu1() : vu1, gif_arbiter, &boundaries, &vif)) std::fprintf(stderr, "nativeee: NATIVEEE_VU1_CAP=%s: malformed or unmakeable (ignored)\n", env);
     // The main thread's context pointer, for the watchdog's park_pc (a racy read is fine: it
     // is a diagnostic of a spinning guest, never a guest-visible effect).
     std::atomic<CpuContext*> main_ctx{nullptr};
@@ -1330,6 +1321,11 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             meta->Set("gs_irq", "events=" + std::to_string(gs_irq_events) + ":masked=" + std::to_string(gs_irq_masked) +
                                     ":raises=" + std::to_string(gs_irq_raises));
             meta->Set("gs_priv_writes", std::to_string(gs_state.Priv().Writes()));
+            meta->Set("mtvu", mtvu ? mtvu->Census() + ",idle_wait_entries=" + std::to_string(mtvu_idle_wait_entries) +
+                                         ",arbiter_slots=" + std::to_string(gif_arbiter.PendingSlots()) +
+                                         ",arbiter_sealed_ready=" + (gif_arbiter.hasSealedReady() ? "1" : "0") +
+                                         ",worker_busy=" + (mtvu->worker().IsBusy() ? "1" : "0")
+                                   : "off");
             {
                 // gs_pages=written=<n>:sampled=<n>:sampled_never_written=<n>:<page ranges, draws>:rtt=<ranges>:targets=<pages>
                 // rtt= : pages sampled and never transferred to but inside a drawn FRAME / ZBUF footprint
@@ -1407,6 +1403,9 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             }
             meta->Set("pad_stamps", std::to_string(pad_stamps));
             meta->Set("pad_served", "active=" + std::to_string(pad_served_active) + ":last=" + (pad_served_last.empty() ? "none" : pad_served_last));
+            pad_recorder.Close();   // every exit path: the open run + the header counts land before _Exit
+            meta->Set("pad_record", pad_recorder.Census());
+            meta->Set("pad_script", pad_script.Census());
             if (live_input) {
                 meta->Set("pad_live", live_input->Census());
                 meta->Set("input_sources", live_input->Sources());
@@ -1477,8 +1476,10 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
                                       ":vu1_kicks=" + std::to_string(VuMacroBridge::Stats().vu1_kicks));
             // The VU1 fallback tier's work: bundles retired by the cached tier (the title's
             // microprograms interpreted on the kicking EE thread), the unit's cycle count.
-            meta->Set("vu1_tier", "bundles=" + std::to_string(vu1.dispatch().bundles()) + ":cycle=" + std::to_string(vu1.cycle()) +
-                                      ":dropped_kicks=" + std::to_string(vu1.DroppedKicks()));
+            // Under MTVU the worker's unit is the live VU1 (the inline unit's counters stay 0).
+            VuUnit& live_vu1 = mtvu ? mtvu->WorkerVu1() : vu1;
+            meta->Set("vu1_tier", "bundles=" + std::to_string(live_vu1.dispatch().bundles()) + ":cycle=" + std::to_string(live_vu1.cycle()) +
+                                      ":dropped_kicks=" + std::to_string(live_vu1.DroppedKicks()) + ":unit=" + (mtvu ? "worker" : "inline"));
         }
     };
     using ps2r::triage::TriageBundle;
@@ -1710,6 +1711,8 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         note("guest_join");
         tick_thread.Stop();
         note("pacer");
+        if (mtvu) mtvu->Stop();   // drains its queue, joins, unbinds VIF1 (no producer is left)
+        note("mtvu_worker");
         if (gs_queue) gs_queue->Quiesce();
         note("gs_quiesce");
         if (audio_sink.Running()) audio_sink.Close();

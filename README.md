@@ -42,12 +42,17 @@ What works, verified on macOS (Apple clang 21, cmake 4.3, ninja 1.13) from a fre
   closing the window or pressing Escape shuts down cleanly (guest workers joined, census written,
   exit 0); the `--frames` cap does the same.
 
-Performance: ~20 fps in gameplay on an M4 (the intro / title screens run at 60), up from ~15 after the
-engine's VU1 cached tier was made ~1.8x faster (fast kinds for every word the title's microprogram
-uses, inlined clamp / flag / stall kernels, NEON lane kernels under `PS2R_SIMD=ON` -- which build.sh
-now passes; every step proven byte-identical by replaying 720 captured VU1 kicks on both tiers). The
-bound is still that interpreter on the EE render thread (~60 % of its time; a real VU1 is ~6x faster
-than this one) -- 30 fps needs the VU1 off the EE thread (the engine's MTVU) or per-title VU1 HLE.
+Performance: 23-27 fps in gameplay on an M4 (the intro / title screens run at 60) with the engine's
+MTVU wired -- the VU1 and the VIF1 stream that feeds it run on their own host thread in windowed runs
+(`engine.mtvu`, default on; `--set engine.mtvu=0` or `NATIVEEE_MTVU=0` is the lockstep inline path, 19-24
+fps on the same host; headless runs stay lockstep unless `NATIVEEE_MTVU=1`, and within a timing cluster the
+worker's frames are byte-identical to lockstep's). Before that the VU1 cached tier was made ~1.8x faster
+(fast kinds for every word the title's microprogram uses, inlined clamp / flag / stall kernels, NEON lane
+kernels under `PS2R_SIMD=ON` -- which build.sh now passes; every step proven byte-identical by replaying
+720 captured VU1 kicks on both tiers). The floor is now the VU1 execution itself: the title waits for the
+FINISH at the end of each chain it kicks, so the frame is a ping-pong between the EE and the worker and only
+the GIF drain overlaps; ~1.08 M VU1 bundles per frame at ~25-28 ns each is 27-30 ms. 30 fps needs a cheaper
+per-bundle block tier (or per-title VU1 HLE), not more threading.
 Not done: no per-title HLE of any kind (VU1 program library, renderer profile); the 989snd
 handler-node corruption noted in the title README remains.
 
@@ -65,6 +70,8 @@ games/scus_97316_sly2_band_of_thieves/   the title module (the engine's games/<s
   hle/video_stack.*, frame_dump.*        the GS -> GL video stack and the --dump-frames writer
   hle/iop_host.*                         hosts the recompiled IOP modules on the engine's cooperative IOP kernel
   hle/vu1_probe.*                        NATIVEEE_VU1_CAP: VU1 kick capture for tests/vu/test_vu1_capture_replay
+  hle/pad_script.*, pad_recorder.*       NATIVEEE_PAD_SCRIPT (scripted / replayed pad) and NATIVEEE_PAD_RECORD (record a
+                                         session as a replayable script) -- see "Playing"
   recomp/CMakeLists.txt                  runs the recompiler at build time into <build>/generated/...
   recomp/MANIFEST.sha256, INVOCATION.md  hashes of the generated output + how it was produced
   iop/{fileio,lgaud,snd989,spiop}/       the IOP recompiles (one MANIFEST.sha256 each), iop/iop_modules.h = bases
@@ -152,7 +159,9 @@ engine/verify/run_bounded.sh 120 leg.log -- <build>/app/host/nativeee --headless
 grep -E "^(park|park_pc|park_detail|sdk_rows_hit_list|iop_modules|boundaries|first_syscalls)" <out>/run.meta
 ```
 
-Play (the launcher on a plain start; `--iso` skips it for a harness-style run):
+## Playing
+
+Start the game (the launcher on a plain start; `--iso` skips it for a harness-style run):
 
 ```
 <build>/app/host/nativeee                                   # first run: drop the disc image on the window, Verify & extract, Play
@@ -160,30 +169,89 @@ Play (the launcher on a plain start; `--iso` skips it for a harness-style run):
 engine/verify/run_bounded.sh 600 play.log -- <build>/app/host/nativeee --harness-window --frames 6000 --harness-out <out> --iso "..."
 ```
 
-Controls (the engine's `default_bindings.ini`; the launcher's Controls page rebinds them): WASD = left
-stick, mouse = right stick (camera; left click captures the mouse, Escape releases it), Space = cross,
-LShift = square, right mouse button = circle, E = triangle, 1/2/3/4 = L1/L2/R1/R2, 5/6 = L3/R3, Y = START,
-Tab = SELECT, arrows = D-pad. An SDL game controller uses the DualShock 2 layout directly. F1 opens the
-session menu (volume, display, pause); Escape with the menu closed, or the window's close button, quits.
+`--harness-window` is the playable window with the harness census (`<out>/run.meta`) written at the end;
+`--frames N` ends the session cleanly at the N-th frame boundary (omit it to play until the window is
+closed or Escape is pressed; `run_bounded.sh <seconds>` is the wall-clock bound every example keeps).
 From the intro: START skips the cinematic, START at the title screen starts a new game (the game asks to
 create a save on the host memory card the first time: square = yes), cross advances the briefing lines.
+F1 opens the session menu (volume, display, pause); Escape with the menu closed, or the window's close
+button, quits.
 
-See the picture (the engine's generic GS renderer over OpenGL -- no per-title class renderers):
+### Keyboard and gamepad
+
+The engine's `engine/platform/sdl/input/default_bindings.ini` (baked into the binary; the launcher's
+Controls page writes `<user data>/bindings.ini` to rebind). Left click captures the mouse for the
+camera, Escape releases it. An SDL game controller uses the DualShock 2 layout directly (cross = A,
+circle = B, square = X, triangle = Y, shoulders / triggers = L1 R1 / L2 R2, stick clicks = L3 R3).
+
+| PS2 control | Keyboard / mouse | | PS2 control | Keyboard / mouse |
+|---|---|---|---|---|
+| Left stick (move) | W A S D | | Right stick (camera) | mouse |
+| Cross (jump; advance text) | Space | | Square (attack) | Left Shift |
+| Circle (grab / interact) | right mouse button | | Triangle | E |
+| L1 / L2 | 1 / 2 | | R1 / R2 | 3 / 4 |
+| L3 | 5 | | R3 (Binocucom) | 6 |
+| START | Y | | SELECT | Tab |
+| D-pad | arrow keys | | | |
+
+### Recording a session
+
+`NATIVEEE_PAD_RECORD=<file>` writes every frame's pad state as it reached the game -- buttons and the
+four stick axes, run-length encoded -- in the same grammar `NATIVEEE_PAD_SCRIPT` reads, so the file
+replays the session frame for frame. It contains only stamp indices, button bits and stick values (no
+game data): safe to attach to a bug report.
 
 ```
-# headless, every presented frame as <dir>/p<key>.ppm (the window image) + f<key>.ppm (the display grab)
-engine/verify/run_bounded.sh 240 dump.log -- <build>/app/host/nativeee --headless --frames 400 --dump-frames <dir> \
-    --harness-out <out> --iso "..."
-# windowed play with every Nth presented picture written as <dir>/p<n>.ppm (n = the picture ordinal)
-NATIVEEE_DUMP_EVERY=50 engine/verify/run_bounded.sh 120 play.log -- <build>/app/host/nativeee --harness-window --frames 600 \
-    --dump-frames <dir> --harness-out <out> --iso "..."
+NATIVEEE_PAD_RECORD=session.pad engine/verify/run_bounded.sh 1800 play.log -- <build>/app/host/nativeee --harness-window \
+    --harness-out <out> --iso "/path/to/Sly 2 - Band of Thieves.iso"
 ```
+
+The file starts with `# nativeee pad record build=<build id> frames=<frames> steps=<lines>` and then one line
+per run of one pad state, `<from_stamp>:<buttons_hex>:<hold>:<lx>,<ly>,<rx>,<ry>` (frames with nothing
+pressed and centred sticks are implicit). `run.meta` reports it as `pad_record=<file>:frames=:steps=`.
+
+### Replaying headless (bug reports)
+
+`NATIVEEE_PAD_SCRIPT=<file>` replays a recording with no window, no audio device and no pacing; the frame
+cap and the dump knobs pick the evidence:
+
+```
+NATIVEEE_PAD_SCRIPT=session.pad NATIVEEE_DUMP_FROM=3900 NATIVEEE_DUMP_EVERY=50 engine/verify/run_bounded.sh 900 replay.log -- \
+    <build>/app/host/nativeee --headless --frames 4100 --dump-frames <dir> --harness-out <out> --iso "..."
+```
+
+- `--frames N`: stop at frame boundary N (the recording's `frames=` or earlier).
+- `--dump-frames <dir>`: write presented frames as `<dir>/p<key>.ppm` (`key` = the frame boundary; headless
+  also writes `f<key>.ppm`, the display grab). `NATIVEEE_DUMP_FROM=<key>` starts the dumps there and
+  `NATIVEEE_DUMP_EVERY=N` keeps every N-th -- always use both: a full dump of a long run is gigabytes.
+- The pad stream is reproduced exactly (`run.meta` `pad_served=` of the replay equals the recording's) and
+  the game reaches the same state -- the same place, the same events. Pixel-exact frames at a given key
+  need the game's own field clock to agree too: two HEADLESS replays agree (0 to 0.2 % of pixels differ
+  at the same key), while a windowed run is wall-paced, so a windowed recording and its replay (in either
+  mode) sit a few frames of animation / camera phase apart (4-9 % of pixels at the same key, about one
+  50-frame motion step); the briefing's voice-timed text crawl differs between any two runs. So: replay
+  headless for a reproducible picture; replay with `--harness-window` to watch it (no interaction needed).
+  Headless is not faster (a 4100-frame replay: ~200 s windowed, ~350 s headless on an M4).
+
+A bug report wants `session.pad`, the replay's `run.meta` and the command line (see CONTRIBUTING.md).
+
+### Other play knobs
 
 `run.meta` rows a play run writes: `boundary_wall_ms=` (the wall clock at every 100th boundary -- the
 frame rate of a window of the run), `pace=` / `tick_profile=` / `pace_long_trace=` (the engine's pacer
 census), `audio_device=` (quanta pushed / non-silent, the ring's underruns / padded frames),
-`pad_served=` (stamps that carried a press or a stick), `input_sources=`, `gs_queue=pipelined:frame_skip...`,
-`vu1_tier=bundles=` (VU1 bundles interpreted). The shutdown ladder prints `nativeee: leg shutdown: ...`.
+`pad_served=` (stamps that carried a press or a stick), `pad_record=` / `pad_script=` (the recorder's file and counts,
+the script's steps / end / source), `input_sources=`, `gs_queue=pipelined:frame_skip...`,
+`vu1_tier=bundles=...:unit=worker|inline` (VU1 bundles interpreted, and which unit ran them), `mtvu=on,worker=1,...`
+(the MTVU census: batches, idle waits, dropped kicks -- always 0 -- and pending bytes at the end). The shutdown
+ladder prints `nativeee: leg shutdown: ...` (`mtvu_worker@<ms>` is the worker's join).
+
+MTVU (the VU1 + VIF1 worker thread): `engine.mtvu` (Config, default on) arms it in windowed runs; `--set engine.mtvu=0`
+runs the lockstep inline path instead (the VU1 on the EE render thread, ~15 % slower, useful when bisecting a
+picture difference). Headless and `--dump-frames` runs are lockstep by default -- the frames lane's determinism;
+`NATIVEEE_MTVU=1` asks for the worker there too (within a timing cluster its frames are byte-identical to
+lockstep's), and `NATIVEEE_MTVU=0` forces it off in every mode. `engine.mtvu_depth` (default 2) is the worker's
+queue depth in frames.
 
 `NATIVEEE_UNPACED=1` runs the window without the 60 Hz field pacer; `NATIVEEE_DUMP_EVERY=N` writes every Nth key;
 `NATIVEEE_GS_ROUTES=<key,...>` / `NATIVEEE_GS_VERTS=<key>` write a frame's draw routes (+ `vram_<key>.bin`) /
@@ -191,9 +259,10 @@ every DrawIr with its vertices; `NATIVEEE_IPU_OUT_DUMP=<file>` is the fromIPU si
 `NATIVEEE_AUDIO_DUMP=<file.wav>` writes the DEVICE audio stream (pads included) as 48 kHz stereo int16 (play mode);
 `NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>]` records VU1 kicks as `Vu1Case` files + their PATH1 packets
 (hle/vu1_probe.h; replay with `tests/vu/test_vu1_capture_replay <case.bin> [--trace]`); `NATIVEEE_VU1_MODE=interp`
-selects the VU1 interpreter tier; `NATIVEEE_PAD_SCRIPT=<stamp>:<buttons_hex>:<hold>[:<lx>,<ly>[,<rx>,<ry>]][,...]`
+selects the VU1 interpreter tier; `NATIVEEE_PAD_SCRIPT=<text or file>` with `<stamp>:<buttons_hex>:<hold>[:<lx>,<ly>[,<rx>,<ry>]][,...]`
 presses buttons / holds the sticks over the live pad (`500:8:10,650:8:10` = START twice: skip the intro, New
-Game; `3950:0:120:0,128` = left stick full left for 120 boundaries); `NATIVEEE_KEY_SCRIPT=<stamp>:<sdl_scancode>:<hold>`
+Game; `3950:0:120:0,128` = left stick full left for 120 boundaries; a file in the same grammar -- blanks and
+newlines separate like commas, `#` comments -- is what `NATIVEEE_PAD_RECORD` writes); `NATIVEEE_KEY_SCRIPT=<stamp>:<sdl_scancode>:<hold>`
 holds a KEYBOARD key through the real key route (A = 4, D = 7, S = 22, W = 26, Space = 44). The engine's harness
 verbs `--set harness.close_at_frame=N` (a real window close at boundary N) and `--set harness.inject_key=Escape@N`
 (a real key press) are honoured by the composition.
@@ -211,10 +280,12 @@ the shadow-stack frame; needs a non-NDEBUG engine build, e.g. `--type RelWithDeb
 
 Performance and picture (the title):
 
-- **~15-20 fps in gameplay** on an M4 (intro / title screens at 60): the bound is the engine's VU1
-  interpreter on the EE render thread (~60 % of its time even after the 1.7x cached-tier work; a real VU1
-  is ~6x faster). 30 fps needs the VU1 off the EE thread (the engine's MTVU) or per-title VU1 HLE -- and
-  this port has, by design, no per-title HLE yet (`vu1_library/`, `renderer_profile/` are STATUS-only).
+- **23-27 fps in gameplay** on an M4 (intro / title screens at 60; 19-24 with MTVU off, `--set engine.mtvu=0`):
+  the bound is the engine's VU1 block tier itself, now on the MTVU worker thread (~1.08 M bundles per frame
+  at ~25-28 ns = 27-30 ms; a real VU1 is ~6x faster). The title waits for each kicked chain's FINISH before
+  building the next, so the EE and the worker alternate rather than overlap. 30 fps needs a cheaper
+  per-bundle tier or per-title VU1 HLE -- and this port has, by design, no per-title HLE yet
+  (`vu1_library/`, `renderer_profile/` are STATUS-only).
 - Picture gaps: strips over never-uploaded texture pages; one GL "zero texture" warning per run.
 - The 989snd handler-node corruption noted in the title README (`[IOP-RECOMP] Unresolved JALR` is 0 now).
 

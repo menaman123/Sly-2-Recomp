@@ -94,3 +94,17 @@ commits. Do not commit build output, logs, frames or anything under a build dire
 Open an issue with: the engine pin (`git submodule status`), your OS / compiler / CMake versions,
 the exact command, and the `run.meta` rows (`park=`, `park_detail=`, `boundaries=`, `iop_modules=`)
 or the test name and its output. Never attach a disc image, an ELF, or a frame dump of the game.
+
+For anything seen while playing, record the session and attach the recording with the `run.meta`:
+
+```
+NATIVEEE_PAD_RECORD=session.pad engine/verify/run_bounded.sh 1800 play.log -- <build>/app/host/nativeee --harness-window \
+    --harness-out <out> --iso "/path/to/your.iso"
+```
+
+Attach `session.pad` and `<out>/run.meta`, and say at which frame (`boundaries=` counts them; the
+file's `frames=` header) the problem shows. Both files are free of game data: the recording holds
+only frame indices, button bits and stick values (`<from>:<buttons_hex>:<hold>:<lx>,<ly>,<rx>,<ry>`
+lines under a `#` header), `run.meta` holds the engine's census rows. A maintainer replays it
+headless (`NATIVEEE_PAD_SCRIPT=session.pad ... --headless --frames N --dump-frames <dir>` with
+`NATIVEEE_DUMP_FROM` / `NATIVEEE_DUMP_EVERY`, README "Replaying headless") and sees the same frames.
