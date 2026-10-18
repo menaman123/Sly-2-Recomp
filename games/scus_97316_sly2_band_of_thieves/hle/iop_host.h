@@ -17,6 +17,8 @@
 //     RpcRouter, so the EE's sceSifBindRpc/sceSifCallRpc into it run the module's own handler.
 //
 // No reply is faked anywhere: what the modules do is what their recompiled code does.
+// The save states: Section() is the IOPH section (the engine's IopHostSection over this host's kernel-
+// facing modules); registered by LegSaves before the SPU sections so a restored SPU image wins.
 #pragma once
 
 #include <cstdint>
@@ -48,6 +50,7 @@
 #include "engine/iop/iop_loader.h"
 #include "engine/iop/iop_memory.h"
 #include "engine/iop/iop_module_table.h"
+#include "engine/iop/savestate/iop_host_section.h"
 #include "engine/sif/hle/iop_rpc_server.h"
 #include "engine/sif/hle/main_memory_ee_ram_sink.h"
 #include "engine/sif/hle/main_memory_ee_ram_source.h"
@@ -94,6 +97,12 @@ public:
 
     iop::IopModuleTable& Table() { return table_; }
     iop::IopMemory& Memory() { return mem_; }
+    // The IOPH savestate section of this hosted IOP (engine/iop/savestate/iop_host_section.h): RAM, the
+    // kernel tables, the module rows past the 22 stock rows, the hosted modules' libraries, RPC servers
+    // and timers. Its restore re-arms every hosted thread from its record (entry -> first park on the
+    // restored RAM) and hands the server records back through OnServerRegistered (the IopRpcServer per
+    // id is REPLACED, the RpcRouter row re-pointed), then this host re-derives its hosted-module rows.
+    iop::IopHostSection& Section() { return *section_; }
     // The run.meta census rows (iop_hosted=, iop_libraries=, iop_rpc_servers=, ...).
     void WriteCensus(verify::RunMeta* meta);
     const std::string& LoadLog() const { return load_log_; }
@@ -116,6 +125,7 @@ private:
     int32_t LoadImageOnly(const std::string& name, uint32_t iop_addr, uint32_t size, uint16_t version);
     void OnServerRegistered(const iop::hle::SifcmdModule::ServerRecord& r);
     void OnServerRemoved(uint32_t sid);
+    void AfterSectionRestore();
     void RunCallback(uint32_t addr, iop::IopContext& ctx);
 
     MainMemory& ram_;
@@ -148,6 +158,7 @@ private:
     std::map<uint32_t, Push> pushes_;   // IOP destination -> the EE source/size of the last push there
     std::list<std::string> server_names_;
     std::vector<std::unique_ptr<IopRpcServer>> servers_;
+    std::unique_ptr<iop::IopHostSection> section_;
     std::string rpc_servers_census_;
     std::string load_log_;
     uint64_t dma_bytes_ = 0;

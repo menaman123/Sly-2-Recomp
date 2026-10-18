@@ -128,6 +128,18 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
                 }
         }
     }
+    // NATIVEEE_GS_TEXRES=<tbp hex>[,<cbp hex>] (leg_gs.h).
+    if (knobs.gs_texres) {
+        char* end = nullptr;
+        texres_filter.enabled = true;
+        if (knobs.gs_texres->rfind("*", 0) == 0) {   // every read (no bytes kept: the census only)
+            texres_filter.keep_bytes = false;
+        } else {
+            texres_filter.keep_bytes = true;
+            texres_filter.tbp = static_cast<uint32_t>(std::strtoul(knobs.gs_texres->c_str(), &end, 16));
+            if (end && *end == ',') texres_filter.cbp = static_cast<uint32_t>(std::strtoul(end + 1, nullptr, 16));
+        }
+    }
     // --dump-frames <dir>: the Verify slot writes f<key>.ppm / p<key>.ppm there (hle/frame_dump.h).
     if (video_live && !frame_dump.Open(core.dump_frames_dir))
         std::fprintf(stderr, "nativeee: --dump-frames %s: cannot create the directory (no dumps)\n", core.dump_frames_dir.c_str());

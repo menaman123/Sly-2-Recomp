@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 #include "engine/gs/hle/ir/job_rec.h"
@@ -19,6 +20,8 @@ void VertTraceSink::SetSkipClasses(const char* list) {
     skip_date = c.find(",date,") != std::string::npos;
     skip_addpass = c.find(",addpass,") != std::string::npos;
     skip_lerppass = c.find(",lerppass,") != std::string::npos;
+    for (size_t at = c.find(",tbp="); at != std::string::npos; at = c.find(",tbp=", at + 1))
+        skip_tbp.push_back(static_cast<uint32_t>(std::strtoul(c.c_str() + at + 5, nullptr, 16)));
 }
 
 bool VertTraceSink::Skipped(const ps2r::gs::DrawIr& d) const {
@@ -29,6 +32,7 @@ bool VertTraceSink::Skipped(const ps2r::gs::DrawIr& d) const {
     if (skip_date && d.raster.test.date) return true;
     if (skip_addpass && d.tex_enabled && d.alpha_blend && d.raster.alpha.a == 0 && d.raster.alpha.b == 2 && d.raster.alpha.c == 0 && d.raster.alpha.d == 1) return true;
     if (skip_lerppass && d.tex_enabled && d.alpha_blend && d.raster.alpha.a == 0 && d.raster.alpha.b == 1 && d.raster.alpha.c == 0 && d.raster.alpha.d == 1) return true;
+    if (d.tex_enabled && std::find(skip_tbp.begin(), skip_tbp.end(), d.tex.tbp) != skip_tbp.end()) return true;
     return false;
 }
 
@@ -60,10 +64,10 @@ void VertTraceSink::OnDraw(const ps2r::gs::DrawIr& d) {
                      d.off_y, d.tex.tbp, d.tex.tbw, d.tex.psm, d.tex.tw, d.tex.th, d.tex.tcc, d.tex.tfx, d.tex.cbp, d.tex.cpsm, d.tex.csm,
                      d.tex.csa, d.tex.cld, d.tex.fst ? 1 : 0, d.tex.texa_ta0, d.tex.texa_ta1, d.tex.texa_aem ? 1 : 0, d.raster.alpha.a,
                      d.raster.alpha.b, d.raster.alpha.c, d.raster.alpha.d, d.raster.alpha.fix, d.vertex_count);
-        for (size_t i = 0; i < d.verts.size() && i < 8; ++i)
-            std::fprintf(stderr, "verts:   v%zu xyz=%.1f,%.1f,%.0f stq=%g,%g,%g uv=%u,%u rgba=%02x%02x%02x%02x\n", i, d.verts[i].x, d.verts[i].y,
-                         d.verts[i].z, d.verts[i].s, d.verts[i].t, d.verts[i].q, d.verts[i].uv_u, d.verts[i].uv_v, d.verts[i].r, d.verts[i].g,
-                         d.verts[i].b, d.verts[i].a);
+        for (size_t i = 0; i < d.verts.size() && i < 64; ++i)
+            std::fprintf(stderr, "verts:   v%zu xyz=%.1f,%.1f,%.0f stq=%g,%g,%g uv=%u,%u rgba=%02x%02x%02x%02x fog=%u\n", i, d.verts[i].x,
+                         d.verts[i].y, d.verts[i].z, d.verts[i].s, d.verts[i].t, d.verts[i].q, d.verts[i].uv_u, d.verts[i].uv_v, d.verts[i].r,
+                         d.verts[i].g, d.verts[i].b, d.verts[i].a, d.verts[i].fog);
     }
     if (next) next->OnDraw(d);
 }

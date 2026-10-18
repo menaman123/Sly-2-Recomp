@@ -22,6 +22,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <vector>
 
 #include "engine/gs/hle/ir/draw_ir_sink.h"
 
@@ -36,6 +37,8 @@ struct VertTraceSink : ps2r::gs::DrawIrSink {
     // (ALPHA A=Cs B=0 C=As D=Cd, additive with the fragment alpha), `lerppass` = the first
     // (ALPHA A=Cs B=Cd C=As D=Cd) -- the Paris canopy bisect (ep1 stage).
     bool skip_addpass = false, skip_lerppass = false;
+    // `tbp=<hex>` -- drop every textured draw reading TEX0.TBP0 at that byte address (which object is it?).
+    std::vector<uint32_t> skip_tbp;
     std::array<uint32_t, 512> page_written{}, page_sampled{}, page_target{};
 
     // Parses the NATIVEEE_GS_SKIP_CLASS list (nullptr = unset) into the skip_* flags.

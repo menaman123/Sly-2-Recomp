@@ -57,9 +57,15 @@ struct LegKnobs {
     // <dump dir or harness out>/textures/<hash>.{ppm,alpha.pgm,json,win,clut}; parsed in leg_gs.cpp, armed /
     // disarmed by the Verify slot). tex_dump_to 0 = off.
     uint32_t tex_dump_from = 0, tex_dump_to = 0;
+    // NATIVEEE_GS_TEXRES=<tbp hex>[,<cbp hex>] | '*' (every read, no bytes): the resolver's source-composition trace (engine TexresTrace,
+    // bytes kept) of the textured reads at that TEX0.TBP (and CLUT base), written with NATIVEEE_GS_ROUTES
+    // as texres_<key>.txt + texres_<key>_<seq>_{win.bin,clut.bin,tex.ppm} (parsed in leg_gs.cpp).
+    std::optional<std::string> gs_texres;
     // NATIVEEE_WATCHDOG_S=<s> (default 60; 0 = off) / NATIVEEE_RAM_DUMP=<file> at the watchdog park.
     uint64_t watchdog_s = 60;
     std::optional<std::string> ram_dump;
+    // NATIVEEE_NAV=<item>[;...]: nav_probe.h (the position / camera probe, its trace, the RAM-dump hunt).
+    std::optional<std::string> nav;
     // NATIVEEE_UNPACED=1: play mode keeps the boundary ticking inline (no wall-locked pacer).
     bool unpaced = false;
 

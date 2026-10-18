@@ -20,6 +20,7 @@
 #include "engine/ee/mem/elf_loader.h"
 #include "engine/gs/hle/sce/gs_sync.h"
 #include "engine/mc/hle/libmc_bindings.h"
+#include "engine/sif/hle/rpc_router.h"
 #include "engine/sif/hle/sce_sif.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_text.h"
 
@@ -81,10 +82,18 @@ bool LegImage::InstallDispatch(const ps2r::Config& cfg, ps2r::verify::VerifyHost
         PS2R_LOG(HOST, Info, "sceSifLoadModuleBuffer(%s) -> %d", path.c_str(), id);
         return id;
     });
-    const int sif_rows = SceSif::Bind(manifest, services.rpc_router, core.sif_state, std::move(iop_heap), [](uint32_t handle) {
+    // A client bound before this router existed (a restored image: the bindings sceSifBindRpc made at
+    // boot are EE RAM, the router's table is not): the handle word (0xDEAD0000 | sid & 0xFFFF) is resolved
+    // against the LIVE registered server ids -- the SDK system servers (0x800000xx) and the modules'
+    // own ids (989snd's 0x123456/7) alike; an unknown low half answers 0 (the sif_server_unbound park).
+    RpcRouter* router = &services.rpc_router;
+    const int sif_rows = SceSif::Bind(manifest, services.rpc_router, core.sif_state, std::move(iop_heap), [router](uint32_t handle) {
         if ((handle & 0xFFFF0000u) != 0xDEAD0000u) return 0u;
         const uint32_t low = handle & 0xFFFFu;
-        return low ? (0x80000000u | low) : 0u;   // the SDK system servers keep their low half
+        if (!low) return 0u;
+        for (uint32_t sid : router->ServerIds())
+            if ((sid & 0xFFFFu) == low) return sid;
+        return 0x80000000u | low;   // not registered (yet): the SDK system servers keep their low half
     });
     if (!manifest.MarkWaitBody("libkernl.a", "sceSifRpcLoop", TSW_SLEEP)) return false;
     const int cdvd_rows = LibcdvdBindings::Bind(manifest, disc.Reader(), &core.clocks, &disc.stream_reader);

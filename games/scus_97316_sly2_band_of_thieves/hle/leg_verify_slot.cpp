@@ -192,6 +192,12 @@ void LegVerifySlot::VerifyStep() {
                 td.Disarm();
             }
         }
+        // NATIVEEE_GS_TEXRES (leg_gs.h): the resolver's trace filter, set once the pipeline exists (headless
+        // lockstep: the consumer is idle at the boundary).
+        if (gs_.texres_filter.enabled && !gs_.texres_armed && gs_.video.Pipe() && !core_.sequencer.WallLocked()) {
+            gs_.video.Pipe()->Resolver().Trace().SetFilter(gs_.texres_filter);
+            gs_.texres_armed = true;
+        }
         // NATIVEEE_TEX_DUMP=<from>,<to> (leg_knobs.h): the texture oracle dump of the frames ending at present
         // keys [from, to] -- armed at the boundary that opens frame `from`, disarmed after the boundary that
         // closes frame `to` (headless lockstep: the consumer is idle at the boundary).
@@ -263,6 +269,17 @@ void LegVerifySlot::WriteRoutes(uint32_t present_key, const ps2r::gs::DrawPipeli
                      fr.source_fbp, fr.source_fallback ? 1 : 0, fr.w, fr.h);
         gs_.video.Pipe()->RouteTrace().Write(rf);
         std::fclose(rf);
+    }
+    // NATIVEEE_GS_TEXRES: the resolver's source-composition trace of that frame's filtered reads + their bytes.
+    if (gs_.texres_armed) {
+        const ps2r::gs::TexresTrace& tr = gs_.video.Pipe()->Resolver().Trace();
+        if (std::FILE* tf = std::fopen((dir + "/texres_" + std::to_string(present_key) + ".txt").c_str(), "w")) {
+            tr.Write(tf);
+            std::fclose(tf);
+        }
+        const uint32_t n = tr.WriteBytes(dir, "texres_" + std::to_string(present_key) + "_");
+        std::fprintf(stderr, "nativeee: NATIVEEE_GS_TEXRES key %u: %zu reads, %u byte files in %s\n", present_key,
+                     tr.LastFrame().size(), n, dir.c_str());
     }
     // The GS local-memory image at that frame (4 MiB, native layout), for the texel check.
     if (std::FILE* vf = std::fopen((dir + "/vram_" + std::to_string(present_key) + ".bin").c_str(), "wb")) {

@@ -20,6 +20,7 @@
 #include "engine/core/config/config.h"
 #include "engine/gs/hle/ir/counting_draw_ir_sink.h"
 #include "engine/gs/hle/classrdr/target_dump.h"
+#include "engine/gs/hle/texsrc/texres_trace.h"
 #include "engine/gs/hle/queue/draw_ir_queue_consumer.h"
 #include "engine/gs/hle/queue/draw_ir_thread_queue.h"
 #include "engine/gs/state/gs_state.h"
@@ -69,6 +70,11 @@ public:
     // Verify slot (leg_verify_slot.cpp) at the frame's boundaries. rt_dump_key 0 = off.
     ps2r::gs::TargetDump::Request rt_dump_req;
     uint32_t rt_dump_key = 0;
+    // NATIVEEE_GS_TEXRES=<tbp hex>[,<cbp hex>] (boot triage): the resolver's TexresTrace filter (bytes kept) --
+    // parsed here, set on the pipeline's resolver by the Verify slot once the video stack is live, written
+    // with every NATIVEEE_GS_ROUTES frame. texres_filter.enabled false = off.
+    ps2r::gs::TexresTrace::Filter texres_filter;
+    bool texres_armed = false;
     uint64_t gs_frame_boundaries = 0;   // the slot-0 VSync jobs pushed (JobRec::src_frame)
 };
 

@@ -5,7 +5,9 @@
 // kernel (iop_host.cpp: lgAud, 989snd, spiop recompiled at build time; the stock Sony modules are the
 // engine's HLE), the hardware fallbacks (GS / GIF / VU / VIF / DMAC / IPU), the memory card and pad
 // faces, loads the ELF image, installs the generated dispatch table and runs the recompiled code from
-// the ELF entry. Three shapes of one leg:
+// the ELF entry -- or, with --load-state <slot.ps2st>, restores every section of that slot (the hosted
+// IOP included) and relaunches its threads in place of the entry (LegSaves::ColdBoot). Three shapes of
+// one leg:
 //   * the headless harness leg (--headless): a counting GS sink, no GL, the neutral pad, muted; the
 //     park / frames-cap census in run.meta (LegCloser) + a `census:` block on stdout;
 //   * the headless dump (--headless --dump-frames <dir>): the generic GS renderer over GL into a
@@ -45,11 +47,13 @@
 //   LegAudio       the SDL audio device + pull ring (+ AudioDump)
 //   LegPlay        the live pad + the SessionRuntime window, the presented-image output, the
 //                  player's menu pages (Display / Controls / the pause menu)
+//   LegIop         IopHost (+ its IOPH savestate section), the SIF DMA copy, the padman facts, the
+//                  IopDispatch / EeStreamRpc steps, the SIF command path, the back-edge yield
 //   LegSaves       the save states: the section registry (RAM / SPAD / GCLK / VU / THRD / kernel /
-//                  INTC / DMAC / TIMR / VIFS / GS / GIFS / PADS / VU1R / SPU2 / MCHL), the F5 capture,
-//                  the F8 live restore (bound into the session's hooks by LegVerifySlot)
-//   LegIop         IopHost, the SIF DMA copy, the padman facts, the IopDispatch / EeStreamRpc steps, the
-//                  SIF command path, the back-edge yield
+//                  INTC / DMAC / TIMR / VIFS / GS / GIFS / PADS / VU1R / IOPH / SPU2 / MCHL), the F5
+//                  capture, the F8 live restore (bound into the session's hooks by LegVerifySlot), the
+//                  --load-state cold route (ColdBoot: restore every section + relaunch the THRD records
+//                  in place of the ELF entry)
 //   LegPad         PadScript / PadRecorder / the key script, the slot-4 MaintDuties step
 //   LegImage       the ELF image + BootEnv, the generated dispatch + the SDK manifest (+ FN_TRACE)
 //   LegPark        LegCloser, the boundary / wall counters, Vu1Probe, the main context pointer
@@ -173,9 +177,9 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegAudio audio(cfg, knobs, core);
     LegPlay play(cfg, title, core, gs, audio);
     if (play.Failed()) return 2;
-    LegSaves saves(cfg, host, title, core, gs, devices, mtvu, services, play, g_build_id);
     LegIop iop(cfg, core, devices, mtvu, interrupts, disc, services);
-    LegPad pad(knobs, core, services, play);
+    LegSaves saves(cfg, host, title, core, gs, devices, mtvu, services, iop, play, g_build_id);
+    LegPad pad(cfg, title_dir, knobs, core, services, play);
     LegImage image(cfg, host, title, elf_path, title_dir, knobs, core, disc, services, iop);
     if (image.Error()) return image.Error();
     // NATIVEEE_WATCH=text[;...]: the code-range snapshot compare (text_watch.h) -- after the ELF load.
@@ -204,6 +208,11 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegCloser& closer = park.closer;
     std::unique_ptr<ps2r::app::SessionRuntime>& session = play.session;
     auto cold_boot = [&]() {
+        // --load-state: the cold restore route in place of the ELF entry (LegSaves::ColdBoot).
+        if (!cfg.harness.load_state.empty()) {
+            LegSaves::ColdDeps deps{verify.session_workers, audio, park, census, [&verify] { verify.JoinLadder(); }};
+            return saves.ColdBoot(cfg.harness.load_state, deps);
+        }
         CpuContext ctx;
         CpuContextInit::Reset(ctx, title.entry, title.main_stack_top);
         std::shared_ptr<ThreadInfo> main_info = ThreadManager::Instance().AdoptCurrentThread(1, kMainThreadPriority);

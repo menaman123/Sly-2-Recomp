@@ -21,7 +21,8 @@
 #                  a hidden window whose presented image feeds the session window / frame_dump.cpp
 #                  (the --dump-frames P6 writer); pad_script.cpp / pad_recorder.cpp: the
 #                  NATIVEEE_PAD_SCRIPT overlay and the NATIVEEE_PAD_RECORD writer (record a session,
-#                  replay it headless); store_watch.cpp: the NATIVEEE_WATCH store observer (boot
+#                  replay it headless); nav_probe.cpp: the NATIVEEE_NAV position / camera probe that
+#                  gives the pad script's closed-loop steps (goto / face) their eyes; store_watch.cpp: the NATIVEEE_WATCH store observer (boot
 #                  triage); text_watch.cpp: its `text` mode (the code-range snapshot compare). Defined only when the recompiled
 #                  code exists (ps2r_title_recomp, ps2r_title_iop): with no ELF given there is
 #                  nothing to run and nativeee keeps its "supplies no play composition" report.
@@ -64,6 +65,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         leg_text.cpp
         leg_verify_slot.cpp
         leg_watchdog.cpp
+        nav_probe.cpp
         pad_recorder.cpp
         pad_script.cpp
         store_watch.cpp

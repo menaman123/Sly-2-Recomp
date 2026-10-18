@@ -1,0 +1,28 @@
+{
+  "title": "SCUS_973.16 Sly 2: Band of Thieves (NTSC-U)",
+  "note": "Reverse-engineered EE RAM facts for the navigator (hle/nav_probe.h). Found by RAM diffs of the Paris hub (nav_hunt.py; nav_notes.md). World: x,y horizontal, z UP (Sucker Punch engine units; Sly ~190 tall, ground of the spawn roof z=532). chain = [static address, offset after deref, ...]; a one-element chain is a static variable.",
+  "nav": {
+    "up_axis": "z",
+    "forward_offset_deg": 0,
+    "right_sign": -1,
+    "default_radius": 40,
+    "still_eps": 0.5
+  },
+  "probes": [
+    {"name": "pos_x", "chain": ["0x2de1a0", "0x45d0"], "type": "f32", "note": "player root bone world position (block +0x70); [0x2de1a0] = the level/world object (0xfb1580 in Paris), the player's transform blocks follow it at fixed offsets"},
+    {"name": "pos_y", "chain": ["0x2de1a0", "0x45d4"], "type": "f32"},
+    {"name": "pos_z", "chain": ["0x2de1a0", "0x45d8"], "type": "f32"},
+    {"name": "yaw", "chain": ["0x2de1a0", "0x22a0"], "type": "atan2_deg", "note": "player character-root world matrix row0 (x,y) -> facing, degrees"},
+    {"name": "cam_yaw", "chain": ["0x2ddfa0"], "type": "atan2_deg", "note": "camera orientation matrix row0 = forward (x,y,z); yaw degrees"},
+    {"name": "cam_pitch", "chain": ["0x2de30c"], "type": "f32", "scale": 57.29577951308232, "note": "camera orbit pitch, radians -> degrees"},
+    {"name": "cam_orbit_yaw", "chain": ["0x2de308"], "type": "f32", "scale": 57.29577951308232, "note": "yaw of (camera - target), radians -> degrees (= cam_yaw - 180)"},
+    {"name": "cam_dist", "chain": ["0x2de310"], "type": "f32", "note": "camera orbit distance (400 nominal)"},
+    {"name": "cam_x", "chain": ["0x2ddfd0"], "type": "f32"},
+    {"name": "cam_y", "chain": ["0x2ddfd4"], "type": "f32"},
+    {"name": "cam_z", "chain": ["0x2ddfd8"], "type": "f32"},
+    {"name": "cam_tgt_x", "chain": ["0x2de1c0"], "type": "f32", "note": "camera target (player + ~53 up)"},
+    {"name": "cam_tgt_y", "chain": ["0x2de1c4"], "type": "f32"},
+    {"name": "cam_tgt_z", "chain": ["0x2de1c8"], "type": "f32"},
+    {"name": "level_time", "chain": ["0x2de1e8"], "type": "f32", "note": "seconds since the level started (0x2dded0 family)"}
+  ]
+}

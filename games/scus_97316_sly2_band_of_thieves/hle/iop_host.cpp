@@ -188,6 +188,42 @@ IopHost::IopHost(const Config& cfg, MainMemory& ram, RpcRouter& router, sound::S
         {"cdvdman", 0x101},  {"cdvdfsv", 0x101},
     };
     for (const Row& r : kIoprp) table_.RegisterModule(r.name, r.version, 0);
+
+    // The IOPH section over this host's kernel-facing modules (every row past the stock rows above is
+    // the image's; the hosted-module flags are re-derived from the restored rows).
+    iop::IopHostSection::Deps deps;
+    deps.ram = &mem_;
+    deps.table = &table_;
+    deps.heap = &sysmem_.Heap();
+    deps.libs = &libs_;
+    deps.thbase = &thbase_;
+    deps.thsemap = &thsemap_;
+    deps.thevent = &thevent_;
+    deps.thmsgbx = &thmsgbx_;
+    deps.timrman = &timrman_;
+    deps.sifcmd = &sifcmd_;
+    deps.sifman = &sifman_;
+    deps.cdvdman = &cdvdman_;
+    deps.libsd = &libsd_;
+    deps.usbd = &usbd_;
+    deps.boot_rows = table_.ModuleCount();
+    deps.after_restore = [this] { AfterSectionRestore(); };
+    section_ = std::make_unique<iop::IopHostSection>(std::move(deps));
+}
+
+void IopHost::AfterSectionRestore() {
+    for (Hosted& h : hosted_) {
+        const iop::IopModuleTable::ModuleEntry* row = table_.FindModule(h.iopmod_name);
+        h.loaded = row != nullptr;
+        if (row) h.rpc_tid = row->rpc_tid;
+    }
+    const iop::IopHostSection::RestoreCensus& c = section_->LastRestore();
+    load_log_ += std::string(load_log_.empty() ? "" : ",") + "restored:rows=" + std::to_string(c.rows) + ":threads=" +
+                 std::to_string(c.threads_armed) + "/" + std::to_string(c.threads_recorded) + ":servers=" + std::to_string(c.servers) +
+                 ":timers=" + std::to_string(c.timers_armed) + ":libs=" + std::to_string(c.libraries);
+    PS2R_LOG(HOST, Info, "iop: IOPH restored: %u rows, %u/%u threads re-armed, %u servers, %u timers, %u libraries, frame %llu",
+             c.rows, c.threads_armed, c.threads_recorded, c.servers, c.timers_armed, c.libraries,
+             static_cast<unsigned long long>(c.frames));
 }
 
 IopHost::~IopHost() {
@@ -410,10 +446,22 @@ int32_t IopHost::LoadImageOnly(const std::string& name, uint32_t iop_addr, uint3
 }
 
 void IopHost::OnServerRegistered(const iop::hle::SifcmdModule::ServerRecord& r) {
-    server_names_.push_back("IOP:" + Hex(r.sid));
     auto server = std::make_unique<IopRpcServer>(r, mem_, ram_, table_.Rpc(), sifcmd_, &IopHost::ResolveGuest);
-    router_.RegisterServer(r.sid, *server, server_names_.back().c_str());
-    servers_.push_back(std::move(server));
+    // A re-registration (a restored record, a module re-running its init): the server for that id is
+    // REPLACED and the router's row re-pointed -- one EE-facing server per id.
+    bool replaced = false;
+    for (auto& existing : servers_) {
+        if (existing->Record().sid != r.sid) continue;
+        existing = std::move(server);
+        router_.RegisterServer(r.sid, *existing, router_.ServerName(r.sid));
+        replaced = true;
+        break;
+    }
+    if (!replaced) {
+        server_names_.push_back("IOP:" + Hex(r.sid));
+        router_.RegisterServer(r.sid, *server, server_names_.back().c_str());
+        servers_.push_back(std::move(server));
+    }
     rpc_servers_census_ += (rpc_servers_census_.empty() ? "" : ",") + Hex(r.sid) + "->" + Hex(r.func) + "@tid" +
                            std::to_string(r.tid);
     PS2R_LOG(HOST, Info, "iop: RPC server 0x%08x registered (func 0x%08x buff 0x%08x queue tid %d)", r.sid, r.func,

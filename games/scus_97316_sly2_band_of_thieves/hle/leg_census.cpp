@@ -180,6 +180,7 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
     pad.pad_recorder.Close();   // every exit path: the open run + the header counts land before _Exit
     meta->Set("pad_record", pad.pad_recorder.Census());
     meta->Set("pad_script", pad.pad_script.Census());
+    meta->Set("nav_probe", pad.nav_probe.Census());
     if (play.live_input) {
         meta->Set("pad_live", play.live_input->Census());
         meta->Set("input_sources", play.live_input->Sources());

@@ -158,10 +158,46 @@ save root is `paths.save_dir`, else the harness out dir, else `paths.log_dir`).
 
 Save states (`LegSaves`): the section registry carries RAM0, SPAD, GCLK, VU0/VU1 memories, THRD (threads +
 parked contexts + shadow call chains), SEMA/EVFL, INTC, DMAC, TIMR, VIFS, VRAM/GSPR/GSST, GIFS, PADS,
-VU1R, SDRX/SNDC (SPU2), MCHL (libmc) -- 23 sections, every one required to have an owner. F8 is the LIVE
-route: the guest workers unwind at a boundary, every section restores on the live composition and the
-threads relaunch from their continuations. The hosted IOP modules (lgAud / 989snd / spiop) have NO
-section: a restore rewinds the EE while the IOP keeps its live state (run.meta `f8=live,iop=retained`).
+VU1R, IOPH (the hosted IOP, below), SDRX/SNDC (SPU2), MCHL (libmc) -- 24 sections, every one required to
+have an owner. F8 is the LIVE route: the guest workers unwind at a boundary, every section restores on the
+live composition and the threads relaunch from their continuations (run.meta `f8=live,iop=section`).
+
+The hosted IOP's section (IOPH, the engine's `IopHostSection` over `IopHost`'s kernel-facing modules):
+IOP RAM, the sysmem heap tail, the kernel clock, the kernel tables (threads with their thbase records --
+entry / $gp / heap stack / $a0 / park kind -- semaphores, event flags, message boxes), the timrman hard
+timers, the module rows past the 22 stock rows, the hosted modules' libraries (RegisterLibraryEntries
+tables), the sifcmd RPC queues + server records, the cdvdman callback, the sifman dma id, the usbd drivers.
+A restore resets the live kernel, lands RAM and the records, RE-ARMS every started thread from its record
+(a fresh coroutine runs the module's thread entry to its first park on the restored RAM -- the host stack
+of the saved coroutine cannot be rebuilt; this is the first title's contract for its STREAM.IRX), hands
+the server records back to `IopHost::OnServerRegistered` (one `IopRpcServer` per id, replaced), re-arms the
+989snd heartbeat timer, rebases the IOP clock to the image's frame. IOPH is registered BEFORE the SPU
+sections so the restored SPU image wins over anything a re-armed entry touched. A client the EE bound at
+boot resolves its RPC server through the handle word against the router's live ids (989snd's 0x123456/7
+included), since the router's binding table is not an image's.
+
+`--load-state <slot.ps2st>` (`LegSaves::ColdBoot`, the COLD route, the engine's `app/host/cold_restore.h`):
+the composition boots and arms everything, then -- before the first guest instruction -- the slot is
+preflighted (every required owner's section present, the `.meta` sidecar's composition equal to the live
+one; a differing build_id is a warning; the THRD boundary owner), every section restored in registration
+order, and the THRD records relaunched (ThreadRelauncher) in place of the ELF entry. In a window the
+session's supervisor keeps running while the boundary owner lives; headless, the leg waits for it and runs
+the join ladder. The host pacing policy (tick-source mode, pacer release) is the running process's: a slot
+taken in a windowed run restores headless. The clock identity (GCLK providers) is the title + the hle.*
+composition, not the whole config fingerprint, so the GS queue mode / video settings / harness flags may
+differ between the save and the load. run.meta: `restore_route=cold`, `restore_boundary_tid=`,
+`restore_iop=rows=:threads=<armed>/<recorded>:servers=:timers=:libs=:frames=`, `relaunch=`; a refusal ends
+the leg with `restore_route=cold_refused|cold_failed` + `restore_refusal=`.
+
+Coverage workflow (the agents' checkpoints; game-derived files live OUTSIDE this repo):
+    # 1. make a checkpoint: play to the spot in a window, F5 at boundary N (one press; the admission needs
+    #    the boundary owner's shadow chain complete -- a saturated chain in the past no longer refuses)
+    NATIVEEE_PAD_SCRIPT=... nativeee --harness-window --frames N+1 --harness-out $OUT --iso "$ISO" \
+        --set paths.mc_dir=<private card> --set paths.user_data=<private dir> --set harness.inject_key=F5@N
+    cp $OUT/savestates/slot0.ps2st  <states>/ep1_<name>.ps2st; cp $OUT/savestates/slot0.ps2st.meta <states>/ep1_<name>.ps2st.meta
+    # 2. resume from it headless and keep playing with a pad script (stamps count from the resumed process's boundary 0)
+    NATIVEEE_PAD_SCRIPT="5:0:140:128,0,128,128" nativeee --headless --frames 300 --dump-frames $FR --harness-out $OUT2 \
+        --iso "$ISO" --set paths.mc_dir=<private card> --set paths.user_data=<private dir> --load-state <states>/ep1_<name>.ps2st
 Harness: `--set harness.inject_key=F5@N,F8@M` presses the keys; `--set harness.display_sequence=
 <frame>:<mode>` submits a Display row (modes: windowed|fullscreen|borderless|scale1..4|vsync|novsync|
 aspect_<auto|4_3|16_9|16_10|21_9>|filter_<title|point|bilinear|trilinear>|aniso<1|2|4|8|16>|overlay|
@@ -171,6 +207,44 @@ nooverlay|rate60|ratedisplay). Census rows: `savestate_sections=`, `savestate_ca
 
 Agent runs: NEVER on the user's card -- every nativeee run passes `--set paths.mc_dir=<private copy>`
 (and `--set paths.user_data=<private dir>` when the menu may write ps2r.ini / bindings.ini).
+
+## The navigator: closed-loop pad control (`hle/nav_probe.*`, `hle/pad_script.*`, `verify/nav/`)
+
+Agents reach places in the hub by a closed loop instead of blind stick timings. `NavProbe` reads a few
+reverse-engineered EE RAM facts at every pad stamp (the table `verify/nav/sly2_probe.json`: name, pointer
+chain, type -- data about the title, no game bytes) and the pad script gains closed-loop steps that steer
+the left stick from the camera-relative heading to a target:
+
+```
+NATIVEEE_NAV=probe=<json>;trace[=<csv>];every=<n>;ramdump=<dir>@<stamp>+<stamp>...   (hle/nav_probe.h)
+NATIVEEE_PAD_SCRIPT="... goto:<from>:<x>,<y>,<z>[:<radius>[:<timeout>]] jump_when_near:<from>:<x>,<y>,<z>:<radius>
+                     face:<from>:<yaw_deg> wait_still:<from>[:<timeout>] nav_pause:<from>:<stamps>"      (hle/pad_script.h)
+```
+
+The closed-loop steps form a queue in script order (each starts at the later of its `from` stamp and the
+previous step's end); a `goto` that makes no progress for 30 stamps unsticks itself (a jump, then escalating
+detours along the obstacle). The trace lands in `<harness out>/nav_trace.csv` (`stamp,valid,pos_x,pos_y,pos_z,
+yaw,cam_yaw,...`), run.meta gets `nav_probe=` and the per-step outcomes in `pad_script=`; `verify/nav/nav_plot.py`
+draws the top-down track, `verify/nav/nav_hunt.py` is the RAM-diff tool that found the facts.
+
+Facts (Paris, verified over seven headless runs; details and evidence in the work notes): the world is
+right-handed with z UP (the spawn roof at z ~532, the street at ~0..100); the player's transform blocks sit
+at fixed offsets from the level object `[0x2de1a0]` (root bone world position at +0x45d0, the facing matrix
+row0 at +0x22a0: yaw = atan2(y, x)); the camera object is static at 0x2ddf80.. (orientation 3x3 at 0x2ddfa0
+with row0 = forward, position 0x2ddfd0, target 0x2de1c0, orbit yaw/pitch/distance 0x2de308/0x2de30c/0x2de310).
+Stick convention (calibrated): forward = camera yaw, right = yaw - 90, left = yaw + 90 (`"nav"` block of the
+table: `forward_offset_deg 0, right_sign -1`). The POST-autosave Paris card resumes at the ledge WITHOUT the
+2000-frame Satellite Sabotage briefing (it replays only on the pre-autosave card).
+
+### Episode 1 "The Black Chateau" (Paris) -- completion map
+
+| mission / structure | reached | played | completed | notes |
+|---|---|---|---|---|
+| Resume Game -> Paris spawn ledge (post-autosave card) | yes, every run (~p850) | -- | n/a | D2: the carousel bar text is empty |
+| Paris rooftop hub: ledge, camera, walking / jumping, the drop to the fountain square | yes | ~15 min over the nav runs | n/a | `goto` round trip ledge -> A -> ledge in 30 / 35 stamps; ledge -> fountain square (-760,-2955,95) in 235 stamps with one jump; pad `nav_j1.pad` replays it |
+| Satellite Sabotage (Sly; 3 dishes) | the job is ACTIVE on the post-autosave card (the briefing is done); two rotating dishes located in RAM at (-1368,-6723,910) and (4470,-793,878) -- on towers; the street route toward dish A ends at a building wall (-1920,-5730) | -- | no | needs waypoints / climbing (a pipe) the blind navigator does not have yet; the holo Sly-head marker left of the spawn is the safehouse door, not a job beacon |
+| Breaking and Entering .. Printing Press Duel (10 jobs) | no | -- | no | after Satellite Sabotage |
+| Gadget Grid (SELECT), pause menu, binocucom bar (L1) | yes | -- | -- | D4: L1 + right stick (the binocucom pan) renders the whole world flat MAGENTA (`nav_D4_magenta_L1_pan_sheet.png`); L1 alone or the pan alone are fine; PCSX2 oracle pending |
 
 ## STATUS
 

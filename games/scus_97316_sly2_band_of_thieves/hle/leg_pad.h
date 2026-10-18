@@ -14,7 +14,10 @@
 //       A 4, D 7, S 22, W 26, Space 44, Up 82 ...) from the `frame`-th pad stamp for `hold` boundaries
 //       through PlatformInput::HoldKey -- the engine's held-key overlay on the kbm backend, so the press
 //       goes through the REAL keyboard -> InputMapper (default_bindings.ini) -> DualShock sample path,
-//       not the pad script's direct stamp.
+//       not the pad script's direct stamp;
+//   NATIVEEE_NAV=<items>  hle/nav_probe.h -- the position / camera probe read at every stamp BEFORE the script
+//       is applied, so PadScript's closed-loop steps (goto / face / wait_still / jump_when_near) steer from
+//       this stamp's sample; nav_trace.csv under the harness out dir.
 // run.meta pad_served=: stamps carrying a press or a deflected stick, and the last such sample.
 #pragma once
 
@@ -26,6 +29,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_play.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/nav_probe.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/pad_recorder.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/pad_script.h"
 
@@ -33,7 +37,8 @@ namespace ps2r::title::sly2 {
 
 class LegPad {
 public:
-    LegPad(const LegKnobs& knobs, LegCore& core, LegServices& services, LegPlay& play);
+    // `title_dir` = the title directory (the default probe table lives under it, verify/nav/).
+    LegPad(const ps2r::Config& cfg, const std::string& title_dir, const LegKnobs& knobs, LegCore& core, LegServices& services, LegPlay& play);
     LegPad(const LegPad&) = delete;
     LegPad& operator=(const LegPad&) = delete;
 
@@ -42,6 +47,7 @@ public:
     uint64_t rpc_end_callbacks = 0, pad_stamps = 0;
     uint64_t pad_served_active = 0;
     std::string pad_served_last;
+    NavProbe nav_probe;
     PadScript pad_script;
     PadRecorder pad_recorder;
     std::vector<KeyScriptStep> key_script;

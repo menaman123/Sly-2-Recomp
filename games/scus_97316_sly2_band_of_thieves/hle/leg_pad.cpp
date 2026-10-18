@@ -11,12 +11,17 @@
 
 namespace ps2r::title::sly2 {
 
-LegPad::LegPad(const LegKnobs& knobs, LegCore& core, LegServices& services, LegPlay& play) {
+LegPad::LegPad(const ps2r::Config& cfg, const std::string& title_dir, const LegKnobs& knobs, LegCore& core, LegServices& services, LegPlay& play)
+    : nav_probe(knobs.nav ? knobs.nav->c_str() : nullptr, title_dir, cfg.harness.out_dir, core.ram) {
     if (knobs.pad_script) {
         const std::string& env = *knobs.pad_script;
         if (!pad_script.Load(env)) std::fprintf(stderr, "nativeee: NATIVEEE_PAD_SCRIPT=%s: file not readable (ignored)\n", env.c_str());
         if (!pad_script.Warning().empty())
             std::fprintf(stderr, "nativeee: NATIVEEE_PAD_SCRIPT: stray token '%s' (script truncated here)\n", pad_script.Warning().c_str());
+        if (pad_script.ClosedLoop()) {
+            nav_probe.EnsureArmed();
+            if (!nav_probe.Armed()) std::fprintf(stderr, "nativeee: NATIVEEE_PAD_SCRIPT has closed-loop steps but no probe table: they time out blind\n");
+        }
     }
     if (knobs.pad_record)
         if (!pad_recorder.Open(*knobs.pad_record, g_build_id)) std::fprintf(stderr, "nativeee: NATIVEEE_PAD_RECORD=%s: cannot open (ignored)\n", knobs.pad_record->c_str());
@@ -47,7 +52,8 @@ LegPad::LegPad(const LegKnobs& knobs, LegCore& core, LegServices& services, LegP
                 }
             }
         PadProtocol::Input in = play.live_input ? play.live_input->Sample() : PadProtocol::Input{};
-        pad_script.Apply(pad_stamps, &in);
+        nav_probe.Read(pad_stamps);
+        pad_script.Apply(pad_stamps, nav_probe, &in);
         pad_recorder.Record(pad_stamps, in);
         if (in.buttons || in.lx != 0x80 || in.ly != 0x80 || in.rx != 0x80 || in.ry != 0x80) {
             ++pad_served_active;
