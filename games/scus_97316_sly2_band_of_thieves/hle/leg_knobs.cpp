@@ -53,6 +53,7 @@ LegKnobs LegKnobs::FromEnvironment() {
     if (const char* env = std::getenv("NATIVEEE_WATCHDOG_S")) k.watchdog_s = std::strtoull(env, nullptr, 10);
     k.ram_dump = Text(std::getenv("NATIVEEE_RAM_DUMP"));
     k.nav = Text(std::getenv("NATIVEEE_NAV"));
+    k.warp = Text(std::getenv("NATIVEEE_WARP"));
     k.unpaced = std::getenv("NATIVEEE_UNPACED") != nullptr;
     return k;
 }

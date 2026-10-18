@@ -301,6 +301,64 @@ the slot-2 twin resumes with "Memory Card ... was removed" (PCSX2 re-inserts the
 pad bursts into 0x2dfc00 no longer clear the notice (the IOP refill wins at 25-36 % speed) -- `ep1_pine_pad.py`
 needs a hold that survives the refill, or a twin state taken after the notice.
 
+## The episode warp (`hle/warp_tool.*`, `verify/nav/sly2_probe.json` "save") and the episode completion map
+
+Blind scripting completes about one objective per round, so every episode's hub is reached by setting the game's
+own save state. The save file (`save1`, 21512 bytes) is a fixed-offset struct the game serialises through a
+runtime schema (RAM 0x3e0ea8: 5461 entries of 10 bytes {name id, type, count, offset, first child, next sibling}
++ a 53-bucket name table; the trailer `+0x5400 = 0x5098` layout size, `+0x5404 = 0x2767b4` schema checksum is all
+FUN_001d7d30 validates). The fields that select where "Resume Game" lands: `episodeCurrent` (+0, 0 intro .. 8
+blimp), `episodeBest` (+4), `widCurrent` (+8: the 44 levels in schema order, the exteriors 0 2 8 12 14 17 27 32
+38), `oidPoCurrent` (+0xc: the spawn object id; -1 = the loader's default), `dt` (+0x10, play time; 0 = empty
+slot). FUN_00165e38 (the slot-selected handler) reads `episodeCurrent`, indexes the per-episode hub-file table
+`[0x3e1c50]` (0x40-byte obfuscated descriptors: sector = (w0 ^ w13) + 0xca0, bytes = w1 ^ w15, id = w2 ^ w14;
+intro 0x51e80, nightclub 0x56640, palace 0x68540, temple 0x75dc0, prison 0x7f480, castle 0x890a0, train 0xa3ea0,
+sawmill 0xb2560, blimp 0xc5500 -- each a 4.7-6.0k-sector level stream) and posts the loader request
+(0x3dd490+0x3bf4, FUN_0020e890) unless the episode's `percent_complete` is 100. Missions are 16-byte
+`/m<ep>_<name>/{focus_count, is_complete, time_played, suck_value}` blocks from 0xd9c (78), tasks 20-byte
+`/t<ep>_<name>/{focus_count, complete_count, is_complete, state, from_memcard}` blocks from 0x127c (795); all
+names and offsets are in the table.
+
+```
+NATIVEEE_WARP=<episode>[,<job>]      (hle/warp_tool.h; applied to <paths.mc_dir>/mc0/BASCUS-97316YAOTWTD!/save1 BEFORE the boot)
+```
+The rewrite sets `episodeCurrent = episodeBest = <episode>`, `widCurrent` = the exterior wid, `oidPoCurrent = -1`,
+every earlier episode's `percent_complete = 100`, a non-zero `dt`; the optional `<job>` count marks the first jobs of
+the table's per-episode list complete (mission `is_complete` + the `t<ep>_<job>_intro/_complete` tasks state 3) and
+`t<ep>_intro` complete. The game then loads the save through its own path: the resume route (START at 500, START at
+650, CROSS from 760) lands in the hub at ~boundary 850-950. run.meta row `warp=`. Proof: warp 1 reproduces the Paris
+spawn ledge ((-1673,-4079,516); texture Oracle A 361/361 vs the PCSX2 Paris twin); the PCSX2 twin of the warp-2
+palace hub was made with the SAME rewritten save on a folder card (`Sly2Warp`) and PINE presses: Oracle A 251/251.
+Marking `t2_intro` complete changed nothing visible in the first 1150 frames (the cave shot at p800-850 is the
+level's spawn camera, also in PCSX2's twin), so the job parameter is tooling without a judged effect yet.
+
+### All episodes -- completion map (round G; checkpoints `$WORK/states/hub_ep<N>.ps2st`, PNGs `$WORK/warp_hub_ep<N>_p1200.png`)
+
+Every hub: 1700 boundaries headless lockstep (`park=none`, `unhandled_mmio=0`, `syscalls_unknown=0`,
+`sdk_rows_trap=0`, `iop_imports_unresolved` empty, 0 `[IOP-RECOMP]` lines, `vu_micro_absent` absent, the boot
+constant `guest_call_unknown=13`); the level stream read whole (`sceCdRead` lbn runs below); texture Oracle B PASS on
+every distinct decode across the load; the frame judge PASS on p1000..p1700 (no black / flat frame); a window run
+(aot + MTVU, shared host at load 8-15) with F5 at 1500 = the cold checkpoint (`--load-state` of ep5 / ep8 verified,
+`restore_route=cold`).
+
+| ep | hub | reached | render / HUD | textures (Oracle B / A) | fps p50 hub (window) | missions reached by type | completed | defects seen |
+|---|---|---|---|---|---|---|---|---|
+| 0 | intro (Cairo museum) 0x51e80 | yes (the museum hall, Sly free, (4931,-5236,568)) | OK, HUD | 6 / -- | 34 | none triggered (the prologue is scripted tasks t0_*) | -- | -- |
+| 1 | nightclub (Paris) 0x56640 | yes (spawn ledge) | OK, HUD | 442 / 361 pass | 23 | Sly: Satellite Sabotage (dish 1 of 3 done in round F) | 1/3 dishes | D1 canopy shards, D1b moon, D2 empty bar, D3 ghosted wall, D5 haze |
+| 2 | palace (India) 0x68540 | yes (jungle ledge (-4603,2194,451)) | OK, HUD; the "Start locations" carousel bar EMPTY in ours (text in PCSX2) | 337 / 251 pass | 17 | none (no marker located) | -- | D2; purple haze plane over the lower frame (D5 class) |
+| 3 | temple (India) 0x75dc0 | yes (waterfall terraces (-3135,-5595,1937)) | OK, HUD | 353 / -- | 15 | none | -- | the spawn-in cutscene (p850) shows the Guru / the gang at the table with the bar text empty (D2) |
+| 4 | prison (Prague) 0x7f480 | yes; the save's `oidPoCurrent=-1` spawn is the SAFEHOUSE: "Connecting to ThiefNet..." then the Buy Gadgets shop (the resume CROSS taps browse it, "not enough coins"), RIGHT+CROSS leaves the safehouse for the prison hub (as Bentley) (Bentley at the window, the green Bentley marker) | OK; the shop menu renders every glyph | 376 / -- | 23 | ThiefNet shop (menu) reached; a Bentley marker visible | -- | 7-sector extra read 0x83da0 (the shop's data) |
+| 5 | castle (Prague) 0x890a0 | yes (Sly on a roof (11543,2313,774), blood moon) | HUD; **large white / rainbow sheets** across the view (the D1 shard class at its worst: whole roofs render as flat white quads) | 381 / -- | 22 | none | -- | D7 (new): the castle hub's white sheets |
+| 6 | train (Canada lumber camp) 0xa3ea0 | yes ((-1032,-11043,0), ground level) | HUD; the whole frame under a cyan haze (D5 class, strongest here) | 437 / -- | 17 | none | -- | D5 cyan haze |
+| 7 | sawmill (Canada) 0xb2560 | yes; the hub immediately starts a binocucom call (Bentley / Sly portraits over the snowy camp view, "01") | OK (binocucom frame: no HUD badge by design) | 1036 / -- | 17 | job intro call auto-triggered (a Sly job) | -- | -- |
+| 8 | blimp (Arctic) 0xc5500 | yes (the blimp deck (11457,170,910), purple sky) | HUD; Sly ghosted (D3) | 327 / -- | 25 | none | -- | D3 |
+
+Missions by type (Bentley hacking, Murray, Carmelita turret, minigames): NOT reached in this round -- the hubs' job
+markers are not located yet (the navigator needs per-hub coordinates; the first marker is found by the firstjob
+stage's method: off-axis warps + icon rays). The hub audio twin (PCSX2 SDL disk capture of the warp-2 route,
+`$WORK/wp_pcsx2/ep2.raw`, hub music from ~85 s) judged against our mixer dump: FAIL / inconclusive like Paris
+(ours +4.1 dB, envelope corr 0.15, centroid ratio 2.4 -- loop phase and state differ; the audio stage's open item).
+
 ## STATUS
 
 - `recomp/`: generated at build time (`recomp/INVOCATION.md`, `MANIFEST.sha256`); 6575 functions,

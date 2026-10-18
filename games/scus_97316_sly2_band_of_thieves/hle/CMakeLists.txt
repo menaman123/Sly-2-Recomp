@@ -22,7 +22,8 @@
 #                  (the --dump-frames P6 writer); pad_script.cpp / pad_recorder.cpp: the
 #                  NATIVEEE_PAD_SCRIPT overlay and the NATIVEEE_PAD_RECORD writer (record a session,
 #                  replay it headless); nav_probe.cpp: the NATIVEEE_NAV position / camera probe that
-#                  gives the pad script's closed-loop steps (goto / face) their eyes; store_watch.cpp: the NATIVEEE_WATCH store observer (boot
+#                  gives the pad script's closed-loop steps (goto / face) their eyes; warp_tool.cpp: the NATIVEEE_WARP episode warp
+#                  (rewrites the private card's save1 before the boot so Resume Game lands in a chosen hub); store_watch.cpp: the NATIVEEE_WATCH store observer (boot
 #                  triage); text_watch.cpp: its `text` mode (the code-range snapshot compare). Defined only when the recompiled
 #                  code exists (ps2r_title_recomp, ps2r_title_iop): with no ELF given there is
 #                  nothing to run and nativeee keeps its "supplies no play composition" report.
@@ -74,6 +75,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         vert_trace_sink.cpp
         video_stack.cpp
         vu1_probe.cpp
+        warp_tool.cpp
     )
     target_include_directories(ps2r_title_play PRIVATE ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/.. ${PS2R_IOP_GEN_ROOT})
     target_compile_options(ps2r_title_play PRIVATE -Wall -Wextra -Werror)

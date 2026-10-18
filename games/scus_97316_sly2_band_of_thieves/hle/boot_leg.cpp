@@ -115,6 +115,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_verify_slot.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_watchdog.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/warp_tool.h"
 
 namespace {
 
@@ -175,6 +176,18 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegDisc disc(cfg, title, host);
     LegServices services(cfg, core);
     LegAudio audio(cfg, knobs, core, services.spu_core);
+    // NATIVEEE_WARP=<episode>[,<job>]: rewrite the private card's save1 BEFORE the session opens the card
+    // (warp_tool.h; the game then loads it through its own Resume Game path).
+    // The warp rewrites a save file, so it refuses the platform user-data card (a player's real card):
+    // NATIVEEE_WARP needs an explicit private card (--set paths.mc_dir=<copy>).
+    if (knobs.warp && cfg.paths.mc_dir == ps2r::app::UserData::PlatformRoot() + "/memcards") {
+        std::fprintf(stderr, "nativeee: warp: refused -- paths.mc_dir is the platform card dir %s; point --set paths.mc_dir at a private copy\n",
+                     cfg.paths.mc_dir.c_str());
+        return 2;
+    }
+    WarpTool warp(knobs.warp ? knobs.warp->c_str() : nullptr, cfg.paths.mc_dir, title_dir);
+    if (auto* meta = host.Meta()) meta->Set("warp", warp.Census());
+    if (warp.Requested() && !warp.Applied()) return 2;
     LegPlay play(cfg, title, core, gs, audio);
     if (play.Failed()) return 2;
     LegIop iop(cfg, core, devices, mtvu, interrupts, disc, services);

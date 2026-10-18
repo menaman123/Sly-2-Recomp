@@ -74,6 +74,9 @@ struct LegKnobs {
     std::optional<std::string> nav;
     // NATIVEEE_UNPACED=1: play mode keeps the boundary ticking inline (no wall-locked pacer).
     bool unpaced = false;
+    // NATIVEEE_WARP=<episode>[,<job>]: warp_tool.h (rewrite the private card's save1 before the boot so Resume
+    // Game loads that episode's hub).
+    std::optional<std::string> warp;
 
     // The ONE getenv site of the title: reads every knob above from the process environment.
     static LegKnobs FromEnvironment();
