@@ -83,6 +83,8 @@ public:
     // RAM dump when this stamp is listed. Returns the sample (also kept as Last()).
     const Sample& Read(uint64_t stamp);
     const Sample& Last() const { return last_; }
+    // The last sample's value of the probe called `name` (false = no such probe or unreadable this stamp).
+    bool Value(const std::string& name, double* out) const;
 
     const std::vector<Probe>& Probes() const { return probes_; }
     const std::string& ProbePath() const { return probe_path_; }

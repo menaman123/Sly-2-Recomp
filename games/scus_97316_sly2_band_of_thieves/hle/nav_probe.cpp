@@ -11,122 +11,11 @@
 #include <sstream>
 #include <system_error>
 
+#include "games/scus_97316_sly2_band_of_thieves/hle/nav_json.h"
+
 namespace ps2r::title::sly2 {
 
 namespace {
-
-// A minimal JSON reader for the probe table (objects, arrays, strings, numbers, true/false/null; string
-// escapes limited to \" \\ \/ \n \t). Enough for a hand-written data file; a malformed file fails the load.
-struct JsonNode {
-    enum Kind { Null, Bool, Number, String, Array, Object } kind = Null;
-    bool boolean = false;
-    double number = 0;
-    std::string str;
-    std::vector<std::string> keys;    // Object: parallel to items
-    std::vector<JsonNode> items;      // Array / Object members
-};
-
-void SkipBlanks(const std::string& s, size_t* i) {
-    while (*i < s.size() && (s[*i] == ' ' || s[*i] == '\t' || s[*i] == '\n' || s[*i] == '\r')) ++*i;
-}
-
-bool ParseString(const std::string& s, size_t* i, std::string* out) {
-    if (*i >= s.size() || s[*i] != '"') return false;
-    ++*i;
-    out->clear();
-    while (*i < s.size()) {
-        const char c = s[(*i)++];
-        if (c == '"') return true;
-        if (c == '\\') {
-            if (*i >= s.size()) return false;
-            const char e = s[(*i)++];
-            if (e == 'n') *out += '\n';
-            else if (e == 't') *out += '\t';
-            else if (e == '"' || e == '\\' || e == '/') *out += e;
-            else return false;
-        } else {
-            *out += c;
-        }
-    }
-    return false;
-}
-
-bool ParseValue(const std::string& s, size_t* i, JsonNode* out, int depth) {
-    if (depth > 32) return false;
-    SkipBlanks(s, i);
-    if (*i >= s.size()) return false;
-    const char c = s[*i];
-    if (c == '{') {
-        out->kind = JsonNode::Object;
-        ++*i;
-        SkipBlanks(s, i);
-        if (*i < s.size() && s[*i] == '}') { ++*i; return true; }
-        for (;;) {
-            SkipBlanks(s, i);
-            std::string key;
-            if (!ParseString(s, i, &key)) return false;
-            SkipBlanks(s, i);
-            if (*i >= s.size() || s[*i] != ':') return false;
-            ++*i;
-            JsonNode v;
-            if (!ParseValue(s, i, &v, depth + 1)) return false;
-            out->keys.push_back(key);
-            out->items.push_back(std::move(v));
-            SkipBlanks(s, i);
-            if (*i >= s.size()) return false;
-            if (s[*i] == ',') { ++*i; continue; }
-            if (s[*i] == '}') { ++*i; return true; }
-            return false;
-        }
-    }
-    if (c == '[') {
-        out->kind = JsonNode::Array;
-        ++*i;
-        SkipBlanks(s, i);
-        if (*i < s.size() && s[*i] == ']') { ++*i; return true; }
-        for (;;) {
-            JsonNode v;
-            if (!ParseValue(s, i, &v, depth + 1)) return false;
-            out->items.push_back(std::move(v));
-            SkipBlanks(s, i);
-            if (*i >= s.size()) return false;
-            if (s[*i] == ',') { ++*i; continue; }
-            if (s[*i] == ']') { ++*i; return true; }
-            return false;
-        }
-    }
-    if (c == '"') {
-        out->kind = JsonNode::String;
-        return ParseString(s, i, &out->str);
-    }
-    if (s.compare(*i, 4, "true") == 0) { out->kind = JsonNode::Bool; out->boolean = true; *i += 4; return true; }
-    if (s.compare(*i, 5, "false") == 0) { out->kind = JsonNode::Bool; *i += 5; return true; }
-    if (s.compare(*i, 4, "null") == 0) { out->kind = JsonNode::Null; *i += 4; return true; }
-    char* end = nullptr;
-    out->number = std::strtod(s.c_str() + *i, &end);
-    if (!end || end == s.c_str() + *i) return false;
-    out->kind = JsonNode::Number;
-    *i = static_cast<size_t>(end - s.c_str());
-    return true;
-}
-
-const JsonNode* Member(const JsonNode& obj, const char* key) {
-    if (obj.kind != JsonNode::Object) return nullptr;
-    for (size_t k = 0; k < obj.keys.size(); k++)
-        if (obj.keys[k] == key) return &obj.items[k];
-    return nullptr;
-}
-
-// A chain element: "0x..." hex or a decimal string / number.
-bool ChainValue(const JsonNode& n, uint32_t* out) {
-    if (n.kind == JsonNode::Number) { *out = static_cast<uint32_t>(static_cast<int64_t>(n.number)); return true; }
-    if (n.kind != JsonNode::String || n.str.empty()) return false;
-    char* end = nullptr;
-    const long long v = std::strtoll(n.str.c_str(), &end, 0);
-    if (!end || *end) return false;
-    *out = static_cast<uint32_t>(v);
-    return true;
-}
 
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 
@@ -195,35 +84,35 @@ bool NavProbe::LoadTable(const std::string& path) {
     text << in.rdbuf();
     const std::string s = text.str();
     size_t i = 0;
-    JsonNode root;
-    if (!ParseValue(s, &i, &root, 0)) { table_error_ = "malformed JSON at byte " + std::to_string(i); return false; }
-    const JsonNode* probes = Member(root, "probes");
-    if (!probes || probes->kind != JsonNode::Array) { table_error_ = "no \"probes\" array"; return false; }
-    for (const JsonNode& pn : probes->items) {
+    NavJson root;
+    if (!NavJson::Parse(s, &root, &i)) { table_error_ = "malformed JSON at byte " + std::to_string(i); return false; }
+    const NavJson* probes = root.Member("probes");
+    if (!probes || probes->kind != NavJson::Array) { table_error_ = "no \"probes\" array"; return false; }
+    for (const NavJson& pn : probes->items) {
         Probe p;
-        const JsonNode* name = Member(pn, "name");
-        const JsonNode* chain = Member(pn, "chain");
-        if (!name || name->kind != JsonNode::String || !chain || chain->kind != JsonNode::Array || chain->items.empty()) {
+        const NavJson* name = pn.Member("name");
+        const NavJson* chain = pn.Member("chain");
+        if (!name || name->kind != NavJson::String || !chain || chain->kind != NavJson::Array || chain->items.empty()) {
             table_error_ = "probe #" + std::to_string(probes_.size()) + ": needs \"name\" and a non-empty \"chain\"";
             probes_.clear();
             return false;
         }
         p.name = name->str;
-        for (const JsonNode& c : chain->items) {
+        for (const NavJson& c : chain->items) {
             uint32_t v = 0;
-            if (!ChainValue(c, &v)) { table_error_ = "probe " + p.name + ": bad chain element"; probes_.clear(); return false; }
+            if (!c.AsU32(&v)) { table_error_ = "probe " + p.name + ": bad chain element"; probes_.clear(); return false; }
             p.chain.push_back(v);
         }
-        if (const JsonNode* t = Member(pn, "type"); t && t->kind == JsonNode::String) p.type = t->str;
-        if (const JsonNode* sc = Member(pn, "scale"); sc && sc->kind == JsonNode::Number) p.scale = sc->number;
+        if (const NavJson* t = pn.Member("type"); t && t->kind == NavJson::String) p.type = t->str;
+        if (const NavJson* sc = pn.Member("scale"); sc && sc->kind == NavJson::Number) p.scale = sc->number;
         probes_.push_back(std::move(p));
     }
-    if (const JsonNode* nav = Member(root, "nav"); nav && nav->kind == JsonNode::Object) {
-        if (const JsonNode* u = Member(*nav, "up_axis"); u && u->kind == JsonNode::String && !u->str.empty()) conv_.up_axis = u->str[0];
-        if (const JsonNode* f = Member(*nav, "forward_offset_deg"); f && f->kind == JsonNode::Number) conv_.forward_offset_deg = f->number;
-        if (const JsonNode* r = Member(*nav, "right_sign"); r && r->kind == JsonNode::Number) conv_.right_sign = r->number < 0 ? -1 : 1;
-        if (const JsonNode* r = Member(*nav, "default_radius"); r && r->kind == JsonNode::Number) conv_.default_radius = r->number;
-        if (const JsonNode* e = Member(*nav, "still_eps"); e && e->kind == JsonNode::Number) conv_.still_eps = e->number;
+    if (const NavJson* nav = root.Member("nav"); nav && nav->kind == NavJson::Object) {
+        if (const NavJson* u = nav->Member("up_axis"); u && u->kind == NavJson::String && !u->str.empty()) conv_.up_axis = u->str[0];
+        if (const NavJson* f = nav->Member("forward_offset_deg"); f && f->kind == NavJson::Number) conv_.forward_offset_deg = f->number;
+        if (const NavJson* r = nav->Member("right_sign"); r && r->kind == NavJson::Number) conv_.right_sign = r->number < 0 ? -1 : 1;
+        if (const NavJson* r = nav->Member("default_radius"); r && r->kind == NavJson::Number) conv_.default_radius = r->number;
+        if (const NavJson* e = nav->Member("still_eps"); e && e->kind == NavJson::Number) conv_.still_eps = e->number;
     }
     return true;
 }
@@ -328,6 +217,15 @@ void NavProbe::DumpRam(uint64_t stamp) {
     } else {
         std::fprintf(stderr, "nativeee: NATIVEEE_NAV: cannot write %s\n", path.c_str());
     }
+}
+
+bool NavProbe::Value(const std::string& name, double* out) const {
+    for (size_t k = 0; k < probes_.size(); k++)
+        if (probes_[k].name == name && k < last_.values.size() && !std::isnan(last_.values[k])) {
+            *out = last_.values[k];
+            return true;
+        }
+    return false;
 }
 
 std::string NavProbe::Census() const {

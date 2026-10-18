@@ -186,8 +186,16 @@ the join ladder. The host pacing policy (tick-source mode, pacer release) is the
 taken in a windowed run restores headless. The clock identity (GCLK providers) is the title + the hle.*
 composition, not the whole config fingerprint, so the GS queue mode / video settings / harness flags may
 differ between the save and the load. run.meta: `restore_route=cold`, `restore_boundary_tid=`,
-`restore_iop=rows=:threads=<armed>/<recorded>:servers=:timers=:libs=:frames=`, `relaunch=`; a refusal ends
-the leg with `restore_route=cold_refused|cold_failed` + `restore_refusal=`.
+`restore_iop=rows=:threads=<armed>/<recorded>:servers=:timers=:libs=:frames=`, `relaunch=`,
+`restore_mc_bound=derived=1|0|no_client_addr`; a refusal ends the leg with `restore_route=cold_refused|cold_failed`
++ `restore_refusal=`. libmc readiness after a cold load: `sceMcInit` never re-runs in the new process, so the
+engine's `McCommandModel::Bound` (every `sceMc*` row but `sceMcSync` returns -100 while it is false) is derived
+from the restored image -- the bound-server word (+0x24) of libmc's `sceSifClientData` at `TitleProfile::mc.client_addr`
+= **0x450880** in this ELF (`hle/sdk_bindings.tsv`: `sceMcInit @0x243cb0 binds client 0x450880 to 0x80000400`).
+Before this fact was wired, every cold-loaded process answered the game's first autosave (at the safehouse roof,
+~440 stamps after the drop from the high ledge) with "Auto-save on the Memory Card ... has failed / Auto-save has
+been disabled" and froze the player under the notice; with it the autosave writes `save1` into the private card and
+the game's top bar (the saving notice; its text is D2-empty) stays until a 20-stamp CIRCLE.
 
 Coverage workflow (the agents' checkpoints; game-derived files live OUTSIDE this repo):
     # 1. make a checkpoint: play to the spot in a window, F5 at boundary N (one press; the admission needs
@@ -218,8 +226,24 @@ the left stick from the camera-relative heading to a target:
 ```
 NATIVEEE_NAV=probe=<json>;trace[=<csv>];every=<n>;ramdump=<dir>@<stamp>+<stamp>...   (hle/nav_probe.h)
 NATIVEEE_PAD_SCRIPT="... goto:<from>:<x>,<y>,<z>[:<radius>[:<timeout>]] jump_when_near:<from>:<x>,<y>,<z>:<radius>
-                     face:<from>:<yaw_deg> wait_still:<from>[:<timeout>] nav_pause:<from>:<stamps>"      (hle/pad_script.h)
+                     face:<from>:<yaw_deg> wait_still:<from>[:<timeout>] nav_pause:<from>:<stamps>
+                     climb:<from>:<x>,<y>,<z>[:<timeout>]  rail:<from>:<x>,<y>,<z>:<ex>,<ey>,<ez>[:<timeout>]
+                     until:<from>:<probe><op><value>[:<timeout>]  interact:<from>[:<hold>[:<buttons_hex>]]
+                     path:<from>:<name>[:<radius>]"                                                   (hle/pad_script.h)
 ```
+
+`climb` is Sly's pipe / pole climb (walk to within 70, face it, leap with CIRCLE held through the arc = the
+grab, then stick UP until `pos_z` reaches z-15; "climb stalled" when z stops rising -- proven on the lamp post of
+the roof south of the spawn: z 787 -> 928 in 40 stamps, and on a street pole at (-5122,-168): -178 -> 535);
+`rail` leaps onto a rope / rail the same way and steers along it to the end point; `until` waits for a probe
+expression (`pos_z>=900`, `level_time>60`, any name of the probe table; `== / !=` within 0.5); `interact` is a
+queued press (CIRCLE by default: the autosave notice, markers, switches); `path` expands a named list of these
+tokens from the DATA table `verify/nav/ep1_waypoints.json` (`{"paths": {"<name>": ["goto:0:...", "climb:0:..."]}}`
+plus a `landmarks` block of surveyed coordinates). The probe table also carries the camera's orientation rows
+(`cam_fwd_*`, `cam_left_*`, `cam_up_*`; screen right = -left) and the frustum half-tangents (`cam_tan_h` 0.796,
+`cam_tan_v` 0.613): pixel (x, y) of a world point = (256 + 256 (d.right/d.fwd)/0.796, 224 - 224 (d.up/d.fwd)/0.613),
+the tool that turns a sighting in a dumped frame into a world ray (`verify/nav/nav_plot.py` draws tracks; the ray
+scripts live in the work notes).
 
 The closed-loop steps form a queue in script order (each starts at the later of its `from` stamp and the
 previous step's end); a `goto` that makes no progress for 30 stamps unsticks itself (a jump, then escalating
@@ -238,13 +262,31 @@ table: `forward_offset_deg 0, right_sign -1`). The POST-autosave Paris card resu
 
 ### Episode 1 "The Black Chateau" (Paris) -- completion map
 
+Checkpoints (game-derived, outside the repo, `$WORK/states/`): `ep1_paris_spawn` (frame 881, the high ledge before
+the briefing), `ep1_paris_ledge` (frame 1104, the briefing about to start), **`ep1_postcall_ledge`** (frame 3320:
+the briefing done, Sly free on the high ledge (-2322,-3495,1268), the job marker active -- the base of every job
+run; made by `--load-state ep1_paris_ledge` + `harness.inject_key=F5@2215`). Both pre-autosave cards: the
+Satellite Sabotage briefing (2200 frames) plays once at the high ledge; the game AUTOSAVES when Sly first lands on
+the safehouse roof below (-1828,-4327,558) and shows the saving notice (CIRCLE 20 stamps dismisses it); the
+post-autosave card resumes there (the nav stage's spawn (-1683,-4066,532)).
+
 | mission / structure | reached | played | completed | notes |
 |---|---|---|---|---|
-| Resume Game -> Paris spawn ledge (post-autosave card) | yes, every run (~p850) | -- | n/a | D2: the carousel bar text is empty |
-| Paris rooftop hub: ledge, camera, walking / jumping, the drop to the fountain square | yes | ~15 min over the nav runs | n/a | `goto` round trip ledge -> A -> ledge in 30 / 35 stamps; ledge -> fountain square (-760,-2955,95) in 235 stamps with one jump; pad `nav_j1.pad` replays it |
-| Satellite Sabotage (Sly; 3 dishes) | the job is ACTIVE on the post-autosave card (the briefing is done); two rotating dishes located in RAM at (-1368,-6723,910) and (4470,-793,878) -- on towers; the street route toward dish A ends at a building wall (-1920,-5730) | -- | no | needs waypoints / climbing (a pipe) the blind navigator does not have yet; the holo Sly-head marker left of the spawn is the safehouse door, not a job beacon |
+| Resume Game -> Paris spawn ledge | yes, every run | -- | n/a | D2: the carousel / notice bar text is empty |
+| Paris rooftop hub: ledges, camera, walking / jumping, the drop to the fountain square, the safehouse roof, the south roofs, the street under the arch | yes | ~25 min over the nav + jobs runs | n/a | `goto` reaches the lamp roof (-3945,-1749,782) from the high ledge in 360 stamps (one unstick jump) and the street below the marker in 950; waypoint paths in `verify/nav/ep1_waypoints.json` |
+| Satellite Sabotage briefing (binocucom, 2200 frames) | yes | full | yes (the call runs to its end; the marker + "Satellite Sabotage" label then show on screen) | voice-timed, unskippable |
+| The game's first autosave (safehouse roof) | yes | -- | yes after the libmc fix (`restore_mc_bound=derived=1`, `save1` written to the private card; `sceMcGetInfo` 54 / `sceMcSync` 57 / `sceMcWrite` 1) | before the fix every cold-loaded process got "Auto-save ... has failed" (the game then disables autosave) |
+| Satellite Sabotage (Sly; 3 dishes) | marker SEEN in every run from the high ledge and the lamp roof (bearing ~134 deg, the icon + light pillar), its position triangulated to about (-5659, 42, 567) (two static sightings + a lone RAM float triple on both rays) -- on a roof ~770 above the street under the arch; the navigator reached the marker's (x,y) at STREET level (-5633,28,-218) and climbed a pole 600 east of it to z 535 | reached the hub around it, ~3 min | no | blocked by: no climbable route found from the street / the pole top to the marker's roof (the pole-top leap toward it falls to the street); the marker's roof is not connected to the lamp roof chain (the south roofs end at (-4864,-896,457), a fall); the two rotating dishes of the nav stage at (-1368,-6723,910) and (4470,-793,878) |
 | Breaking and Entering .. Printing Press Duel (10 jobs) | no | -- | no | after Satellite Sabotage |
 | Gadget Grid (SELECT), pause menu, binocucom bar (L1) | yes | -- | -- | D4: L1 + right stick (the binocucom pan) renders the whole world flat MAGENTA (`nav_D4_magenta_L1_pan_sheet.png`); L1 alone or the pan alone are fine; PCSX2 oracle pending |
+
+Open defects seen in the jobs runs (evidence in the work notes `ep1jobs_notes.md`): D2 the HUD bar text (the
+saving notice reads nothing; PCSX2 shows text); D5 (new) the street under the arch by the marker renders with a
+flat blue haze plane over the lower half of the frame (`jobs_L7_street_pair.png`, `jobs_L19_sheet.png`: the
+"safehouse haze" class seen from outside); the PCSX2 oracle for the hub after the briefing could not be driven:
+the slot-2 twin resumes with "Memory Card ... was removed" (PCSX2 re-inserts the cards after `-state`) and PINE
+pad bursts into 0x2dfc00 no longer clear the notice (the IOP refill wins at 25-36 % speed) -- `ep1_pine_pad.py`
+needs a hold that survives the refill, or a twin state taken after the notice.
 
 ## STATUS
 

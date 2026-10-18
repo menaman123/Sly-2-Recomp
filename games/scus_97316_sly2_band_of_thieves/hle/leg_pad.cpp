@@ -15,6 +15,8 @@ LegPad::LegPad(const ps2r::Config& cfg, const std::string& title_dir, const LegK
     : nav_probe(knobs.nav ? knobs.nav->c_str() : nullptr, title_dir, cfg.harness.out_dir, core.ram) {
     if (knobs.pad_script) {
         const std::string& env = *knobs.pad_script;
+        pad_script.LoadPaths(title_dir + "/verify/nav/ep1_waypoints.json");
+        if (!pad_script.PathsWarning().empty()) std::fprintf(stderr, "nativeee: NATIVEEE_PAD_SCRIPT: path table %s (no paths)\n", pad_script.PathsWarning().c_str());
         if (!pad_script.Load(env)) std::fprintf(stderr, "nativeee: NATIVEEE_PAD_SCRIPT=%s: file not readable (ignored)\n", env.c_str());
         if (!pad_script.Warning().empty())
             std::fprintf(stderr, "nativeee: NATIVEEE_PAD_SCRIPT: stray token '%s' (script truncated here)\n", pad_script.Warning().c_str());

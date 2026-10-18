@@ -23,6 +23,17 @@
     {"name": "cam_tgt_x", "chain": ["0x2de1c0"], "type": "f32", "note": "camera target (player + ~53 up)"},
     {"name": "cam_tgt_y", "chain": ["0x2de1c4"], "type": "f32"},
     {"name": "cam_tgt_z", "chain": ["0x2de1c8"], "type": "f32"},
-    {"name": "level_time", "chain": ["0x2de1e8"], "type": "f32", "note": "seconds since the level started (0x2dded0 family)"}
+    {"name": "level_time", "chain": ["0x2de1e8"], "type": "f32", "note": "seconds since the level started (0x2dded0 family)"},
+    {"name": "cam_fwd_x", "chain": ["0x2ddfa0"], "type": "f32", "note": "camera orientation matrix row0 = forward unit vector (x,y,z); row1 = LEFT (screen right = -row1), row2 = up; the frustum half-tangents are 0x2ddf80 (horizontal 0.796) and 0x2ddf84 (vertical 0.613) at 512x448: pixel = (256 + 256*(d.right/d.fwd)/0.796, 224 - 224*(d.up/d.fwd)/0.613)"},
+    {"name": "cam_fwd_y", "chain": ["0x2ddfa4"], "type": "f32"},
+    {"name": "cam_fwd_z", "chain": ["0x2ddfa8"], "type": "f32"},
+    {"name": "cam_left_x", "chain": ["0x2ddfb0"], "type": "f32"},
+    {"name": "cam_left_y", "chain": ["0x2ddfb4"], "type": "f32"},
+    {"name": "cam_left_z", "chain": ["0x2ddfb8"], "type": "f32"},
+    {"name": "cam_up_x", "chain": ["0x2ddfc0"], "type": "f32"},
+    {"name": "cam_up_y", "chain": ["0x2ddfc4"], "type": "f32"},
+    {"name": "cam_up_z", "chain": ["0x2ddfc8"], "type": "f32"},
+    {"name": "cam_tan_h", "chain": ["0x2ddf80"], "type": "f32", "note": "frustum half-tangent, horizontal"},
+    {"name": "cam_tan_v", "chain": ["0x2ddf84"], "type": "f32", "note": "frustum half-tangent, vertical"}
   ]
 }

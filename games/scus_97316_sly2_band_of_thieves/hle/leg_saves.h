@@ -128,6 +128,7 @@ public:
     uint32_t restored_vsync_frame = 0;
     std::string restore_sections;   // the tags of the last restored image, file order
     std::string restore_route;      // "live" | "cold"
+    std::string restore_mc_bound;   // cold: libmc readiness derived from the image (run.meta restore_mc_bound=)
     std::string f8_route = "none";
     ps2r::app::LiveRestoreGate::Census live_refusals;   // run.meta live_restore_refusals=
     ps2r::app::LiveRestoreGate::Probes live_probes;
@@ -141,6 +142,7 @@ private:
     LegServices& services_;
     LegIop& iop_;
     LegPlay& play_;
+    const uint32_t title_mc_client_addr_;   // TitleProfile::mc.client_addr (0 = unknown)
     std::string build_id_;
 };
 

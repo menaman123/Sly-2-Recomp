@@ -1,0 +1,49 @@
+{
+  "title": "SCUS_973.16 Sly 2: Band of Thieves (NTSC-U)",
+  "note": "Waypoint lists for PadScript's path:<name> steps (hle/pad_script.h). Each entry is a closed-loop token in the pad-script grammar with from=0 (queued in order). Coordinates are world units (x,y horizontal, z UP) read from nav_trace.csv runs of the Paris hub (ep1jobs_notes.md); facts about the level, no game bytes. All paths start from the checkpoint ep1_postcall_ledge (Sly free on the high ledge at (-2322,-3495,1268) after the Satellite Sabotage briefing).",
+  "landmarks": {
+    "high_ledge_post_briefing": [-2322, -3495, 1268],
+    "safehouse_roof_landing": [-1828, -4327, 558],
+    "safehouse_roof_spawn_post_autosave": [-1683, -4066, 532],
+    "safehouse_door_emblem_approx": [-2050, -4080, 600],
+    "lamp_roof_south": [-3945, -1749, 782],
+    "lamp_post_south_top": [-3915, -1770, 950],
+    "south_roof_2": [-4698, -1055, 481],
+    "south_roof_edge_fall": [-4864, -896, 457],
+    "street_under_arch": [-5829, 317, -201],
+    "street_pole_base": [-5122, -168, -200],
+    "street_pole_top": [-5122, -168, 535],
+    "job1_marker_estimate": [-5659, 42, 567],
+    "dish_a_rotating": [-1368, -6723, 910],
+    "dish_b_rotating": [4470, -793, 878]
+  },
+  "paths": {
+    "ledge_to_lamp_roof": [
+      "goto:0:-3945,-1749,782:60:1400"
+    ],
+    "ledge_to_safehouse_roof": [
+      "goto:0:-1815,-4360,538:60:300",
+      "nav_pause:0:900",
+      "interact:0:20"
+    ],
+    "lamp_post_climb": [
+      "goto:0:-3945,-1749,782:60:1400",
+      "climb:0:-3915,-1770,940:400"
+    ],
+    "ledge_to_street_below_marker": [
+      "goto:0:-3945,-1749,782:60:1400",
+      "goto:0:-4698,-1055,481:60:500",
+      "goto:0:-4864,-896,457:50:300",
+      "goto:0:-5300,-680,470:50:400",
+      "goto:0:-5555,-13,395:50:400"
+    ],
+    "street_pole_climb": [
+      "goto:0:-3945,-1749,782:60:1400",
+      "goto:0:-4698,-1055,481:60:500",
+      "goto:0:-4864,-896,457:50:300",
+      "goto:0:-5300,-680,470:50:400",
+      "goto:0:-5555,-13,395:50:400",
+      "climb:0:-5122,-168,520:400"
+    ]
+  }
+}

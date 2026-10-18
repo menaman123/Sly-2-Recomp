@@ -65,6 +65,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         leg_text.cpp
         leg_verify_slot.cpp
         leg_watchdog.cpp
+        nav_json.cpp
         nav_probe.cpp
         pad_recorder.cpp
         pad_script.cpp

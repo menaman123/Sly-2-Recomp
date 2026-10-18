@@ -7,7 +7,8 @@
 // centred sticks) otherwise, exactly what the console's padman publishes every frame. Overlays:
 //   NATIVEEE_PAD_SCRIPT=<script text | file>  hle/pad_script.h -- press buttons / hold the sticks over the
 //       live / neutral pad from the `frame`-th pad stamp for `hold` stamps; a file in the same grammar is
-//       what NATIVEEE_PAD_RECORD writes (the replay);
+//       what NATIVEEE_PAD_RECORD writes (the replay); its `path:<name>` steps expand the title's waypoint
+//       table verify/nav/ep1_waypoints.json (reverse-engineered coordinates as data);
 //   NATIVEEE_PAD_RECORD=<file>  hle/pad_recorder.h -- every stamp's SERVED sample (live pad + script
 //       overlay) run-length encoded in PadScript's grammar;
 //   NATIVEEE_KEY_SCRIPT=<frame>:<sdl_scancode>:<hold>[,...]  (play mode) hold a KEYBOARD key (SDL scancode:

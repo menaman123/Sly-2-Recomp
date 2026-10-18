@@ -56,9 +56,15 @@ const TitleProfile& ActiveTitleProfile() {
         t.save.schema_version = 0;         // no anchors yet
         t.recomp.shard_count = 32;         // recomp/CMakeLists.txt: --shards 32 --init-parts 32
 
-        // --- SDK statics in THIS ELF (libpad / libgraph / libmc): UNKNOWN. The libpad port table,
-        //     sceGsGParam block and libmc client are found once the sce-library rows are identified
-        //     (hle/sdk_bindings.tsv); the binders accept 0 and these rows are not installed yet.
+        // --- SDK statics in THIS ELF (libpad / libgraph): UNKNOWN. The libpad port table and the
+        //     sceGsGParam block are found once the sce-library rows are identified (hle/sdk_bindings.tsv);
+        //     the binders accept 0 and these rows are not installed yet.
+        // --- libmc's sceSifClientData (hle/sdk_bindings.tsv: sceMcInit @0x243cb0 binds client 0x450880 to
+        //     mcserv 0x80000400): its bound-server word (+0x24) is the readiness predicate the sceMc* rows
+        //     gate on. A cold --load-state never re-runs sceMcInit, so the leg derives McCommandModel::Bound
+        //     from this word of the restored image (ep1_jobs: the autosave at the safehouse roof reported
+        //     "Auto-save ... has failed / disabled" in every cold-loaded process until it did).
+        t.mc.client_addr = 0x00450880u;
 
         // --- the frame boundary site. This ELF links no sceGsSyncV: the game's vsync wait is
         //     0x0016f560 (0x16f560..0x16f58c): [0x2dfb58] = 1 (wait flag); WaitSema([0x2dfb4c]). The

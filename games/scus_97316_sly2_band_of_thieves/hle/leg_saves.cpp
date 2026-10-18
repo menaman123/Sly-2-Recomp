@@ -17,6 +17,7 @@
 #include "engine/ee/hle/syscall_table.h"
 #include "engine/ee/hle/thread_manager.h"
 #include "engine/ee/recomp_abi/host_app/memory.h"
+#include "engine/sif/hle/sce_sif.h"
 #include "engine/ee/sched/ee_event_queue.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park.h"
@@ -47,7 +48,7 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
       sound_state_codec(services.spu_core, services.sd_block_trans),
       mchl_section(services.mc_model),
       session_files(core.dump_frames_dir),
-      cfg_(cfg), host_(host), core_(core), gs_(gs), mtvu_(mtvu), services_(services), iop_(iop), play_(play),
+      cfg_(cfg), host_(host), core_(core), gs_(gs), mtvu_(mtvu), services_(services), iop_(iop), play_(play), title_mc_client_addr_(title.mc.client_addr),
       build_id_(build_id ? build_id : "") {
     // The registry, in the first title's order (= the restore order): memory first (the restorer's
     // own RAM0 / SPAD), the game clock, then the dependent owners.
@@ -271,6 +272,16 @@ int LegSaves::ColdBoot(const std::string& path, const ColdDeps& deps) {
     if (play_.session) play_.session->RebaseFrame(boundaries);
     deps.audio.audio_pumped_tick = core_.domain.DomainTick();
     if (play_.live_input) play_.live_input->ResetPending();
+    // libmc's readiness is EE data the image carries: the bound-server word of its sceSifClientData
+    // (title.mc.client_addr + 0x24), written by sceMcInit's sceSifBindRpc before the slot was taken; the
+    // mcserv init command never re-runs in this process, so the model's Bound is derived from the word
+    // (0 = the image predates sceMcInit: the rows keep gating with -100 until a live init binds).
+    if (title_mc_client_addr_ != 0) {
+        services_.mc_model.DeriveBound(memory::read<uint32_t>(title_mc_client_addr_ + SceSif::kClientServer));
+        restore_mc_bound = services_.mc_model.Bound() ? "derived=1" : "derived=0";
+    } else {
+        restore_mc_bound = "no_client_addr";
+    }
     restored_vsync_frame = report.vsync_frame;
     restore_route = "cold";
     restore_sections = report.sections;
@@ -282,6 +293,7 @@ int LegSaves::ColdBoot(const std::string& path, const ColdDeps& deps) {
         meta->Set("restore_route", restore_route);
         meta->Set("restore_sections", restore_sections);
         meta->Set("restore_boundary_tid", std::to_string(report.boundary_tid));
+        meta->Set("restore_mc_bound", restore_mc_bound);
         meta->Set("restore_iop", "rows=" + std::to_string(iop.rows) + ":threads=" + std::to_string(iop.threads_armed) + "/" +
                                      std::to_string(iop.threads_recorded) + ":servers=" + std::to_string(iop.servers) +
                                      ":timers=" + std::to_string(iop.timers_armed) + ":libs=" + std::to_string(iop.libraries) +
