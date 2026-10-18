@@ -11,6 +11,7 @@
 #                                   NATIVEEE_TITLE_ELF in the environment are ignored in this mode.
 #   ./build.sh                       neither flag: like --no-disc unless NATIVEEE_DISC / NATIVEEE_TITLE_ELF
 #                                   are set in the environment
+#   ./build.sh --disc IMAGE --dist   ... and stage the release folder (see --dist below; what release.yml ships)
 #
 #   --preset NAME      an ENGINE configure preset (engine/CMakePresets.json: macos-release, linux-release,
 #                      linux-release-clang, linux-release-gcc, macos-dev, ...). Default: this host's release
@@ -29,6 +30,15 @@
 #                      and run the component suite: ctest -E <.github/ci/ctest_exclusions.txt>
 #   --configure-only   stop after configure
 #   --jobs N           parallel jobs (default: ninja's)
+#   --dist             after the build, stage the release folder (needs a disc / ELF build: the artefact IS the
+#                      recompiled title): .github/ci/stage_dist.sh -> <dist root>/<macos|linux-<arch>>/ +
+#                      nativeee-<platform>.{zip,tar.gz}, licence-linted and asset-scanned. The default preset
+#                      becomes the engine's self-contained one (macos-dist / linux-dist: SDL2 built from the pinned
+#                      release, the LGPL FFmpeg of engine/tools/ci/ffmpeg_static.sh built into
+#                      <build dir>/third_party/ffmpeg -- both linked statically; Linux also libstdc++/libgcc)
+#   --dist-only        only (re)stage from an existing build in --build-dir
+#   --dist-root DIR    where the folder and archive go (default: $SLY2_DIST_DIR, else <build dir>/dist -- outside
+#                      the repository, like the build dir: the binary is game-derived)
 #
 # Acceptance shape (the engine's rule): 0 FAILED, 0 `warning:`, 0 `ld: warning` in the build log;
 # the script fails on any.
@@ -52,6 +62,9 @@ targets=()
 configure_only=0
 run_tests=0
 jobs=""
+run_dist=0
+dist_only=0
+dist_root="${SLY2_DIST_DIR:-}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --disc) disc="$2"; disc_flag=1; shift 2 ;;
@@ -64,7 +77,10 @@ while [ $# -gt 0 ]; do
         --tests) run_tests=1; shift ;;
         --configure-only) configure_only=1; shift ;;
         --jobs) jobs="$2"; shift 2 ;;
-        -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
+        --dist) run_dist=1; shift ;;
+        --dist-only) run_dist=1; dist_only=1; shift ;;
+        --dist-root) dist_root="$2"; shift 2 ;;
+        -h|--help) sed -n '2,46p' "$0"; exit 0 ;;
         *) echo "build.sh: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -78,10 +94,13 @@ if [ "$no_disc" = 1 ]; then
     fi
     disc=""; elf=""
 fi
+if [ "$run_dist" = 1 ] && [ "$no_disc" = 1 ]; then
+    echo "build.sh: --dist needs a disc / ELF build (the artefact is the recompiled title); --no-disc excludes it" >&2; exit 2
+fi
 if [ -z "$preset" ]; then
     case "$(uname -s)" in
-        Darwin) preset=macos-release ;;
-        Linux) preset=linux-release ;;
+        Darwin) preset=macos-release; [ "$run_dist" = 1 ] && preset=macos-dist ;;
+        Linux) preset=linux-release; [ "$run_dist" = 1 ] && preset=linux-dist ;;
         *) preset=none ;;
     esac
 fi
@@ -109,9 +128,33 @@ if [ -z "$disc" ] && [ -z "$elf" ]; then
     # A build dir configured earlier WITH a disc keeps its cache; a --no-disc run must not inherit it.
     args+=(-DNATIVEEE_DISC= -DNATIVEEE_TITLE_ELF=)
 fi
-echo "build.sh: cmake ${args[*]}"
-cmake "${args[@]}"
-[ "$configure_only" = 1 ] && exit 0
+[ -z "$dist_root" ] && dist_root="$build_dir/dist"
+if [ "$dist_only" = 0 ]; then
+    case "$preset" in
+        macos-dist|linux-dist)
+            # The engine's self-contained presets name a static FFmpeg prefix under THEIR binaryDir
+            # (engine/build-<preset>-dist/third_party/ffmpeg); the build dir is ours, so the prefix is built here
+            # (engine/tools/ci/ffmpeg_static.sh: cached when its recipe record matches) and the preset's
+            # CMAKE_PREFIX_PATH is overridden to it.
+            echo "build.sh: ffmpeg static prefix (engine/tools/ci/ffmpeg_static.sh -> $build_dir/third_party/ffmpeg)"
+            "$engine/tools/ci/ffmpeg_static.sh" "$build_dir/third_party/ffmpeg"
+            args+=(-DCMAKE_PREFIX_PATH="$build_dir/third_party/ffmpeg") ;;
+    esac
+    echo "build.sh: cmake ${args[*]}"
+    cmake "${args[@]}"
+    [ "$configure_only" = 1 ] && exit 0
+fi
+
+stage_dist() {
+    [ "$run_dist" = 1 ] || return 0
+    local stage_args=(--repo "$here" --build-dir "$build_dir" --dist-root "$dist_root" --preset "$preset")
+    echo "build.sh: .github/ci/stage_dist.sh ${stage_args[*]}"
+    bash "$here/.github/ci/stage_dist.sh" "${stage_args[@]}"
+}
+if [ "$dist_only" = 1 ]; then
+    stage_dist
+    exit 0
+fi
 
 build_log="$build_dir/build.sh.log"
 if [ "$run_tests" = 1 ]; then
@@ -164,4 +207,5 @@ if [ "$run_tests" = 1 ]; then
     fi
 fi
 [ -x "$build_dir/app/host/nativeee" ] && echo "build.sh: binary at $build_dir/app/host/nativeee"
+stage_dist
 exit 0

@@ -97,6 +97,32 @@ gone away (the engine fixed it), delete the row.
 Run every game session bounded (`engine/verify/run_bounded.sh`, `NATIVEEE_WATCHDOG_S`): a hang must
 still end as a reported `park=`.
 
+## Portability (the title tree builds on every platform the engine does)
+
+The title module is plain C++17 over the engine's platform layer and must stay that way, because the
+Windows CI lane compiles `ps2r_title_hle` with clang-cl and the Linux lanes with Clang/GCC:
+
+- No POSIX header (`<unistd.h>`, `<dirent.h>`, `<dlfcn.h>`, `<pthread.h>`, `<sys/*.h>`, `<execinfo.h>`),
+  no GNU extension (`__attribute__`, `__builtin_*`), no `_WIN32` / `__APPLE__` branch: files, threads,
+  time and the executable path go through `<filesystem>`, `<thread>`, `<chrono>` or
+  `engine/engine/platform/host/platform.h` (`ps2r::platform::host::*`). `std::getenv` is allowed in ONE
+  place, `hle/leg_knobs.cpp` (the `NATIVEEE_*` knobs); `std::_Exit` is standard C++.
+- Paths: join with `/` (Win32 accepts it) but SPLIT on both separators (`find_last_of("/\\")`, as
+  `boot_leg.cpp` does for the executable directory) -- `ExecutablePath()` is backslash-joined on Windows.
+- Files that carry bytes are opened in binary mode (`"wb"` / `std::ios::binary`); text output (`.txt`,
+  `.csv`) may use `"w"`.
+- `long` is 32-bit on Windows: 64-bit counters are `uint64_t` / `unsigned long long` and print with
+  `%llu` after a cast (the tree does this already); `size_t` prints with `%zu`.
+- Compile flags in `hle/CMakeLists.txt` stay the GNU spellings (`-Wall -Wextra -Werror`); the engine's
+  `tools/build/clang_cl_shim.py` translates them on the clang-cl presets.
+
+A quick local check before a PR (the Windows lane's first failures are always one of these):
+
+```
+grep -rnE '#include <(unistd|dirent|dlfcn|pthread|execinfo|sys/[a-z]+)\.h>' games/
+grep -rnE '__attribute__|__builtin_|_WIN32|__APPLE__|__linux__' games/
+```
+
 ## Commit style
 
 Conventional Commits: `feat(hle): ...`, `fix(iop): ...`, `docs: ...`, `chore: Pin NativeEE ...`,

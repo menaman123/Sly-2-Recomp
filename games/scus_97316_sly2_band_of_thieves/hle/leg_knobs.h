@@ -37,8 +37,14 @@ struct LegKnobs {
     // NATIVEEE_ISR_TRACE=1: one stderr line per GS SIGNAL / FINISH event and per syscall entry with a
     // pending INTC cause.
     bool isr_trace = false;
-    // NATIVEEE_AUDIO_DUMP=<file.wav>: the DEVICE stream as 48 kHz stereo int16 WAV (play mode).
+    // NATIVEEE_AUDIO_DUMP=<file.wav>: a 48 kHz stereo int16 WAV of the audio -- the DEVICE stream (play
+    // mode, the default) or, with NATIVEEE_AUDIO_DUMP_SOURCE=mixer (and always without a device: headless),
+    // the MIXER's 800-frame output of every boundary (emulated-time audio, host speed independent).
     std::optional<std::string> audio_dump;
+    bool audio_dump_mixer = false;
+    // NATIVEEE_SPU_TRACE=<file.txt>: the SPU voice model's event record (engine VoiceTrace: key-on/off with the
+    // programmed registers, loop ends, transfers, unmodelled services, a per-second level census per voice).
+    std::optional<std::string> spu_trace;
     // NATIVEEE_PAD_SCRIPT=<script text | file> / NATIVEEE_PAD_RECORD=<file> / NATIVEEE_KEY_SCRIPT=<steps>.
     std::optional<std::string> pad_script;
     std::optional<std::string> pad_record;

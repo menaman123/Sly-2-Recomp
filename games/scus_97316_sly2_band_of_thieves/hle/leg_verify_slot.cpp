@@ -173,6 +173,7 @@ void LegVerifySlot::VerifyStep() {
     }
     mixer.Pump();
     play_.PushAudioRing(mixer.Output());
+    audio_.TapMixer(mixer.Output());
     const uint64_t boundary = host_.OnBoundary(mixer.Output(), ps2r::sound::Mixer::kFramesPerVsync, verify_spans);
     park_.boundaries = boundary + 1;
     text_watch_.OnBoundary(park_.boundaries);   // NATIVEEE_WATCH=text: the code-range snapshot compare

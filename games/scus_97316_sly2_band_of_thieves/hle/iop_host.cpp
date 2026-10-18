@@ -493,6 +493,8 @@ void IopHost::WriteCensus(verify::RunMeta* meta) {
     meta->Set("iop_rpc_stalls", std::to_string(table_.Rpc().Stalls()));
     meta->Set("iop_printf_calls", std::to_string(stdio_.Calls()));
     meta->Set("iop_timer_beats", std::to_string(table_.Kernel().TimerBeats()));
+    // The libsd services the hosted 989snd reached (ordinal:count) and the voice-transfer bytes.
+    meta->Set("iop_libsd", libsd_.CallsCensus() + ":trans_bytes=" + std::to_string(libsd_.VoiceTransBytes()));
     // The modules' own disc traffic (spiop streams through cdvdman's sceCdRead).
     meta->Set("iop_cd", "reads=" + std::to_string(cdvdman_.ReadsIssued()) + ":sectors=" +
                             std::to_string(cdvdman_.SectorsRead()) + ":callbacks=" +

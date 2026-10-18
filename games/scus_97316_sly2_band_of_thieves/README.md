@@ -229,7 +229,7 @@ NATIVEEE_PAD_SCRIPT="... goto:<from>:<x>,<y>,<z>[:<radius>[:<timeout>]] jump_whe
                      face:<from>:<yaw_deg> wait_still:<from>[:<timeout>] nav_pause:<from>:<stamps>
                      climb:<from>:<x>,<y>,<z>[:<timeout>]  rail:<from>:<x>,<y>,<z>:<ex>,<ey>,<ez>[:<timeout>]
                      until:<from>:<probe><op><value>[:<timeout>]  interact:<from>[:<hold>[:<buttons_hex>]]
-                     path:<from>:<name>[:<radius>]"                                                   (hle/pad_script.h)
+                     path:<from>:<name>[:<radius>]  warp:<from>:<x>,<y>,<z>[:<off_hex>]              (hle/pad_script.h)
 ```
 
 `climb` is Sly's pipe / pole climb (walk to within 70, face it, leap with CIRCLE held through the arc = the
@@ -239,7 +239,11 @@ the roof south of the spawn: z 787 -> 928 in 40 stamps, and on a street pole at 
 expression (`pos_z>=900`, `level_time>60`, any name of the probe table; `== / !=` within 0.5); `interact` is a
 queued press (CIRCLE by default: the autosave notice, markers, switches); `path` expands a named list of these
 tokens from the DATA table `verify/nav/ep1_waypoints.json` (`{"paths": {"<name>": ["goto:0:...", "climb:0:..."]}}`
-plus a `landmarks` block of surveyed coordinates). The probe table also carries the camera's orientation rows
+plus a `landmarks` block of surveyed coordinates); `warp` is TOOLING (never part of a judged route): it writes
+the triple as three f32 into the player's authoritative position (the position-only transform block's local
+position, level object + 0x2190; `NavProbe::PokeF32`, census `pokes=`) -- Sly appears there next frame and floats
+until the first input, then falls onto whatever is below: the terrain survey (landing z per (x,y)) and the
+transport shortcut past a traversal the navigator cannot do yet. The probe table also carries the camera's orientation rows
 (`cam_fwd_*`, `cam_left_*`, `cam_up_*`; screen right = -left) and the frustum half-tangents (`cam_tan_h` 0.796,
 `cam_tan_v` 0.613): pixel (x, y) of a world point = (256 + 256 (d.right/d.fwd)/0.796, 224 - 224 (d.up/d.fwd)/0.613),
 the tool that turns a sighting in a dumped frame into a world ray (`verify/nav/nav_plot.py` draws tracks; the ray
@@ -276,12 +280,21 @@ post-autosave card resumes there (the nav stage's spawn (-1683,-4066,532)).
 | Paris rooftop hub: ledges, camera, walking / jumping, the drop to the fountain square, the safehouse roof, the south roofs, the street under the arch | yes | ~25 min over the nav + jobs runs | n/a | `goto` reaches the lamp roof (-3945,-1749,782) from the high ledge in 360 stamps (one unstick jump) and the street below the marker in 950; waypoint paths in `verify/nav/ep1_waypoints.json` |
 | Satellite Sabotage briefing (binocucom, 2200 frames) | yes | full | yes (the call runs to its end; the marker + "Satellite Sabotage" label then show on screen) | voice-timed, unskippable |
 | The game's first autosave (safehouse roof) | yes | -- | yes after the libmc fix (`restore_mc_bound=derived=1`, `save1` written to the private card; `sceMcGetInfo` 54 / `sceMcSync` 57 / `sceMcWrite` 1) | before the fix every cold-loaded process got "Auto-save ... has failed" (the game then disables autosave) |
-| Satellite Sabotage (Sly; 3 dishes) | marker SEEN in every run from the high ledge and the lamp roof (bearing ~134 deg, the icon + light pillar), its position triangulated to about (-5659, 42, 567) (two static sightings + a lone RAM float triple on both rays) -- on a roof ~770 above the street under the arch; the navigator reached the marker's (x,y) at STREET level (-5633,28,-218) and climbed a pole 600 east of it to z 535 | reached the hub around it, ~3 min | no | blocked by: no climbable route found from the street / the pole top to the marker's roof (the pole-top leap toward it falls to the street); the marker's roof is not connected to the lamp roof chain (the south roofs end at (-4864,-896,457), a fall); the two rotating dishes of the nav stage at (-1368,-6723,910) and (4470,-793,878) |
+| Satellite Sabotage (Sly; 3 dishes) | marker FOUND and the job STARTED: the marker is the street plaza (-8189,2413,77) under the arch (the earlier estimate (-5659,42,567) was wrong: two near-collinear rays); the briefing (~1800 stamps) plays; dish 1 = the 1400-high water tower at (-6140,4294): its control panel (-6052,4238,1185) + CIRCLE runs the repositioning sequence (~600 stamps, the player object swapped out, letterboxed dish view) and the counter goes 0/3 -> **1/3** (`fj_dish_counter_0_1_1.png`, `fj_C7_sheet.png`) | job started, dish 1 done; ~6 min | 1 of 3 dishes | reached by `warp` (tooling), not by a legit route (the tower needs a pipe climb from the street); dishes 2 and 3 not located (decoys recorded in `firstjob_notes.md`: the four constantly rotating dish-like objects, the lantern clusters, the 850-high lamp posts). Checkpoints `ep1_job1_started`, `ep1_job1_dish1`. D6 (cold route): the briefing's typewriter text shows one glyph + cursor for the whole call (the live route types every line) |
 | Breaking and Entering .. Printing Press Duel (10 jobs) | no | -- | no | after Satellite Sabotage |
 | Gadget Grid (SELECT), pause menu, binocucom bar (L1) | yes | -- | -- | D4: L1 + right stick (the binocucom pan) renders the whole world flat MAGENTA (`nav_D4_magenta_L1_pan_sheet.png`); L1 alone or the pan alone are fine; PCSX2 oracle pending |
 
-Open defects seen in the jobs runs (evidence in the work notes `ep1jobs_notes.md`): D2 the HUD bar text (the
-saving notice reads nothing; PCSX2 shows text); D5 (new) the street under the arch by the marker renders with a
+Open defects seen in the jobs runs (evidence in the work notes `ep1jobs_notes.md`, `firstjob_notes.md`): D1/D3 the
+canopy blob / ghosted near wall -- the "VU1 clip semantics" lead is CLOSED without an engine change: at frame 3100 our
+TEX 0x3e9000 wall strip is PCSX2's (its 12 recorded vertices are our triangles 2-5 to 0.3 px / 10 z units; our 2
+extra triangles lie entirely left of the scissor, which PCSX2's `GSState::VertexKick` drops from its record before
+drawing), and the engine's CLIP / FCAND / FCOR / 4-cycle clip-flag model is the same as PCSX2 microVU's
+(`microVU_Flags.inl`: instance written at cycles+4, newest instance with time <= cycles read); what remains is the
+pervasive half-transparency of ours vs the twin (Sly and the walls show the background through them in
+`def_E270_before_after_pcsx2_p3100.png`), a GS/render question (candidates: the full-screen PSMT8H-of-FRAME post
+pass that maps the frame's alpha byte through a CLUT, or the stored alpha the world's lerp + additive passes leave
+behind); D2 the HUD bar text (the saving notice reads nothing; PCSX2 shows text; the cold route's briefing text stops
+after its first glyph = D6, so a text-advance clock stalls on the cold route and the bar scroller may share it); D5 the street under the arch by the marker renders with a
 flat blue haze plane over the lower half of the frame (`jobs_L7_street_pair.png`, `jobs_L19_sheet.png`: the
 "safehouse haze" class seen from outside); the PCSX2 oracle for the hub after the briefing could not be driven:
 the slot-2 twin resumes with "Memory Card ... was removed" (PCSX2 re-inserts the cards after `-state`) and PINE

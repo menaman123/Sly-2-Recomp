@@ -33,6 +33,11 @@ constexpr unsigned kPhases = 1 + sizeof(kDetours) / sizeof(kDetours[0]);
 constexpr double kClimbNear = 70, kRailNear = 50, kFaceTol = 12;
 constexpr uint64_t kFaceMax = 90, kLeapStamps = 40, kGrabFrom = 3, kClimbStall = 45, kApproachMax = 600;
 constexpr double kClimbGoalSlack = 15, kRailEndRadius = 40;
+// warp: the player's authoritative position = the local position (+0x30) of the position-only transform block
+// (0xfb36e0 in Paris = level object + 0x2160; nav_notes.md: root bone 0xfb5ae0 -> 0xfb37e0 facing -> 0xfb36e0
+// position -> 0xfb35e0 identity), the probe table's pos_x object being [0x2de1a0]. Chosen by the poke survey
+// (firstjob_notes.md).
+constexpr uint32_t kWarpOffset = 0x2190;
 
 // Splits `s` on `sep`.
 std::vector<std::string> Split(const std::string& s, char sep) {
@@ -78,6 +83,7 @@ const char* KindName(PadScript::NavKind k) {
         case PadScript::NavKind::Rail: return "rail";
         case PadScript::NavKind::Until: return "until";
         case PadScript::NavKind::Interact: return "interact";
+        case PadScript::NavKind::Warp: return "warp";
     }
     return "?";
 }
@@ -261,6 +267,7 @@ bool PadScript::ParseNavToken(const std::string& t) {
     else if (f[0] == "rail") st.kind = NavKind::Rail;
     else if (f[0] == "until") st.kind = NavKind::Until;
     else if (f[0] == "interact") st.kind = NavKind::Interact;
+    else if (f[0] == "warp") st.kind = NavKind::Warp;
     else return false;
     if (!UNum(f[1], &st.from)) return false;
     switch (st.kind) {
@@ -333,6 +340,18 @@ bool PadScript::ParseNavToken(const std::string& t) {
             if (f.size() > 4 || st.timeout == 0) return false;
             break;
         }
+        case NavKind::Warp: {
+            if (f.size() < 3 || !ParseTriple(f[2], &st.x, &st.y, &st.z)) return false;
+            st.offset = kWarpOffset;
+            if (f.size() > 3) {
+                char* e = nullptr;
+                st.offset = static_cast<uint32_t>(std::strtoul(f[3].c_str(), &e, 16));
+                if (!e || *e || f[3].empty()) return false;
+            }
+            if (f.size() > 4) return false;
+            st.timeout = 1;
+            break;
+        }
     }
     nav_.push_back(st);
     return true;
@@ -369,7 +388,7 @@ bool PadScript::Compare(double value, const std::string& op, double rhs) {
     return false;
 }
 
-void PadScript::Apply(uint64_t stamp, const NavProbe& probe, PadProtocol::Input* in) {
+void PadScript::Apply(uint64_t stamp, NavProbe& probe, PadProtocol::Input* in) {
     for (const Step& st : steps_)
         if (stamp >= st.frame && stamp < st.frame + st.hold) {
             in->buttons = static_cast<uint16_t>(in->buttons | st.buttons);
@@ -394,7 +413,7 @@ void PadScript::Finish(NavStep& st, uint64_t stamp, const NavProbe::Sample& s, b
                  static_cast<unsigned long long>(stamp), static_cast<unsigned long long>(stamp - st.started), s.x, s.y, s.z, st.last_dist);
 }
 
-void PadScript::Steer(uint64_t stamp, const NavProbe& probe, PadProtocol::Input* in) {
+void PadScript::Steer(uint64_t stamp, NavProbe& probe, PadProtocol::Input* in) {
     NavStep& st = nav_[nav_index_];
     if (!st.active) {
         if (stamp < st.from || stamp < nav_prev_end_) return;
@@ -412,6 +431,12 @@ void PadScript::Steer(uint64_t stamp, const NavProbe& probe, PadProtocol::Input*
     if (st.kind == NavKind::Interact) {   // a press of `timeout` stamps; no eyes needed
         in->buttons = static_cast<uint16_t>(in->buttons | st.buttons);
         if (stamp + 1 >= st.started + st.timeout) Finish(st, stamp, s, true, "pressed");
+        return;
+    }
+    if (st.kind == NavKind::Warp) {   // the one write; done this stamp either way
+        const float xyz[3] = {static_cast<float>(st.x), static_cast<float>(st.y), static_cast<float>(st.z)};
+        const bool ok = probe.PokeF32("pos_x", st.offset, xyz, 3);
+        Finish(st, stamp, s, ok, ok ? "warped" : "poke failed");
         return;
     }
     if (stamp - st.started >= st.timeout) { Finish(st, stamp, s, false, "timed out"); return; }
@@ -452,7 +477,8 @@ void PadScript::Steer(uint64_t stamp, const NavProbe& probe, PadProtocol::Input*
             break;
         }
         case NavKind::Pause:
-        case NavKind::Interact: break;
+        case NavKind::Interact:
+        case NavKind::Warp: break;
     }
 }
 

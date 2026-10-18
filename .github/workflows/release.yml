@@ -1,0 +1,126 @@
+# .github/workflows/release.yml -- Sly-2-Recomp release: on a version tag, the ci.yml workflow (asset scan +
+# guard, the no-disc matrix on macOS / Linux / Windows, and -- where a self-hosted runner holds the disc --
+# the title lanes that build and stage dist/<platform>/), then one archive per platform + SHA256SUMS + the
+# release notes attached to a GitHub release.
+#
+#   git tag v0.1.0 && git push origin v0.1.0        (or: Actions -> Sly-2-Recomp release -> Run workflow)
+#
+# WHAT IS SHIPPED. NativeEE is a STATIC recompiler: the shipped binary is the title's recompiled EE / IOP
+# code compiled together with the engine, generated at BUILD time from the disc (cmake/TitleInputs.cmake,
+# SHA-256 gated). A public runner has no disc, so a no-disc build can only produce the engine's stub
+# ("supplies no play composition") -- never a playable artefact. The release zips therefore come from the
+# title lanes of ci.yml (self-hosted runners whose environment exports NATIVEEE_DISC; repository variable
+# NATIVEEE_TITLE_LANES == 'true'), exactly as the engine's own release.yml does. On the public repository
+# without that variable the `ci` job still runs the full disc-free matrix on every tag and the `release`
+# job is SKIPPED instead of failing on the missing artifacts.
+#
+# Each folder is build.sh --dist's dist/<platform>/ as the lane staged, licence-linted and asset-scanned it
+# (.github/ci/stage_dist.sh): nativeee (recompiled code + engine; SDL2 / FFmpeg static), title/ (the title's
+# text tables: addresses, hashes, waypoints), BUILD-ID, README.md (the user half), LICENSE (Apache-2.0),
+# LICENSE-NativeEE.txt (MIT), THIRD_PARTY_NOTICES.md, licenses/. NO game data: no disc bytes, textures, audio,
+# FMVs, saves or states (the player supplies the disc at first start), and NO VU1 AOT pack (game-derived;
+# README "The VU1 AOT pack" -- players build it from their own corpus or let the engine compile at first run).
+# Platforms: macOS arm64 and Linux x86-64 (the title lanes). Windows has no release artefact until the
+# engine's Windows arm builds (README "Platforms").
+#
+# Local validation: `python3 -c 'import yaml; yaml.safe_load(open(".github/workflows/release.yml"))'` and
+# `actionlint .github/workflows/release.yml`. The macOS lane's commands (build.sh --disc --dist into a fresh
+# build dir) were run on the dev host before this file was written (README "Platforms").
+name: Sly-2-Recomp release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    name: guard + no-disc matrix + title lanes
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  release:
+    name: archives + SHA256SUMS + GitHub release
+    needs: ci
+    if: vars.NATIVEEE_TITLE_LANES == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nativeee-*
+          path: artifacts
+
+      - name: Asset scan over every downloaded folder (the last gate before anything is attached)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for d in artifacts/nativeee-*; do
+            python3 engine/tools/ci/asset_scan.py "$d" --report "asset_scan_$(basename "$d").md"
+            python3 engine/tools/ci/asset_guard.py --root "$d" --mode artifact
+          done
+
+      - name: Archive each platform's folder (macOS zip, Linux tar.gz); SHA256SUMS over the archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          mkdir -p release
+          expected="nativeee-macos-arm64 nativeee-linux-x86_64"
+          for name in $expected; do
+            d="artifacts/$name"
+            test -d "$d" || { echo "missing artifact $name (its title lane did not run or failed)"; exit 1; }
+            # The binary's mode bits do not survive upload-artifact: restore them.
+            chmod +x "$d/nativeee"
+            cat "$d/BUILD-ID"
+            folder="sly2-recomp-${tag}-${name#nativeee-}"
+            mv "$d" "artifacts/$folder"
+            case "$name" in
+              *linux*) tar -C artifacts -czf "release/$folder.tar.gz" "$folder" ;;
+              *)       (cd artifacts && zip -qr -y "../release/$folder.zip" "$folder") ;;
+            esac
+          done
+          (cd release && sha256sum ./*.zip ./*.tar.gz > SHA256SUMS && cat SHA256SUMS)
+          ls -la release
+
+      - name: Release notes
+        shell: bash
+        run: |
+          {
+            echo "Sly-2-Recomp ${GITHUB_REF_NAME} -- Sly 2: Band of Thieves (NTSC-U, SCUS_973.16) as a native port on NativeEE."
+            echo
+            echo "One folder per platform: unpack it, start \`nativeee\`, drop YOUR OWN disc image on the first-run screen"
+            echo "(it is verified against the ELF this build recompiled, extracted, and only ever read), play."
+            echo "This release contains NO game data and no VU1 AOT pack; you must own the game (README.md inside the archive)."
+            echo "macOS: the binary is signed ad hoc, not notarised -- right-click > Open once, or"
+            echo "\`xattr -dr com.apple.quarantine <folder>\` (README \"Platforms\")."
+            echo
+            echo "| archive | sha256 |"
+            echo "|---|---|"
+            while read -r sha file; do echo "| ${file#./} | \`$sha\` |"; done < release/SHA256SUMS
+            echo
+            echo "BUILD-ID per platform:"
+            for d in artifacts/sly2-recomp-*; do echo "- $(basename "$d"): $(cat "$d/BUILD-ID")"; done
+            echo
+            echo "Windows: no artefact yet -- the engine's Windows arm (GL loader) is not built; the CI lane builds what the"
+            echo "cross-compile smoke proved and tries the rest (README \"Platforms\")."
+          } > release/NOTES.md
+          cat release/NOTES.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: release/NOTES.md
+          files: |
+            release/*.zip
+            release/*.tar.gz
+            release/SHA256SUMS
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

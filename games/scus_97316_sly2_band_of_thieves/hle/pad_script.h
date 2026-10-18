@@ -55,6 +55,15 @@
 //   interact:<from>[:<hold>[:<buttons_hex>]]                  press CIRCLE (or `buttons_hex`) for `hold` stamps
 //                                                             (default 10) at the queue's turn -- the marker /
 //                                                             switch / pickup press
+//   warp:<from>:<x>,<y>,<z>[:<off_hex>]                       TOOLING, never part of a judged route: write the
+//                                                             triple as three f32 at `off_hex` (default the
+//                                                             player's authoritative position, kWarpOffset in
+//                                                             pad_script.cpp) from the object the probe table's
+//                                                             pos_x chain dereferences (NavProbe::PokeF32) --
+//                                                             Sly appears there next frame and falls onto
+//                                                             whatever is below: the terrain survey (landing z
+//                                                             per (x,y)) and the transport shortcut past a
+//                                                             traversal the navigator cannot do
 //   path:<from>:<name>[:<radius>]                             expand the named waypoint list of the PATH TABLE
 //                                                             (verify/nav/ep1_waypoints.json: {"paths": {"<name>":
 //                                                             ["<closed-loop token>", ...]}}) in place: its steps
@@ -86,7 +95,7 @@ public:
         bool sticks = false;
         uint8_t lx = 0x80, ly = 0x80, rx = 0x80, ry = 0x80;
     };
-    enum class NavKind { Goto, JumpWhenNear, Face, WaitStill, Pause, Climb, Rail, Until, Interact };
+    enum class NavKind { Goto, JumpWhenNear, Face, WaitStill, Pause, Climb, Rail, Until, Interact, Warp };
     struct NavStep {
         NavKind kind = NavKind::Goto;
         uint64_t from = 0;        // the earliest start stamp
@@ -98,6 +107,7 @@ public:
         std::string probe, op;    // until: the expression
         double value = 0;
         uint16_t buttons = 0;     // interact
+        uint32_t offset = 0;      // warp: the f32 triple's offset from the pos_x object
         // outcome
         uint64_t started = 0, ended = 0;
         bool active = false, done = false, reached = false;
@@ -130,7 +140,7 @@ public:
 
     // The boundary duty: overlay every timed step live at `stamp` on `in`, then the active closed-loop
     // step steering from probe.Last() (read this stamp).
-    void Apply(uint64_t stamp, const NavProbe& probe, PadProtocol::Input* in);
+    void Apply(uint64_t stamp, NavProbe& probe, PadProtocol::Input* in);
 
     const std::vector<Step>& Steps() const { return steps_; }
     const std::vector<NavStep>& NavSteps() const { return nav_; }
@@ -159,7 +169,7 @@ private:
     bool ParseNavToken(const std::string& t);
     bool ParseTriple(const std::string& f, double* x, double* y, double* z);
     bool ExpandPath(const std::vector<std::string>& f);
-    void Steer(uint64_t stamp, const NavProbe& probe, PadProtocol::Input* in);
+    void Steer(uint64_t stamp, NavProbe& probe, PadProtocol::Input* in);
     void Finish(NavStep& st, uint64_t stamp, const NavProbe::Sample& s, bool reached, const char* why);
     void SteerGoto(NavStep& st, uint64_t stamp, const NavProbe::Sample& s, const NavProbe::Convention& c, PadProtocol::Input* in);
     void SteerClimb(NavStep& st, uint64_t stamp, const NavProbe::Sample& s, const NavProbe::Convention& c, PadProtocol::Input* in);

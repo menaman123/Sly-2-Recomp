@@ -22,6 +22,7 @@
 // atan2(y, x) in degrees -- a facing from a matrix row. Well-known names fill NavProbe::Sample's fields -- pos_x pos_y
 // pos_z yaw cam_yaw cam_pitch on_ground -- every probe lands in the CSV in table order:
 //   stamp,valid,<name>,<name>,...   (the header line names them)
+// PokeF32 is the one write (PadScript's `warp:` step): count f32 values at an offset from a probe's object.
 // An optional "nav" object states the title's conventions the closed-loop steps steer by (pad_script.h):
 //   {"up_axis": "y"|"z", "forward_offset_deg": <d>, "right_sign": 1|-1, "default_radius": <r>, "still_eps": <e>}
 // forward_offset_deg: the world heading (degrees, atan2 over the two horizontal axes in x,y,z order) Sly walks
@@ -85,6 +86,11 @@ public:
     const Sample& Last() const { return last_; }
     // The last sample's value of the probe called `name` (false = no such probe or unreadable this stamp).
     bool Value(const std::string& name, double* out) const;
+    // The navigator's one WRITE: store `count` f32 values at `offset` from the object the probe called `base`
+    // points at (its chain followed to the last dereference; a one-element chain = a static address, offset
+    // added to it). PadScript's `warp:` step moves Sly with it (title tooling: a survey / transport shortcut,
+    // never part of a judged route). False = no such probe, a broken chain or an address outside RAM.
+    bool PokeF32(const std::string& base, uint32_t offset, const float* values, size_t count);
 
     const std::vector<Probe>& Probes() const { return probes_; }
     const std::string& ProbePath() const { return probe_path_; }
@@ -108,7 +114,7 @@ private:
     uint64_t every_ = 1;
     std::FILE* trace_ = nullptr;
     Sample last_;
-    uint64_t samples_ = 0, valid_ = 0, ramdumps_ = 0;
+    uint64_t samples_ = 0, valid_ = 0, ramdumps_ = 0, pokes_ = 0;
 };
 
 }  // namespace ps2r::title::sly2

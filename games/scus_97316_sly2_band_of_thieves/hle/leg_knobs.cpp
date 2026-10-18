@@ -35,6 +35,8 @@ LegKnobs LegKnobs::FromEnvironment() {
     k.ipu_out_dump = Text(std::getenv("NATIVEEE_IPU_OUT_DUMP"));
     k.isr_trace = std::getenv("NATIVEEE_ISR_TRACE") != nullptr;
     k.audio_dump = Text(std::getenv("NATIVEEE_AUDIO_DUMP"));
+    if (const char* env = std::getenv("NATIVEEE_AUDIO_DUMP_SOURCE")) k.audio_dump_mixer = std::string(env) == "mixer";
+    k.spu_trace = Text(std::getenv("NATIVEEE_SPU_TRACE"));
     k.pad_script = Text(std::getenv("NATIVEEE_PAD_SCRIPT"));
     k.pad_record = Text(std::getenv("NATIVEEE_PAD_RECORD"));
     k.key_script = Text(std::getenv("NATIVEEE_KEY_SCRIPT"));

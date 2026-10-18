@@ -118,11 +118,14 @@ games/scus_97316_sly2_band_of_thieves/   the title module (the engine's games/<s
   vu1_library/, renderer_profile/        STATUS-only stubs (no target: nothing per-title)
   lint_denylist.txt, README.md
 build.sh / build.ps1                     configure + build wrappers (the engine is the CMake source dir; --no-disc / -NoDisc
-                                         builds without a game file; --tests / -Tests adds the component suite)
+                                         builds without a game file; --tests / -Tests adds the component suite;
+                                         --dist stages the release folder -- "Platforms and releases")
 CMakePresets.json                        the cache variables build.sh passes, as documentation (CMake reads presets
                                          from the source dir = engine/; see "Building")
-.github/workflows/ci.yml                 CI: asset scan + guard, the no-disc build on macOS / Linux / Windows
-.github/ci/                              ctest_exclusions.txt, known_broken_targets.txt (one reason per row), ci_lists.py
+.github/workflows/ci.yml                 CI: asset scan + guard, the no-disc build on macOS / Linux / Windows, the title lanes
+.github/workflows/release.yml            on a v* tag: the CI matrix, then the title lanes' folders as release archives + SHA256SUMS
+.github/ci/                              ctest_exclusions.txt, known_broken_targets.txt (one reason per row), ci_lists.py,
+                                         stage_dist.sh (the release folder: binary + title tables + notices, linted and scanned)
 CONTRIBUTING.md, SECURITY.md, LICENSE    how to contribute (no game data, ever), how to report, Apache-2.0
 ```
 
@@ -190,6 +193,13 @@ SHA-256 must be `a511a94b1dbe8cd9bc9b764c34ffda3f88869713a338e188b4f407732fec6a7
 bytes); any other revision is refused with the reason. The binary ends up at `<build>/app/host/nativeee`
 (`nativeee --help` lists only `--version`/`--help` and the linked title; the harness flags below are read
 by the engine's config loader, `engine/engine/core/config/config_loader.cpp`).
+
+`--dist` stages the release folder after the build (`./build.sh --disc "..." --dist`; `--dist-only` re-stages
+an existing build): the preset becomes the engine's self-contained one (`macos-dist` / `linux-dist`: SDL2 built
+from the pinned release and the LGPL FFmpeg recipe built into `<build>/third_party/ffmpeg`, both static;
+Linux also `libstdc++`/`libgcc`), and `.github/ci/stage_dist.sh` writes `<build>/dist/<platform>/` plus
+`nativeee-<platform>.zip` / `.tar.gz` (`--dist-root DIR` to put them elsewhere). See "Platforms and releases"
+for what the folder holds and how it is checked.
 
 Run the boot leg (always bounded):
 
@@ -296,7 +306,11 @@ queue depth in frames.
 `NATIVEEE_UNPACED=1` runs the window without the 60 Hz field pacer; `NATIVEEE_DUMP_EVERY=N` writes every Nth key;
 `NATIVEEE_GS_ROUTES=<key,...>` / `NATIVEEE_GS_VERTS=<key>` write a frame's draw routes (+ `vram_<key>.bin`) /
 every DrawIr with its vertices; `NATIVEEE_IPU_OUT_DUMP=<file>` is the fromIPU side of `NATIVEEE_IPU_DUMP`;
-`NATIVEEE_AUDIO_DUMP=<file.wav>` writes the DEVICE audio stream (pads included) as 48 kHz stereo int16 (play mode);
+`NATIVEEE_AUDIO_DUMP=<file.wav>` writes the DEVICE audio stream (pads included) as 48 kHz stereo int16 (play mode), or
+with `NATIVEEE_AUDIO_DUMP_SOURCE=mixer` (and always headless) the mixer's 800-frame boundary output = emulated-time
+audio, the stream `games/<title>/verify/judge_audio.py` judges against a PCSX2 capture; `NATIVEEE_SPU_TRACE=<file>`
+records the SPU voice model's events (key-ons with the programmed registers, loop ends, transfers, switch / core
+writes, a per-second level census per voice);
 `NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>]` records VU1 kicks as `Vu1Case` files + their PATH1 packets
 (hle/vu1_probe.h; replay with `tests/vu/test_vu1_capture_replay <case.bin> [--trace] [--cached|--block|--aot]`);
 `NATIVEEE_VU1_MODE=interp|cached|block|aot` selects the VU1 tier over Config `engine.vu1_mode` (aot: the generic
@@ -361,6 +375,70 @@ the player's own user data dir / the directory the player chose. A pack may be b
 on a lane that has the disc (`title-lanes`, below) for private use; publishing one would need a licence decision
 that has not been made. CONTRIBUTING.md states the same rule.
 
+## Platforms and releases
+
+What is verified where (2026-10-18, engine `e8d3e90`), honestly:
+
+| Platform | Build | Verified by | Status |
+|---|---|---|---|
+| macOS arm64 (Apple silicon) | `./build.sh --disc ... --dist` (`macos-dist`), `./build.sh --no-disc --tests` | run on the dev host (M4) on every stage: the disc build, the staged `dist/macos` (36 MB, zip 10.9 MB, asset scan CLEAN with the live ELF windows, ad-hoc signed), the first-run drill below, the no-disc build + component suite | **verified locally** |
+| Linux aarch64 (Ubuntu 24.04, Clang 18) | the same two commands inside the engine's toolchain image (`engine/tools/ci/linux.Dockerfile`, `--target toolchain`) | run on the dev host under Docker (colima VM, 4 vCPU): the disc build (285 steps, 0 warnings), `dist/linux-aarch64` (41 MB, tar.gz 13 MB, scan CLEAN; only glibc + libGL dynamic), a 600-boundary headless leg (`park=none`, `video=stub`) and a 600-frame `--dump-frames` leg on Xvfb + Mesa llvmpipe (`video=gl`, 599 presents, `park=none`; the audio lane's first 50 windows identical to the macOS build's) | **verified in a container**; the GitHub lane (`ubuntu-latest`, `linux-release-clang`, `xvfb-run`) is the engine's own and has not run from this repository yet |
+| Linux x86-64 | the CI lane / a self-hosted title lane | not run here (no x86-64 Linux host; the colima VM is aarch64) | CI-only |
+| Windows x64 (clang-cl, vcpkg) | `.\build.ps1 -NoDisc` | nothing on a Windows machine. The CI lane is REAL and gating for what the engine's cross-compile smoke has proven (`ps2r_host`, `ps2r_core`, the title's `ps2r_title_hle`); the whole tree + ctest is a separate non-blocking step, expected red until the engine's GL backend has a Windows GL loader (`engine/platform/host/platform.h`: `PS2R_GL_HEADER` undefined on `_WIN32`) and `app/host/{session_runtime,savestate_slots,launcher_settings,clock_census}.cpp` leave their POSIX headers | CI-only, partial; no release artefact |
+
+The title tree itself carries no platform risk: no POSIX header, no GNU extension, no `_WIN32` branch (the
+rules and the grep are in CONTRIBUTING.md "Portability"); its one Windows-specific fix in this round was
+`boot_leg.cpp` splitting the executable path on both separators to find `title/` beside the binary.
+
+### The release layout
+
+`release.yml` runs on a `v*` tag: the CI workflow (asset scan + guard, the three no-disc lanes), then --
+only where a self-hosted runner holds the disc (`NATIVEEE_TITLE_LANES`, as in the engine) -- the title lanes'
+`dist/` folders become `sly2-recomp-<tag>-macos-arm64.zip` and `sly2-recomp-<tag>-linux-x86_64.tar.gz` with
+`SHA256SUMS` and release notes. NativeEE is a static recompiler: the shipped binary IS the title's recompiled
+code plus the engine, generated from the disc at build time, so a public runner (no disc) cannot produce a
+playable artefact and the `release` job is skipped there instead of failing. Each folder:
+
+```
+nativeee                 the binary (recompiled EE/IOP code + engine; SDL2 compiled in; FFmpeg is NOT linked -- this
+                         title's FMVs go through the engine's IPU model, and stage_dist.sh proves the absence from the binary)
+title/hle/sdk_bindings.tsv, title/verify/nav/*.json   the title's text tables the binary reads beside itself
+BUILD-ID                 what `nativeee --version` prints
+README.md                this file's user half (Status, Playing, the AOT pack, Known issues, this section)
+LICENSE, LICENSE-NativeEE.txt, THIRD_PARTY_NOTICES.md, licenses/   Apache-2.0 (this repo), MIT (engine), SDL2 / Dear ImGui /
+                         gl3w texts (+ GCC runtime exception on Linux), each byte-equal to the engine's committed copies
+```
+
+No game data (`engine/tools/ci/asset_scan.py` over the folder and the archive: names, format magic, byte windows
+of the title ELF -- the local staging passes `--elf <extracted ELF>` for the live windows) and no VU1 AOT pack
+("The VU1 AOT pack": game-derived, licence boundary). `stage_dist.sh` refuses to ship a `--no-disc` stub, a
+non-static binary, a GPL FFmpeg, or a licence text that differs from the committed set.
+
+### The first-run drill (a new player, measured)
+
+Run against the staged `dist/macos/nativeee` with an EMPTY private data folder (`--set paths.user_data=<fresh>
+--set paths.mc_dir=<fresh cards>`; the dev host's real `~/Library/Application Support/NativeEE` was unchanged
+before and after -- same 1,813-file listing):
+
+1. Plain start, no `--iso`: the launcher's first-run screen -- "No game files found under <fresh>/game_files ...
+   Drop your own Sly 2: Band of Thieves disc image (NTSC-U, SCUS-97316) ... verified (ISO9660 volume,
+   SCUS_973.16 present, ELF SHA-256 equal to the one this build was made from)". Log: `launcher: first run: no
+   game files`.
+2. The disc handed over (the scripted drop `--launcher-disc "<iso>" --launcher-then-play`, which takes the path
+   exactly as a drop on the window): `launcher: scripted drop`, `launcher: Extracted: <fresh>/game_files/Sly2.rep/
+   SCUS_973.16; disc ... (copied); stamp .nativeee_build_id`, `launcher: Play (auto)`; then 600 frames of the
+   game from the extracted files (`run.meta`: `iso_path=<fresh>/game_files/Sly2.rep/...iso iso_open=1 elf_path=
+   .../SCUS_973.16 libmc_rows=15 video=gl park=none finalized=1`), frame 600 = the game's own "create a Sly 2
+   save file?" prompt on the fresh card; `ps2r.ini` and `mc0/mc1` created in the private dirs.
+3. Second start (`--launcher` for the screenshot): `launcher: settings screen` -- the Play page with the game
+   files and disc path listed, no disc prompt. A plain start without `--launcher` and without `--iso` boots
+   straight into the game from the extracted set (300 frames, `park=none`, zero `launcher:` lines).
+
+macOS Gatekeeper: `stage_dist.sh` signs the binary ad hoc (`codesign --sign -`; `codesign -dv` shows
+`Signature=adhoc`), not notarised, so a zip downloaded by a browser is quarantined and Finder refuses it
+(`spctl --assess --type execute` says `rejected` even on the locally built copy). Right-click > Open once, or
+`xattr -dr com.apple.quarantine <folder>`; starting it from a terminal works without either.
+
 ## Known issues
 
 Performance and picture (the title):
@@ -402,12 +480,17 @@ Build and test (the engine at the pinned commit, `be7386a`; each row is also in
   old x2 GPU rescale, so a stored 0xFF read as alpha 2.0 and both halves of the "As halves the additive
   contribution" check saturated. The engine's MODULATE/As path matched the GS User's Manual; the test's
   texture now carries the stored alpha bytes 0x80/0x40 and passes 35/35.)
-- **Windows is unverified.** Neither this repository's `build.ps1` nor the engine's Windows arm has run on
-  a Windows machine (engine README: no Windows GL loader yet, POSIX headers in six TUs). The CI lane is
-  `continue-on-error`: it configures with the `windows-release` preset (clang-cl, vcpkg) and builds
-  `ps2r_core` + `ps2r_title_hle`, then tries the whole tree.
-- **Linux is structurally verified only.** The CI lane is the engine's own Linux lane (its package list,
-  `linux-release-clang`, `xvfb-run` for the GL tests) pointed at this `games/`; it has not run here yet.
+- **Windows is unverified on a Windows machine.** Neither `build.ps1` nor the engine's Windows arm has run on
+  one (engine README: no Windows GL loader yet, POSIX headers in four `app/host` TUs). The CI lane gates the
+  proven subset (`ps2r_host`, `ps2r_core`, `ps2r_title_hle`) and runs the whole tree + ctest as a non-blocking
+  step ("Platforms and releases"). There is no Windows release artefact.
+- **Linux is container-verified on aarch64 only.** The disc build, dist, headless legs (stub and llvmpipe GL)
+  and the no-disc lane ran inside the engine's toolchain image on the dev host; the GitHub `ubuntu-latest`
+  x86-64 lane has not run from this repository yet. One cosmetic line at shutdown under Xvfb:
+  `[gl] SDL_GL_MakeCurrent failed: ... BadAccess` after the leg finalised (exit 0, `park=none`).
+- **Cross-GPU frame hashes differ.** The headless `frames.fhash` lane hashes the GL-presented image: Mesa
+  llvmpipe (Linux) and Apple's GL (macOS) agree on the first 6 rows only; the audio lane agreed 50/50 windows.
+  The engine's cross-platform identity gate is its math-oracles lane (a title lane), not run here.
 - **Title lanes need the disc.** The recompile, `MANIFEST.sha256` checks and boot legs run only where the
   runner supplies `NATIVEEE_DISC` (repository variable `NATIVEEE_TITLE_LANES`, as in the engine); on the
   public repository that job is skipped.
@@ -435,9 +518,11 @@ from the user's disc, and the engine's asset scan proves the tree clean on every
 `.github/workflows/ci.yml` -- `guard` (checkout with submodules; `engine/tools/ci/asset_scan.py --tree
 games` and `--tree engine`, the asset guard over both, the tools' and lints' selftests, this workflow's
 YAML, actionlint), then `build-nodisc` on macOS arm64 / Ubuntu x86-64 / Windows x64: `./build.sh --no-disc
---tests` (`.\build.ps1 -NoDisc` on Windows, `continue-on-error`). `title-lanes` runs only with the
-repository variable `NATIVEEE_TITLE_LANES` set on a runner that exports `NATIVEEE_DISC`: the disc build, the bounded
-headless boot leg, and the VU1 AOT pack lane -- a second bounded leg under `engine.vu1_mode=aot` collects the corpus
+--tests` (`.\build.ps1 -NoDisc` on Windows: the proven targets gate, the whole tree is a non-blocking step).
+`title-lanes` runs only with the repository variable `NATIVEEE_TITLE_LANES` set on self-hosted runners that
+export `NATIVEEE_DISC` (a macOS one, and a Linux one with Docker that builds inside the engine's toolchain
+image): `build.sh --disc --dist`, the bounded headless boot leg, the staged `dist/` folder uploaded for
+`release.yml`, and on macOS the VU1 AOT pack lane -- a second bounded leg under `engine.vu1_mode=aot` collects the corpus
 into the lane's private user data dir, `vu1_aot_pack build` makes the pack from it, `vu1_aot_pack check` proves a
 compiler-less engine is served by it; only `pack.txt` (numbers) leaves the runner as an artefact, never the
 libraries (game-derived; see "The VU1 AOT pack"). Every ctest
@@ -573,6 +658,10 @@ which is what the submodule pins.
   a game thread below 60 Hz delivers its SPU2 quanta in bursts every 60-90 ms, and the fixed 50 ms lead
   padded 37 % of the device stream with tail loops and trimmed 43 % of the produced audio. Plus a
   consumer-side `SetPullTap` (the device stream for a host's WAV capture; nothing flows back).
+- `tools/build/clang_cl_shim.py` (uncommitted, this working tree): `-fwrapv` and `-fno-strict-aliasing` go
+  through `/clang:` instead of raw -- clang-cl 18 (Ubuntu 24.04's, the LLVM that Visual Studio 2022 bundles)
+  rejects them raw under `-Werror` ("unknown argument ignored in clang-cl"), Apple clang 21 accepts them, and
+  `/clang:<flag>` is valid on both; ctest `PlatformClangClShimContract` was red on the Linux lane for it.
 
 ## License
 

@@ -16,8 +16,15 @@
 #                 title's ps2r_title_hle, the component test suite. Then ctest minus
 #                 .github/ci/ctest_exclusions.txt (title lanes, first-title pins, the known-broken
 #                 targets' tests, the engine regressions at the pinned commit -- every row has its
-#                 reason there and in README.md "Known issues"). The Windows lane is
-#                 continue-on-error: the engine's Windows build is unverified upstream (its README).
+#                 reason there and in README.md "Known issues"). The Windows lane is a REAL gate like the
+#                 engine's own (no job-level continue-on-error, as the engine's windows-x64 lane has none): it
+#                 configures with the engine's windows-release preset (clang-cl + Ninja, SDL2 / FFmpeg from the
+#                 vcpkg manifest) and REQUIRES what the engine's cross-compile smoke has proven to compile to
+#                 x86-64 COFF (ps2r_host, ps2r_core, the title's ps2r_title_hle); the whole tree + the no-disc
+#                 ctest run as a SEPARATE, non-blocking step because the engine's GL backend has no Windows GL
+#                 loader yet (engine/platform/host/platform.h: PS2R_GL_HEADER undefined on _WIN32) and four
+#                 app/host TUs still include POSIX headers -- that step is expected red until the engine's
+#                 Windows arm lands, and its log is uploaded. Flipping it to a gate = deleting one line.
 #   title-lanes   needs the disc: gated on the repository variable NATIVEEE_TITLE_LANES == 'true'
 #                 (Settings -> Secrets and variables -> Actions -> Variables), as the engine's own
 #                 ci.yml gates its dist / identity lanes. Leave it unset on the public repository.
@@ -36,6 +43,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:        # release.yml runs this matrix on a tag before it ships anything
 
 permissions:
   contents: read
@@ -102,11 +110,6 @@ jobs:
           - { os: ubuntu-latest,  target: linux-x86_64, preset: linux-release-clang, platform: linux,   jobs: 3 }
           - { os: windows-latest, target: windows-x64,  preset: windows-release,     platform: windows, jobs: 3 }
     runs-on: ${{ matrix.os }}
-    # The engine's own Windows build has not run on a Windows machine yet (NativeEE README, "Known
-    # issues": no Windows GL loader, POSIX headers in six TUs). The lane configures and builds what the
-    # engine's cross-compile smoke has proven (ps2r_core) plus the title's ps2r_title_hle, then TRIES the
-    # whole tree; it must not block the repository until the engine's Windows arm is green.
-    continue-on-error: ${{ matrix.platform == 'windows' }}
     timeout-minutes: 180
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
@@ -170,19 +173,29 @@ jobs:
         shell: bash
         run: ./build.sh --no-disc --tests --preset ${{ matrix.preset }} --jobs ${{ matrix.jobs }}
 
-      # --- Windows: configure + the proven targets, then the whole tree as a try ---------------
-      - name: build.ps1 -NoDisc (configure; ps2r_core + ps2r_title_hle)
+      # --- Windows: configure + the proven targets (REQUIRED), then the whole tree (non-blocking) -----
+      #     The required set is what tools/build/win_cross_smoke.py (ctest PlatformWindowsCrossSmoke) has
+      #     compiled to x86-64 COFF against the real MSVC CRT / Windows SDK: the host shim arm (ps2r_host),
+      #     every engine/core TU (ps2r_core) and -- here -- the title's ps2r_title_hle (TitleProfile only,
+      #     no POSIX include in the title tree: README.md "Platforms"). A failure here is a real
+      #     regression on a real Windows toolchain and blocks the repository.
+      - name: build.ps1 -NoDisc (configure; ps2r_host + ps2r_core + ps2r_title_hle) -- REQUIRED
         if: matrix.platform == 'windows'
         shell: pwsh
-        run: .\build.ps1 -NoDisc -Preset ${{ matrix.preset }} -Jobs ${{ matrix.jobs }} -Targets ps2r_core,ps2r_title_hle
+        run: .\build.ps1 -NoDisc -Preset ${{ matrix.preset }} -Jobs ${{ matrix.jobs }} -Targets ps2r_host,ps2r_core,ps2r_title_hle
       - name: vcpkg binary cache (save)
         if: matrix.platform == 'windows' && always()
         uses: actions/cache/save@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: vcpkg-${{ runner.os }}-${{ hashFiles('engine/vcpkg.json') }}
-      - name: build.ps1 -NoDisc -Tests (the whole tree + component suite -- expected red until the engine's Windows arm lands)
+      #     The whole tree + the no-disc ctest: the engine's GL backend has no Windows GL loader yet, so this
+      #     step is expected red (the first error CI prints: PS2R_GL_HEADER undefined on _WIN32). It stays a
+      #     step-level continue-on-error -- never job-level -- so the required part above is a real gate and
+      #     this part's log is still collected; remove the one line when the engine's Windows arm is green.
+      - name: build.ps1 -NoDisc -Tests (the whole tree + component suite -- non-blocking until the engine has a Windows GL loader)
         if: matrix.platform == 'windows'
+        continue-on-error: true
         shell: pwsh
         run: .\build.ps1 -NoDisc -Preset ${{ matrix.preset }} -Jobs ${{ matrix.jobs }} -Tests
 
@@ -211,15 +224,28 @@ jobs:
 
   # The title lanes: the recompiled title needs the user's disc (cmake/TitleInputs.cmake extracts
   # SCUS_973.16 from NATIVEEE_DISC, SHA-256 gated against games/<title>/TITLE_INPUTS.sha256), which a
-  # public runner never has. The job exists so a self-hosted runner whose environment exports
-  # NATIVEEE_DISC can run the full build (recompile + MANIFEST.sha256 checks) and a bounded headless
-  # boot leg; on the public repository the variable is unset and the job is skipped.
+  # public runner never has. The job exists so SELF-HOSTED runners whose environment exports NATIVEEE_DISC
+  # can run the full build (recompile + MANIFEST.sha256 checks), a bounded headless boot leg, and stage the
+  # release folder (build.sh --dist -> dist/<platform>/ + the archive, licence-linted and asset-scanned);
+  # release.yml ships exactly those folders. Two lanes: a macOS runner (the dev host's shape; also the VU1
+  # AOT pack proof) and a Linux runner with Docker (the build runs inside the engine's toolchain image,
+  # engine/tools/ci/linux.Dockerfile, the disc bind-mounted READ-ONLY; nothing game-derived leaves the
+  # runner but the recompiled binary the release is). On the public repository the variable is unset and
+  # the job is skipped. Windows has no title lane: the engine's Windows arm is not built yet (above).
   title-lanes:
-    name: title lanes (disc on the runner; NATIVEEE_TITLE_LANES)
+    name: title lane / ${{ matrix.platform }} (disc on the runner; NATIVEEE_TITLE_LANES)
     needs: guard
     if: vars.NATIVEEE_TITLE_LANES == 'true'
-    runs-on: [self-hosted, macOS]
-    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: macos, labels: "[self-hosted, macOS]", artifact: nativeee-macos-arm64 }
+          - { platform: linux, labels: "[self-hosted, Linux]", artifact: nativeee-linux-x86_64 }
+    runs-on: ${{ fromJSON(matrix.labels) }}
+    timeout-minutes: 180
+    env:
+      NATIVEEE_WATCHDOG_S: '60'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -229,27 +255,31 @@ jobs:
         run: |
           test -n "${NATIVEEE_DISC:-}" || { echo "NATIVEEE_DISC is not set on this runner"; exit 1; }
           test -f "$NATIVEEE_DISC"
-      - name: build.sh --disc (extract, recompile, MANIFEST.sha256, nativeee + the play composition)
+
+      # --- macOS: build.sh --disc --dist on the runner itself ----------------------------------------
+      - name: build.sh --disc --dist (extract, recompile, MANIFEST.sha256, nativeee; stage dist/macos + zip)
+        if: matrix.platform == 'macos'
         shell: bash
-        run: ./build.sh --disc "$NATIVEEE_DISC" --build-dir "$RUNNER_TEMP/build-title" --jobs 4
+        run: ./build.sh --disc "$NATIVEEE_DISC" --dist --build-dir "$RUNNER_TEMP/build-title" --dist-root "$RUNNER_TEMP/dist" --jobs 4
       - name: Bounded headless boot leg (600 boundaries; park reported, never a hang)
+        if: matrix.platform == 'macos'
         shell: bash
-        env:
-          NATIVEEE_WATCHDOG_S: '60'
         run: |
           engine/verify/run_bounded.sh 240 "$RUNNER_TEMP/leg.log" -- "$RUNNER_TEMP/build-title/app/host/nativeee" \
-            --headless --frames 600 --harness-out "$RUNNER_TEMP/leg" --iso "$NATIVEEE_DISC"
+            --headless --frames 600 --harness-out "$RUNNER_TEMP/leg" --iso "$NATIVEEE_DISC" \
+            --set paths.user_data="$RUNNER_TEMP/ud" --set paths.mc_dir="$RUNNER_TEMP/mc"
           grep -E "^(park|park_detail|boundaries|iop_modules)=" "$RUNNER_TEMP/leg/run.meta"
           grep -q '^park=none' "$RUNNER_TEMP/leg/run.meta"
       # The VU1 AOT pack lane (README "The VU1 AOT pack"): a second bounded leg under the AOT tier
       # collects the title's VU1 corpus into the lane's PRIVATE user data dir (never the runner
       # user's), the pack tool builds the pack from it (emit, compile, load, re-verify every image)
       # and the check mode proves an engine WITHOUT a compiler is served by it. The corpus and the
-      # pack are game-derived: they stay under $RUNNER_TEMP; only pack.txt (numbers) is uploaded.
+      # pack are game-derived: they stay under $RUNNER_TEMP and are NEVER part of a release; only
+      # pack.txt (numbers) is uploaded.
       - name: VU1 AOT corpus (a bounded aot-tier leg into a private user data dir)
+        if: matrix.platform == 'macos'
         shell: bash
         env:
-          NATIVEEE_WATCHDOG_S: '60'
           NATIVEEE_VU1_MODE: aot
           NATIVEEE_MTVU: '1'
         run: |
@@ -261,6 +291,7 @@ jobs:
           grep -E "^(park|vu1_aot|vu1_tier)=" "$RUNNER_TEMP/leg_aot/run.meta"
           test -n "$(ls "$RUNNER_TEMP/ud/vu1_aot/corpus" 2>/dev/null)"
       - name: vu1_aot_pack build + check (every image native; a compiler-less engine served by the pack)
+        if: matrix.platform == 'macos'
         shell: bash
         run: |
           T="$RUNNER_TEMP/build-title/tools/vu1_aot_pack/vu1_aot_pack"
@@ -268,14 +299,64 @@ jobs:
           "$T" build --corpus "$RUNNER_TEMP/ud/vu1_aot/corpus" --out "$RUNNER_TEMP/pack"
           "$T" check --corpus "$RUNNER_TEMP/ud/vu1_aot/corpus" --pack "$RUNNER_TEMP/pack"
           cat "$RUNNER_TEMP/pack/pack.txt"
-      - name: Nothing game-derived leaves the runner (the artifact is the logs, run.meta and pack.txt only)
+
+      # --- Linux: the same inside the engine's toolchain image (what this repository's maintainers ran
+      #     locally under Docker: README "Platforms"); the headless leg runs under Xvfb + Mesa llvmpipe,
+      #     the engine's own route for its GL tests (engine/tools/ci/linux_build.sh). -------------------
+      - name: Build the toolchain image (engine/tools/ci/linux.Dockerfile --target toolchain)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: docker build -f engine/tools/ci/linux.Dockerfile --target toolchain -t nativeee-linux-toolchain engine
+      - name: build.sh --disc --dist in the container (the disc read-only; dist/linux-<arch> + tar.gz)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          docker run --rm -v "$PWD":/src -v "$NATIVEEE_DISC":/disc/title.iso:ro -v "$RUNNER_TEMP/out":/out \
+            -w /src -e PS2R_CI=1 nativeee-linux-toolchain \
+            ./build.sh --disc /disc/title.iso --dist --build-dir /out/build --dist-root /out/dist --jobs 3
+      - name: Bounded headless boot leg in the container (Xvfb + llvmpipe; park=none)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          docker run --rm -v "$PWD":/src -v "$NATIVEEE_DISC":/disc/title.iso:ro -v "$RUNNER_TEMP/out":/out \
+            -w /src -e NATIVEEE_WATCHDOG_S -e SDL_VIDEODRIVER=x11 -e LIBGL_ALWAYS_SOFTWARE=1 nativeee-linux-toolchain \
+            xvfb-run -a -s "-screen 0 1280x1024x24" engine/verify/run_bounded.sh 240 /out/leg.log -- \
+              "/out/dist/linux-$(uname -m)/nativeee" --headless --frames 600 --harness-out /out/leg --iso /disc/title.iso \
+              --set paths.user_data=/out/ud --set paths.mc_dir=/out/mc
+          grep -E "^(park|park_detail|boundaries|iop_modules)=" "$RUNNER_TEMP/out/leg/run.meta"
+          grep -q '^park=none' "$RUNNER_TEMP/out/leg/run.meta"
+          mkdir -p "$RUNNER_TEMP/dist" && cp -R "$RUNNER_TEMP/out/dist/." "$RUNNER_TEMP/dist/"
+
+      # --- the release folder: scanned once more on the runner, then uploaded under the name release.yml
+      #     expects (the folder only; the archive is re-made from it by release.yml) ---------------------
+      - name: Asset guard over the staged folder (--mode artifact)
+        shell: bash
+        run: |
+          d=$(find "$RUNNER_TEMP/dist" -mindepth 1 -maxdepth 1 -type d | head -1)
+          python3 engine/tools/ci/asset_guard.py --root "$d" --mode artifact
+          cat "$d/BUILD-ID"
+      - name: Stage the artifact under its release name
+        shell: bash
+        run: |
+          d=$(find "$RUNNER_TEMP/dist" -mindepth 1 -maxdepth 1 -type d | head -1)
+          mkdir -p "$RUNNER_TEMP/upload" && cp -R "$d" "$RUNNER_TEMP/upload/${{ matrix.artifact }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ runner.temp }}/upload/${{ matrix.artifact }}/
+          if-no-files-found: error
+      - name: Logs and run.meta (nothing else game-derived leaves the runner)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: title-lane-run-meta
+          name: title-lane-${{ matrix.platform }}-run-meta
           path: |
             ${{ runner.temp }}/leg/run.meta
             ${{ runner.temp }}/leg.log
             ${{ runner.temp }}/leg_aot/run.meta
             ${{ runner.temp }}/leg_aot.log
             ${{ runner.temp }}/pack/pack.txt
-          if-no-files-found: error
+            ${{ runner.temp }}/out/leg/run.meta
+            ${{ runner.temp }}/out/leg.log
+          if-no-files-found: ignore

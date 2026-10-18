@@ -228,10 +228,30 @@ bool NavProbe::Value(const std::string& name, double* out) const {
     return false;
 }
 
+bool NavProbe::PokeF32(const std::string& base, uint32_t offset, const float* values, size_t count) {
+    const Probe* p = nullptr;
+    for (const Probe& q : probes_)
+        if (q.name == base) { p = &q; break; }
+    if (!p || p->chain.empty()) return false;
+    // The object the chain's last dereference yields (a one-element chain: the static address itself).
+    uint32_t addr = p->chain[0];
+    for (size_t k = 1; k < p->chain.size(); k++) {
+        uint32_t ptr = 0;
+        if (!ReadWord(addr, &ptr) || ptr == 0) return false;
+        addr = ptr;
+    }
+    const uint32_t phys = (addr + offset) & 0x1FFFFFFFu;
+    if (phys + 4 * count > ram_.Size() || (phys & 3)) return false;
+    std::memcpy(ram_.Data() + phys, values, 4 * count);
+    ++pokes_;
+    return true;
+}
+
 std::string NavProbe::Census() const {
     if (!table_tried_) return "off";
     std::string s = "probes=" + std::to_string(probes_.size()) + ":table=" + probe_path_ + ":trace=" + (trace_ ? trace_path_ : std::string("off")) +
-                    ":samples=" + std::to_string(samples_) + ":valid=" + std::to_string(valid_) + ":ramdumps=" + std::to_string(ramdumps_);
+                    ":samples=" + std::to_string(samples_) + ":valid=" + std::to_string(valid_) + ":ramdumps=" + std::to_string(ramdumps_) +
+                    ":pokes=" + std::to_string(pokes_);
     if (last_.valid) {
         char buf[160];
         std::snprintf(buf, sizeof(buf), ":last=%llu@%.2f,%.2f,%.2f:yaw=%.1f:cam=%.1f", static_cast<unsigned long long>(last_.stamp), last_.x,

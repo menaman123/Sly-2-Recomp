@@ -44,7 +44,7 @@
 //   LegDisc        IsoFs / ReadEngine / StreamReader, the SifDma id hook
 //   LegServices    RpcRouter, the memory card store + model + MCSERV face, PadProtocol + the padman
 //                  face, SpuCore, Mixer, SdBlockTrans + the SDRDRV face
-//   LegAudio       the SDL audio device + pull ring (+ AudioDump)
+//   LegAudio       the SDL audio device + pull ring (+ AudioDump, + the SPU VoiceTrace knob)
 //   LegPlay        the live pad + the SessionRuntime window, the presented-image output, the
 //                  player's menu pages (Display / Controls / the pause menu)
 //   LegIop         IopHost (+ its IOPH savestate section), the SIF DMA copy, the padman facts, the
@@ -174,7 +174,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegInterrupts interrupts(knobs, core, gs, devices, mtvu);
     LegDisc disc(cfg, title, host);
     LegServices services(cfg, core);
-    LegAudio audio(cfg, knobs, core);
+    LegAudio audio(cfg, knobs, core, services.spu_core);
     LegPlay play(cfg, title, core, gs, audio);
     if (play.Failed()) return 2;
     LegIop iop(cfg, core, devices, mtvu, interrupts, disc, services);
@@ -360,7 +360,7 @@ int TitlePlayMain(int argc, char** argv) {
     if (!FileExists(title_dir + "/" + title.sdk_bindings_file)) {
         std::string exe_err;
         const std::string exe = ps2r::platform::host::ExecutablePath(&exe_err);
-        const size_t slash = exe.find_last_of('/');
+        const size_t slash = exe.find_last_of("/\\");   // ExecutablePath is '\\'-joined on Windows (first_run.cpp does the same)
         const std::string beside = (slash == std::string::npos ? std::string(".") : exe.substr(0, slash)) + "/title";
         if (FileExists(beside + "/" + title.sdk_bindings_file)) title_dir = beside;
         else std::fprintf(stderr, "nativeee: title directory not found: neither %s nor %s has %s\n", PS2R_TITLE_DIR,
