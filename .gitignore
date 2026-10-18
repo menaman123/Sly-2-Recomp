@@ -30,6 +30,17 @@ iop_recompiled.cpp
 /play_sessions/
 /logs/
 
+# the VU1 AOT corpus (captured VU memory) and the VU1 AOT pack (generated libraries of the game's
+# microprograms): game-derived, built on the player's machine or a disc-bearing lane, never here
+vu1_aot_pack/
+/vu1_aot/
+*.O1.dylib
+*.O2.dylib
+*.O1.so
+*.O2.so
+*.O1.dll
+*.O2.dll
+
 # CI run products (the guard job's reports, the collected build logs) -- never committed
 /asset_scan_*.md
 /ci-logs/

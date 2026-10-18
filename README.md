@@ -63,8 +63,11 @@ per block of the block tier's table, every slot a compile-time constant through 
 bodies -- compiled with a C++ compiler found on the host at run time (`engine.vu1_aot_compiler`, else the one that
 built the engine, `/usr/bin/clang++`, `c++`, `g++`, `clang++`) on a background thread (~7-9 s per image at -O2 on an
 idle M4), loaded, RE-VERIFIED on the same corpus, and only then swapped into the live block table; the library is
-cached under `<user_data>/vu1_aot/<build>/` and reused on the next run. No compiler on the host = one notice, the
-specialised tier continues. Measured on the gameplay window with the worker on, same host hour (load 7-9):
+cached under `<user_data>/vu1_aot/<abi key>/` and reused on the next run (the key is a content hash of the engine
+headers the generated code compiles against, so rebuilding the engine without touching the VU keeps the libraries).
+No compiler on the host: the loader looks for a PRE-BUILT PACK next to the executable (`vu1_aot_pack/`, or
+`engine.vu1_aot_pack=<dir>`; `engine/tools/vu1_aot_pack` builds one from the corpus -- see "The VU1 AOT pack" below) and
+gets the same native tier from the first frame; without a pack either, one notice and the specialised tier continues. Measured on the gameplay window with the worker on, same host hour (load 7-9):
 block 25.9 fps p50 / 20.7 ns per bundle, aot (specialised only) 25.5 / 18.8, aot + generated code 28.4 / 17.1
 (whole run 31.1); on the bench the generated code is 10.2-10.8 ns per bundle against the block tier's 13.4-14.9
 (-25 %). The 30 fps target is still not met: with the generated code the VU1 worker idles ~55 % of the frame
@@ -300,9 +303,10 @@ every DrawIr with its vertices; `NATIVEEE_IPU_OUT_DUMP=<file>` is the fromIPU si
 recompiler -- `engine.vu1_aot_corpus=<dir>` adds a corpus of captured cases to verify against at start,
 `engine.vu1_aot_fallback=block|interp` is where an unverified image runs, `engine.vu1_aot_verify=off` runs every image
 native unverified -- a bench knob; `engine.vu1_aot_codegen=off` keeps the specialised tier without generated code,
-`engine.vu1_aot_compiler=<c++>` / `engine.vu1_aot_prelude=<dir>` / `engine.vu1_aot_opt=1|2` steer the run-time
-compile; run.meta `vu1_aot=programs:..:verified:..:native_kicks:..:ns_per_bundle:..`,
-`vu1_aot_codegen=compiler:..:jobs:..:cached:..:compiled:..:native:..:refused:..:installs:..` and
+`engine.vu1_aot_compiler=<c++>|none` / `engine.vu1_aot_prelude=<dir>` / `engine.vu1_aot_opt=1|2` steer the run-time
+compile, `engine.vu1_aot_pack=<dir>` names the pre-built pack (default: `vu1_aot_pack/` next to the executable);
+run.meta `vu1_aot=programs:..:verified:..:native_kicks:..:ns_per_bundle:..`,
+`vu1_aot_codegen=compiler:..:abi:..:jobs:..:pack:..:pack_rejected:..:no_compiler:..:cached:..:compiled:..:native:..:refused:..:installs:..` and
 `vu1_tier=...:block_ns_per_bundle=` are the census; `tests/app/test_vu1_aot_native <case dir>... [--keep <dir>]` builds and
 re-verifies the generated libraries of a corpus, `test_vu1_capture_replay --bench N --aot --native <dir>` benches them); `NATIVEEE_PAD_SCRIPT=<text or file>` with `<stamp>:<buttons_hex>:<hold>[:<lx>,<ly>[,<rx>,<ry>]][,...]`
 presses buttons / holds the sticks over the live pad (`500:8:10,650:8:10` = START twice: skip the intro, New
@@ -320,6 +324,42 @@ title-side): `NATIVEEE_FN_TRACE=<hex,...>` (entry/return prints of generated fun
 the shadow-stack frame; needs a non-NDEBUG engine build, e.g. `--type RelWithDebInfo` with
 `-DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -g"`). The engine's own per-tag DMAC / VIF narration is
 `--log-level narrate` (`[DMAC] dmac-vif1: tag@...`, `[DMAC] dmac-gif:`, `[DMAC] dmac-sprfrom:`, `[VIF] vif1: cmd=`).
+
+## The VU1 AOT pack (players without a compiler)
+
+The generated VU1 code needs a C++ compiler on the player's machine (~1 minute of clang at first run, then cached).
+`engine/tools/vu1_aot_pack` removes that need: it emits, compiles, loads and re-verifies every microprogram image of
+a corpus of captured kicks and writes a pack -- `pack.txt` (the engine's VU1 AOT ABI key, the platform, one row per
+image) plus one shared library per image -- that a `nativeee` built from the same VU sources loads from
+`<directory of the executable>/vu1_aot_pack/` (or `engine.vu1_aot_pack=<dir>`), searched BEFORE the user cache and
+the compiler. A pack built for another engine (another ABI key) or another platform is ignored with one log line;
+every library is re-verified against the corpus before it runs, exactly like a library the player's own compiler
+produced; a pack library that fails is skipped, never deleted.
+
+```
+# build the pack from the corpus the engine collected at first run (and any captured-case dirs you have):
+<build>/tools/vu1_aot_pack/vu1_aot_pack build --corpus "<user_data>/vu1_aot/corpus" --out <build>/app/host/vu1_aot_pack
+# what a machine WITHOUT a compiler would do with it (loads every library, runs the gate, no compile):
+<build>/tools/vu1_aot_pack/vu1_aot_pack check --corpus "<user_data>/vu1_aot/corpus" --pack <build>/app/host/vu1_aot_pack
+# this engine's key, and whether a staged prelude tree agrees with it:
+<build>/tools/vu1_aot_pack/vu1_aot_pack key
+```
+
+`--set engine.vu1_aot_compiler=none` makes the engine use the pack / the cache alone (no toolchain is probed or run);
+run.meta `vu1_aot_codegen=compiler:none:abi:..:pack:<n>:...` says how many images the pack served.
+
+What players get (the opening-hub gameplay window, MTVU on, a quiet host, load 5-6): with a compiler or with the
+pack, the native tier -- 37 fps p50, 12.7 ns per VU1 bundle (`pack:7`, no compile); with neither, the specialised
+tier -- 31 fps p50, 16.7 ns per bundle (`vu1_aot_codegen=no_compiler:1`), i.e. about 20 % slower. The pack is the
+same speed as a local compile because it IS the same code. Whole-run (intro + briefing + gameplay) p50 is ~38 with
+the native tier.
+
+**Licence boundary.** The corpus is VU memory captured from the game and the pack is machine code generated from
+the game's microprograms: both are game-derived. Neither is committed to this repository (the asset guard and
+`.gitignore` refuse them), neither is attached to a public release, and the engine never writes either anywhere but
+the player's own user data dir / the directory the player chose. A pack may be built on the player's machine or
+on a lane that has the disc (`title-lanes`, below) for private use; publishing one would need a licence decision
+that has not been made. CONTRIBUTING.md states the same rule.
 
 ## Known issues
 
@@ -396,7 +436,11 @@ from the user's disc, and the engine's asset scan proves the tree clean on every
 games` and `--tree engine`, the asset guard over both, the tools' and lints' selftests, this workflow's
 YAML, actionlint), then `build-nodisc` on macOS arm64 / Ubuntu x86-64 / Windows x64: `./build.sh --no-disc
 --tests` (`.\build.ps1 -NoDisc` on Windows, `continue-on-error`). `title-lanes` runs only with the
-repository variable `NATIVEEE_TITLE_LANES` set on a runner that exports `NATIVEEE_DISC`. Every ctest
+repository variable `NATIVEEE_TITLE_LANES` set on a runner that exports `NATIVEEE_DISC`: the disc build, the bounded
+headless boot leg, and the VU1 AOT pack lane -- a second bounded leg under `engine.vu1_mode=aot` collects the corpus
+into the lane's private user data dir, `vu1_aot_pack build` makes the pack from it, `vu1_aot_pack check` proves a
+compiler-less engine is served by it; only `pack.txt` (numbers) leaves the runner as an artefact, never the
+libraries (game-derived; see "The VU1 AOT pack"). Every ctest
 exclusion lives in `.github/ci/ctest_exclusions.txt` with its reason; `.github/ci/ci_lists.py --selftest`
 checks the lists parse.
 

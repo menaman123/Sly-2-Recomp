@@ -17,6 +17,8 @@ void VertTraceSink::SetSkipClasses(const char* list) {
     skip_t8h = c.find(",t8h,") != std::string::npos;
     skip_rtblend = c.find(",rtblend,") != std::string::npos;
     skip_date = c.find(",date,") != std::string::npos;
+    skip_addpass = c.find(",addpass,") != std::string::npos;
+    skip_lerppass = c.find(",lerppass,") != std::string::npos;
 }
 
 bool VertTraceSink::Skipped(const ps2r::gs::DrawIr& d) const {
@@ -25,6 +27,8 @@ bool VertTraceSink::Skipped(const ps2r::gs::DrawIr& d) const {
     if (skip_t8h && d.tex_enabled && (d.tex.psm == 0x1b || d.tex.psm == 0x24 || d.tex.psm == 0x2c)) return true;
     if (skip_rtblend && d.tex_enabled && d.prim_type == 6 && d.alpha_blend && d.raster.alpha.c == 2 && d.tex.psm == 0) return true;
     if (skip_date && d.raster.test.date) return true;
+    if (skip_addpass && d.tex_enabled && d.alpha_blend && d.raster.alpha.a == 0 && d.raster.alpha.b == 2 && d.raster.alpha.c == 0 && d.raster.alpha.d == 1) return true;
+    if (skip_lerppass && d.tex_enabled && d.alpha_blend && d.raster.alpha.a == 0 && d.raster.alpha.b == 1 && d.raster.alpha.c == 0 && d.raster.alpha.d == 1) return true;
     return false;
 }
 

@@ -32,6 +32,10 @@ struct VertTraceSink : ps2r::gs::DrawIrSink {
     std::atomic<bool> on{false};
     uint32_t skip_from = 0, index = 0;
     bool skip_m16 = false, skip_fbmsk = false, skip_t8h = false, skip_rtblend = false, skip_date = false;
+    // Triage classes of the title's two-pass textured objects: `addpass` = the second pass
+    // (ALPHA A=Cs B=0 C=As D=Cd, additive with the fragment alpha), `lerppass` = the first
+    // (ALPHA A=Cs B=Cd C=As D=Cd) -- the Paris canopy bisect (ep1 stage).
+    bool skip_addpass = false, skip_lerppass = false;
     std::array<uint32_t, 512> page_written{}, page_sampled{}, page_target{};
 
     // Parses the NATIVEEE_GS_SKIP_CLASS list (nullptr = unset) into the skip_* flags.

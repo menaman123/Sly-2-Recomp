@@ -21,6 +21,9 @@
 #   title-lanes   needs the disc: gated on the repository variable NATIVEEE_TITLE_LANES == 'true'
 #                 (Settings -> Secrets and variables -> Actions -> Variables), as the engine's own
 #                 ci.yml gates its dist / identity lanes. Leave it unset on the public repository.
+#                 Its last steps build the VU1 AOT pack from a corpus the lane collects itself and
+#                 prove a compiler-less engine loads it; the corpus and the pack never leave the
+#                 runner (game-derived -- README "The VU1 AOT pack"), only pack.txt does.
 #
 # Local validation: `python3 -c 'import yaml,sys; yaml.safe_load(open(".github/workflows/ci.yml"))'`
 # and `actionlint .github/workflows/*.yml` (the guard job runs the latter). The macOS lane's exact
@@ -238,11 +241,41 @@ jobs:
             --headless --frames 600 --harness-out "$RUNNER_TEMP/leg" --iso "$NATIVEEE_DISC"
           grep -E "^(park|park_detail|boundaries|iop_modules)=" "$RUNNER_TEMP/leg/run.meta"
           grep -q '^park=none' "$RUNNER_TEMP/leg/run.meta"
-      - name: Nothing game-derived leaves the runner (the artifact is the log and run.meta only)
+      # The VU1 AOT pack lane (README "The VU1 AOT pack"): a second bounded leg under the AOT tier
+      # collects the title's VU1 corpus into the lane's PRIVATE user data dir (never the runner
+      # user's), the pack tool builds the pack from it (emit, compile, load, re-verify every image)
+      # and the check mode proves an engine WITHOUT a compiler is served by it. The corpus and the
+      # pack are game-derived: they stay under $RUNNER_TEMP; only pack.txt (numbers) is uploaded.
+      - name: VU1 AOT corpus (a bounded aot-tier leg into a private user data dir)
+        shell: bash
+        env:
+          NATIVEEE_WATCHDOG_S: '60'
+          NATIVEEE_VU1_MODE: aot
+          NATIVEEE_MTVU: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/ud" "$RUNNER_TEMP/mc"
+          engine/verify/run_bounded.sh 300 "$RUNNER_TEMP/leg_aot.log" -- "$RUNNER_TEMP/build-title/app/host/nativeee" \
+            --headless --frames 900 --harness-out "$RUNNER_TEMP/leg_aot" --iso "$NATIVEEE_DISC" \
+            --set paths.user_data="$RUNNER_TEMP/ud" --set paths.mc_dir="$RUNNER_TEMP/mc" \
+            --set engine.vu1_aot_codegen=off
+          grep -E "^(park|vu1_aot|vu1_tier)=" "$RUNNER_TEMP/leg_aot/run.meta"
+          test -n "$(ls "$RUNNER_TEMP/ud/vu1_aot/corpus" 2>/dev/null)"
+      - name: vu1_aot_pack build + check (every image native; a compiler-less engine served by the pack)
+        shell: bash
+        run: |
+          T="$RUNNER_TEMP/build-title/tools/vu1_aot_pack/vu1_aot_pack"
+          "$T" key
+          "$T" build --corpus "$RUNNER_TEMP/ud/vu1_aot/corpus" --out "$RUNNER_TEMP/pack"
+          "$T" check --corpus "$RUNNER_TEMP/ud/vu1_aot/corpus" --pack "$RUNNER_TEMP/pack"
+          cat "$RUNNER_TEMP/pack/pack.txt"
+      - name: Nothing game-derived leaves the runner (the artifact is the logs, run.meta and pack.txt only)
         uses: actions/upload-artifact@v4
         with:
           name: title-lane-run-meta
           path: |
             ${{ runner.temp }}/leg/run.meta
             ${{ runner.temp }}/leg.log
+            ${{ runner.temp }}/leg_aot/run.meta
+            ${{ runner.temp }}/leg_aot.log
+            ${{ runner.temp }}/pack/pack.txt
           if-no-files-found: error

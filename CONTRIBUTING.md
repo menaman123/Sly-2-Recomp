@@ -23,6 +23,12 @@ python3 engine/tools/ci/asset_scan.py --tree games
 python3 engine/tools/ci/asset_guard.py --root games --mode ci
 ```
 
+The VU1 AOT corpus (`<user_data>/vu1_aot/corpus/*.bin`, VU memory captured from the game) and the VU1
+AOT pack (`vu1_aot_pack/`: `pack.txt` + the generated libraries, machine code derived from the game's
+microprograms) are game-derived too: build them on your own machine (`engine/tools/vu1_aot_pack`, README
+"The VU1 AOT pack") or on a disc-bearing lane for private use; never commit one, never attach one to a
+release or an issue. Publishing a pack would need a licence decision this project has not made.
+
 `.gitignore` lists the disc / executable / module / image / savestate extensions and the recompiled
 output paths as a second line of defence; do not weaken it. If you need a picture to discuss a
 rendering bug, describe it (frame key, region, expected vs. seen values) or attach it to the issue --
