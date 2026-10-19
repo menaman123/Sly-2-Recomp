@@ -34,10 +34,10 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
         mtvu->sync().SetAfterSyncHook(+[](void* user) { static_cast<Intc*>(user)->CollectDeferred(); }, &core.intc);
         // The drain thread only where the DrawIR chain's consumer never draws on the pushing thread.
         const bool drain_possible = !gs.video_live || gs.gs_queue_thread;
-        // Opt-in (NATIVEEE_GIF_DRAIN=1) until the drain-thread lane replays byte-identically to the
-        // inline lane: it forks presented pictures from frame 19 (verify_pab_report.md), the census
-        // being equal -- a FINISH-on-thread / idle-field timing item.
-        const bool drain_wanted = knobs.gif_drain_set ? knobs.gif_drain_on : false;
+        // Default ON (E420-E422: the drain thread's FINISH is applied on the holder's context at a
+        // scheduling point, never on a woken thread's -- idle_isrs 0, the GS census and the kernel
+        // census equal to the inline lane); NATIVEEE_GIF_DRAIN=0|1 forces (the A/B lever).
+        const bool drain_wanted = knobs.gif_drain_set ? knobs.gif_drain_on : drain_possible;
         mtvu->Start(/*with_drain_thread=*/drain_wanted && drain_possible);
         if (mtvu->drain().Running()) {
             GifArbiter& arbiter = devices.gif_arbiter;
