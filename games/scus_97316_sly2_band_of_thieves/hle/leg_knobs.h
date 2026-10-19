@@ -39,6 +39,11 @@ struct LegKnobs {
     // NATIVEEE_MTVU=1|0: force the MTVU stack on / off in every mode (set = the env decides; "1" = on).
     bool mtvu_set = false;
     bool mtvu_on = false;
+    // NATIVEEE_GIF_DRAIN=1|0: force the GIF drain thread (the GIF -> DrawIR decode off the EE) on / off
+    // under the MTVU stack (set = the env decides; the default follows the DrawIR chain: on when the
+    // consumer runs on its own thread or no video stack exists).
+    bool gif_drain_set = false;
+    bool gif_drain_on = false;
     // NATIVEEE_IPU_DUMP=<file> / NATIVEEE_IPU_OUT_DUMP=<file>: the toIPU feed / the fromIPU drain, appended.
     std::optional<std::string> ipu_dump;
     std::optional<std::string> ipu_out_dump;
@@ -75,6 +80,15 @@ struct LegKnobs {
     // bytes kept) of the textured reads at that TEX0.TBP (and CLUT base), written with NATIVEEE_GS_ROUTES
     // as texres_<key>.txt + texres_<key>_<seq>_{win.bin,clut.bin,tex.ppm} (parsed in leg_gs.cpp).
     std::optional<std::string> gs_texres;
+    // NATIVEEE_GS_CAPTURE=<file.gsstream>: the consumer-stream capture (engine GsStreamRecorder, in front of the
+    // GS queue: draws + vertices, jobs with their upload pixels, frames with the CRTC snapshot, the EE image's
+    // local-memory writes between records, the image at open) -- the renderer throughput harness's input
+    // (tools/gs_replay stream; verify/judge_render_throughput.py). Wired in leg_gs.cpp.
+    std::optional<std::string> gs_capture;
+    // NATIVEEE_GS_CONSUMER_LEVERS=0: the consumer_b renderer levers OFF (the deferred present capture in play, the
+    // grab -> scanout-deposit pixel sharing, the hidden window's swap as a flush) -- the A/B of one binary against
+    // itself (leg_gs.cpp).
+    bool gs_consumer_levers = true;
     // NATIVEEE_WATCHDOG_S=<s> (default 60; 0 = off) / NATIVEEE_RAM_DUMP=<file> at the watchdog park.
     uint64_t watchdog_s = 60;
     std::optional<std::string> ram_dump;

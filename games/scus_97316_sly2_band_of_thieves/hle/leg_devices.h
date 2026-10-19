@@ -5,8 +5,9 @@
 // under NATIVEEE_GIF_TRACE), the GIF arbiter, the two VU units (VU1 fed by the arbiter), the VU0
 // registry, the VIF and the DMAC. The VU1 fallback tier is chosen here (Config engine.vu1_mode, then
 // NATIVEEE_VU1_MODE on top) BEFORE the MTVU stack (leg_mtvu.h) copies the inline dispatch's settings
-// for the worker's unit. The register windows of VIF / VU memory / DMAC / IPU are registered by
-// LegDmaIpu, after the MTVU stack exists (the VIF1 window syncs the worker first).
+// for the worker's unit. The register windows of GIF / VIF / VU memory / DMAC / IPU are registered by
+// LegDmaIpu, after the MTVU stack exists (the VIF1 window syncs the worker first; the GIF window fences
+// the drain thread first).
 #pragma once
 
 #include "engine/core/config/config.h"

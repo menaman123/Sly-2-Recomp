@@ -9,6 +9,7 @@
 #include "engine/ee/cpu/shadow_call_stack.h"
 #include "engine/ee/hle/thread_manager.h"
 #include "engine/ee/hle/syscall_table.h"
+#include "engine/ee/sched/ee_event_queue.h"
 #include "engine/ee/sched/ee_run_token.h"
 #include "engine/gs/hle/sce/gs_sync.h"
 #include "engine/gs/state/gs_priv_regs.h"
@@ -47,8 +48,8 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
         ++gs_irq_events;
         const bool masked = (SyscallTable::Instance().GsImr() & (static_cast<uint64_t>(csr_event) << 8)) != 0;
         if (isr_trace)
-            std::fprintf(stderr, "gs-irq: tid=%d event=0x%x imr=0x%llx %s path=%d p1=%llu p2=%llu p3=%llu\n",
-                         EeRunToken::Instance().CurrentTid(), csr_event,
+            std::fprintf(stderr, "gs-irq: t=%llu tid=%d event=0x%x imr=0x%llx %s path=%d p1=%llu p2=%llu p3=%llu\n",
+                         (unsigned long long)ps2r::Park::NowNs() / 1000, EeRunToken::Instance().CurrentTid(), csr_event,
                          static_cast<unsigned long long>(SyscallTable::Instance().GsImr()), masked ? "masked" : "raise",
                          static_cast<int>(gif_parser.ActivePath()),
                          static_cast<unsigned long long>(gif_parser.Receives(GifPath::Path1)),
@@ -106,6 +107,9 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
         if (blocking) dmac.ObserveAtKernelWait();
         for (;;) {
             if (mtvu_stack) mtvu_stack->sync().TryDrainPending();
+            // A GS FINISH / SIGNAL the drain thread raised is a queued event (Intc's foreign-thread
+            // route): applied here, at this scheduling point, so the pending test below sees it.
+            EeEventQueue::Instance().DrainIfPendingOnHolder();
             if (dmac.CheckInterrupt()) {
                 InstallDmacHandlers();
                 dmac.DispatchInterrupt(ctx);
@@ -116,7 +120,8 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
                 // answers at once (after one drain) when nothing is outstanding.
                 if (blocking && mtvu_stack && !EeRunToken::Instance().AnyReadyBesides(EeRunToken::Instance().CurrentTid())) {
                     ++mtvu_idle_wait_entries;
-                    if (!mtvu_stack->sync().WaitProgress()) continue;   // progress delivered, the worker still runs
+                    if (!mtvu_stack->sync().WaitProgress()) continue;   // progress delivered, the pipeline still runs
+                    EeEventQueue::Instance().DrainIfPendingOnHolder();  // a FINISH the drain thread raised meanwhile
                     if (intc.Pending()) continue;                       // the last drain raised a cause
                 }
                 break;
@@ -124,8 +129,8 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
             EeRunToken& token = EeRunToken::Instance();
             const bool defer = blocking && token.AnyReadyBesides(token.CurrentTid());
             if (isr_trace)
-                std::fprintf(stderr, "isr-trace: tid=%d syscall=%d stat=0x%x mask=0x%x %s\n", token.CurrentTid(), num,
-                             intc.Stat(), intc.Mask(), defer ? "deferred" : "dispatch");
+                std::fprintf(stderr, "isr-trace: tid=%d syscall=%d a0=%u stat=0x%x mask=0x%x %s\n", token.CurrentTid(), num,
+                             ctx.cpuRegs.GPR.r[4].UL[0], intc.Stat(), intc.Mask(), defer ? "deferred" : "dispatch");
             if (defer) {
                 ++syscall_entry_isrs_deferred;
                 break;

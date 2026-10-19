@@ -170,7 +170,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     if (!core.Attached()) return 2;
     LegGs gs(cfg, title, knobs, core);
     LegDevices devices(cfg, title, knobs, core, gs);
-    LegMtvu mtvu(cfg, title, knobs, core, devices);
+    LegMtvu mtvu(cfg, title, knobs, core, gs, devices);
     LegDmaIpu dma_ipu(knobs, core, devices, mtvu);
     LegInterrupts interrupts(knobs, core, gs, devices, mtvu);
     LegDisc disc(cfg, title, host);

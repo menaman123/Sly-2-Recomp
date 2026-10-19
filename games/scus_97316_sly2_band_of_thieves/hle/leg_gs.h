@@ -15,9 +15,11 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 
 #include "engine/core/config/config.h"
+#include "engine/gs/hle/capture/gs_stream_recorder.h"
 #include "engine/gs/hle/ir/counting_draw_ir_sink.h"
 #include "engine/gs/hle/classrdr/target_dump.h"
 #include "engine/gs/hle/texsrc/texres_trace.h"
@@ -54,6 +56,10 @@ public:
     bool gs_queue_lockstep = true;
     VertTraceSink vert_trace;
     ShadowCounterSplit shadow_split;   // between the trace and the renderer: the counter-draw rewrite (D8)
+    // NATIVEEE_GS_CAPTURE: the .gsstream recorder between the shadow split and the queue (null = off); it is the EE
+    // image's mirror while open (forwarding to the queue's). Declared before the queue stop guard so it closes after
+    // the queue drained.
+    std::unique_ptr<ps2r::gs::GsStreamRecorder> gs_capture;
     ps2r::gs::CountingDrawIrSink draw_sink;
     // The queue stops (drains, joins) before the consumer and the video stack it draws into go (the
     // members unwind in reverse order; this guard runs first).
@@ -78,6 +84,11 @@ public:
     ps2r::gs::TexresTrace::Filter texres_filter;
     bool texres_armed = false;
     uint64_t gs_frame_boundaries = 0;   // the slot-0 VSync jobs pushed (JobRec::src_frame)
+    // The DrawIR chain's producer-side crossing while the GIF drain thread runs (LegMtvu installs it):
+    // runs `work` on the drain owner in STREAM ORDER behind every packet submitted so far and returns
+    // once it ran (the boundary's VSync job must follow the frame's packets and complete before the
+    // Verify slot reads the grab). Null = the drain is inline on this thread: the work runs in place.
+    std::function<void(std::function<void()>)> ordered_submit;
 };
 
 }  // namespace ps2r::title::sly2

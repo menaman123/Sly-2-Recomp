@@ -42,6 +42,12 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
     gs_queue_thread = video_live && cfg.gs.queue != ps2r::GsQueue::Inline;
     gs_queue_lockstep = !gs_queue_split_image;
     if (video_live) {
+        // Play: the present capture (the session window's image) is read one present late behind a fence
+        // instead of draining the GPU at every present (consumer_b B1); the headless dump keeps the
+        // synchronous read (p<key>.ppm = that present).
+        if (core.play_mode && knobs.gs_consumer_levers) video.SetPresentCaptureDeferred(true);
+        video.SetSwapHiddenWindow(!knobs.gs_consumer_levers);   // levers on: the hidden window's swap is a flush
+        video.Pipe()->Cache().Readback().SetOfferEnabled(knobs.gs_consumer_levers);
         // The display grab when no target sits at the scanout base: the CRTC's own read --
         // decode the DISPFB tuple out of local memory (an uploaded movie frame the title points
         // DISPFB at without drawing shows); the most-recently-drawn target only when the tuple
@@ -97,6 +103,36 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
     }
     ps2r::gs::DrawIrSink* gs_sink_head =
         gs_queue ? static_cast<ps2r::gs::DrawIrSink*>(gs_queue.get()) : static_cast<ps2r::gs::DrawIrSink*>(consumer.get());
+    // NATIVEEE_GS_CAPTURE=<file.gsstream> (leg_knobs.h): the consumer-stream capture sits right in front of the
+    // queue / consumer -- the file holds exactly the stream the consumer receives (after the shadow split) -- and
+    // takes over the EE image's mirror, forwarding to the queue's producer mirror (the split image) or to none.
+    if (knobs.gs_capture && gs_sink_head) {
+        ps2r::gs::GsStreamRecorder::Hooks ch;
+        ch.upload_pixels = [this] { return &gs_state.Xfer().LastUploadPixels(); };
+        ch.crtc = [this] {
+            using P = ps2r::gs::GsPrivRegs;
+            const P& p = gs_state.Priv();
+            return ps2r::gs::CrtcClassifier::Classify(p.Read(P::kPmode), p.Read(P::kDispfb1), p.Read(P::kDispfb2),
+                                                      p.Read(P::kDisplay1), p.Read(P::kDisplay2));
+        };
+        // <file>[,from=<frame>][,count=<frames>]: open at that frame boundary (the image then), close after count.
+        std::string rest = *knobs.gs_capture, path;
+        uint64_t from = 0, count = 0;
+        for (int field = 0; !rest.empty(); ++field) {
+            const size_t comma = rest.find(',');
+            const std::string item = rest.substr(0, comma);
+            rest = comma == std::string::npos ? std::string() : rest.substr(comma + 1);
+            if (field == 0) path = item;
+            else if (item.rfind("from=", 0) == 0) from = std::strtoull(item.c_str() + 5, nullptr, 10);
+            else if (item.rfind("count=", 0) == 0) count = std::strtoull(item.c_str() + 6, nullptr, 10);
+        }
+        gs_capture = std::make_unique<ps2r::gs::GsStreamRecorder>(gs_sink_head, gs_state.Vram().GetMirror(), std::move(ch));
+        gs_capture->Arm(path, &gs_state.Vram(), from, count);
+        gs_state.Vram().SetMirror(gs_capture.get());
+        gs_sink_head = gs_capture.get();
+        PS2R_LOG(HOST, Info, "GS capture: %s from frame %llu, %llu frames (0 = all)", path.c_str(),
+                 static_cast<unsigned long long>(from), static_cast<unsigned long long>(count));
+    }
     // NATIVEEE_GS_VERTS / NATIVEEE_GS_VERTS_CAP / NATIVEEE_GS_SKIP_FROM / NATIVEEE_GS_SKIP_TO / NATIVEEE_GS_SKIP_CLASS: vert_trace_sink.h.
     if (gs_sink_head) {   // always in the chain: the gs_pages= census counts every draw / transfer
         // The stencil-shadow counter rewrite sits between the trace (which sees the game's draws) and the renderer.
@@ -161,16 +197,22 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
     // consumed, so the Verify slot reads a complete grab. Then CSR.VSINT. The GS SIGNAL /
     // FINISH causes are raised in-line by the interrupt observer (leg_interrupts.cpp) -- not
     // re-raised here.
+    // Under the GIF drain thread the push travels as an ordered arbiter slot (ordered_submit) so it lands
+    // behind the frame's packets on the chain's one producer; the seq / epoch stamps are read there.
     core.sequencer.SetStep(BoundarySequencer::Step::PresentRendezvous, [this, &core](CpuContext&) {
         const uint32_t ticket = core.rendezvous.Issue();
         if (!core.rendezvous.WaitFor(ticket, core.running)) return false;
-        ps2r::gs::JobRec vs{};
-        vs.type = static_cast<uint32_t>(ps2r::gs::JobKind::VSync);
-        vs.seq = gs_state.Seq();
-        vs.src_frame = static_cast<uint32_t>(gs_frame_boundaries);
-        vs.arg1 = 1;   // the EE game-frame boundary
-        vs.vram_epoch = gs_state.Vram().UploadEpoch();
-        draw_sink.OnFrame(vs);
+        const auto push = [this] {
+            ps2r::gs::JobRec vs{};
+            vs.type = static_cast<uint32_t>(ps2r::gs::JobKind::VSync);
+            vs.seq = gs_state.Seq();
+            vs.src_frame = static_cast<uint32_t>(gs_frame_boundaries);
+            vs.arg1 = 1;   // the EE game-frame boundary
+            vs.vram_epoch = gs_state.Vram().UploadEpoch();
+            draw_sink.OnFrame(vs);
+        };
+        if (ordered_submit) ordered_submit(push);
+        else push();
         if (gs_queue && !core.sequencer.WallLocked()) gs_queue->WaitFrame(gs_queue->FrameSeq());
         ++gs_frame_boundaries;
         gs_state.Priv().SetVsint();

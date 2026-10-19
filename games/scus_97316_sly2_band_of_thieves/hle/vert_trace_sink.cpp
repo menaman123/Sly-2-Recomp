@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <utility>
 
 #include "engine/gs/hle/ir/job_rec.h"
 
@@ -44,7 +45,15 @@ void VertTraceSink::MarkTarget(uint32_t base, uint32_t fbw, uint8_t psm, uint32_
 }
 
 void VertTraceSink::OnDraw(const ps2r::gs::DrawIr& d) {
-    if (Skipped(d)) return;
+    if (Observe(d) && next) next->OnDraw(d);
+}
+
+void VertTraceSink::OnDrawOwned(ps2r::gs::DrawIr&& d) {
+    if (Observe(d) && next) next->OnDrawOwned(std::move(d));
+}
+
+bool VertTraceSink::Observe(const ps2r::gs::DrawIr& d) {
+    if (Skipped(d)) return false;
     const uint32_t rows = static_cast<uint32_t>(d.raster.scissor.y1) + 1u;
     MarkTarget(d.raster.frame.fbp, d.raster.frame.fbw, d.raster.frame.psm, rows);
     if (!d.raster.zbuf.zmsk) MarkTarget(d.raster.zbuf.zbp, d.raster.frame.fbw, d.raster.zbuf.psm, rows);
@@ -55,7 +64,7 @@ void VertTraceSink::OnDraw(const ps2r::gs::DrawIr& d) {
     }
     if (on.load(std::memory_order_relaxed)) {
         const uint32_t idx = index++;
-        if (skip_from && idx >= skip_from && (skip_to == 0 || idx < skip_to)) return;
+        if (skip_from && idx >= skip_from && (skip_to == 0 || idx < skip_to)) return false;
         std::fprintf(stderr, "verts: seq=%u prim=%u tme=%d abe=%d fbp=0x%x fbw=%u psm=%u fbmsk=0x%x zbp=0x%x zpsm=%u zmsk=%d zte=%d ztst=%u ate=%d atst=%u aref=%u afail=%u scissor=%u,%u-%u,%u off=%.1f,%.1f tbp=0x%x tbw=%u tpsm=%u tw=%u th=%u tcc=%u tfx=%u cbp=0x%x cpsm=%u csm=%u csa=%u cld=%u fst=%d texa=%u/%u/%d alpha=%u%u%u%u/%u n=%u\n",
                      d.seq, d.prim_type, d.tex_enabled ? 1 : 0, d.alpha_blend ? 1 : 0, d.raster.frame.fbp, d.raster.frame.fbw,
                      d.raster.frame.psm, d.raster.frame.fbmsk, d.raster.zbuf.zbp, d.raster.zbuf.psm, d.raster.zbuf.zmsk ? 1 : 0,
@@ -69,7 +78,7 @@ void VertTraceSink::OnDraw(const ps2r::gs::DrawIr& d) {
                          d.verts[i].y, d.verts[i].z, d.verts[i].s, d.verts[i].t, d.verts[i].q, d.verts[i].uv_u, d.verts[i].uv_v, d.verts[i].r,
                          d.verts[i].g, d.verts[i].b, d.verts[i].a, d.verts[i].fog);
     }
-    if (next) next->OnDraw(d);
+    return true;
 }
 
 void VertTraceSink::OnJob(const ps2r::gs::JobRec& j) {

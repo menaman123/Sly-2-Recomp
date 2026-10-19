@@ -104,7 +104,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
     # libmpeg drives; this composition is its own IOP-hosting play shape, see above).
     target_link_libraries(ps2r_title_play PUBLIC
         ps2r_app_host ps2r_title_hle ps2r_title_recomp ps2r_sif ps2r_gs_sync ps2r_title_iop
-        ps2r_gs_state ps2r_gif ps2r_gif_hle ps2r_vu ps2r_vif ps2r_dmac ps2r_ipu_model)
+        ps2r_gs_state ps2r_gif ps2r_gif_hle ps2r_vu ps2r_vif ps2r_dmac ps2r_ipu_model ps2r_gs_hle_capture)
     # The generated dispatch table is referenced only through DispatchTable (ps2r_ee) -> the
     # generated TU's symbols: force the whole recomp archive in regardless of link order.
     add_dependencies(ps2r_title_play ps2r_title_recomp)

@@ -99,6 +99,7 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         // every dump_every-th one is written as p<n>.ppm (n = the OUTPUT frame ordinal).
         gs.video.SetOutput([this, &gs](std::vector<uint8_t> rgba, int w, int h) {
             timeline.Note(FrameTimeline::Lane::Output);
+            clock_census.NotePresent();
             const uint32_t n = static_cast<uint32_t>(gs.video.OutputFrames());
             if (gs.frame_dump.Enabled() && gs.DumpWanted(n)) gs.frame_dump.Write("p", n, w, h, rgba.data(), /*flip=*/true);
             session->PostFrame(std::move(rgba), w, h);

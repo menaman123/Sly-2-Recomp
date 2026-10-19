@@ -81,6 +81,13 @@ public:
     void SetOutput(Output output) { output_ = std::move(output); }
     uint64_t OutputFrames() const { return output_frames_; }
 
+    // Play: the device reads each present's window image behind a fence and hands over the
+    // PREVIOUS present's (no GPU drain per present; the output lane one present late; a
+    // p<key>.ppm of a windowed run is the previous present). Headless keeps the synchronous read.
+    void SetPresentCaptureDeferred(bool deferred) { be_.SetPresentCaptureDeferred(deferred); }
+    // The hidden window's present: a swap (SDL_GL_SwapWindow -> CGLFlushDrawable of a drawable nobody
+    // sees) or a plain command flush (the default; the captured image is what the session window shows).
+    void SetSwapHiddenWindow(bool swap) { swap_hidden_ = swap; }
     // A SetWindow job changed the window size (consumer thread): the device's capture /
     // fallback viewport follows; the hidden OS window is left alone.
     void OnWindowResized(int w, int h);
@@ -112,6 +119,7 @@ private:
 
     Output output_;
     uint64_t output_frames_ = 0;
+    bool swap_hidden_ = false;
 };
 
 }  // namespace ps2r::title::sly2

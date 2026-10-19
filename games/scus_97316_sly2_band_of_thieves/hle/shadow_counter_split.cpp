@@ -2,6 +2,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/shadow_counter_split.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace ps2r::title::sly2 {
 
@@ -107,17 +108,31 @@ void ShadowCounterSplit::OnDraw(const ps2r::gs::DrawIr& d) {
         next->OnDraw(d);
         return;
     }
+    if (!SplitAndForward(d)) next->OnDraw(d);
+}
+
+void ShadowCounterSplit::OnDrawOwned(ps2r::gs::DrawIr&& d) {
+    if (!next) return;
+    if (!enabled || !IsCounterDraw(d) || !TrianglesOverlap(d)) {
+        next->OnDrawOwned(std::move(d));
+        return;
+    }
+    if (!SplitAndForward(d)) next->OnDrawOwned(std::move(d));
+}
+
+// The split halves forwarded (owned); false = declined (the caller forwards `d` whole).
+bool ShadowCounterSplit::SplitAndForward(const ps2r::gs::DrawIr& d) {
     ps2r::gs::DrawIr sub, add;
     if (!Split(d, &sub, &add)) {
         declined.fetch_add(1, std::memory_order_relaxed);
-        next->OnDraw(d);
-        return;
+        return false;
     }
     draws_split.fetch_add(1, std::memory_order_relaxed);
     tris_sub.fetch_add(sub.verts.size() / 3, std::memory_order_relaxed);
     tris_add.fetch_add(add.verts.size() / 3, std::memory_order_relaxed);
-    if (!sub.verts.empty()) next->OnDraw(sub);
-    if (!add.verts.empty()) next->OnDraw(add);
+    if (!sub.verts.empty()) next->OnDrawOwned(std::move(sub));
+    if (!add.verts.empty()) next->OnDrawOwned(std::move(add));
+    return true;
 }
 
 void ShadowCounterSplit::OnJob(const ps2r::gs::JobRec& j) {

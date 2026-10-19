@@ -50,8 +50,13 @@ struct VertTraceSink : ps2r::gs::DrawIrSink {
     bool Skipped(const ps2r::gs::DrawIr& d) const;
     void MarkTarget(uint32_t base, uint32_t fbw, uint8_t psm, uint32_t rows);
     void OnDraw(const ps2r::gs::DrawIr& d) override;
+    // The owned form forwards by move (the queue copies the vertex vector otherwise).
+    void OnDrawOwned(ps2r::gs::DrawIr&& d) override;
     void OnJob(const ps2r::gs::JobRec& j) override;
     void OnFrame(const ps2r::gs::JobRec& v) override;
+
+    // The census / trace of one draw; false = skipped (not forwarded).
+    bool Observe(const ps2r::gs::DrawIr& d);
 };
 
 }  // namespace ps2r::title::sly2

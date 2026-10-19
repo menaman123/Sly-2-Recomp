@@ -1,6 +1,7 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_dma_ipu.h -- LegDmaIpu: the register windows of the VIF /
-// VU memory / DMAC and the IPU of the title's play composition (after the MTVU stack exists: the VIF1
-// window is the stack's syncing wrapper under MTVU, the plain gate otherwise). The VU memory windows map
+// games/scus_97316_sly2_band_of_thieves/hle/leg_dma_ipu.h -- LegDmaIpu: the register windows of the GIF /
+// VIF / VU memory / DMAC and the IPU of the title's play composition (after the MTVU stack exists: the
+// VIF1 window is the stack's syncing wrapper under MTVU, the GIF window its drain-fencing wrapper, the
+// plain handlers otherwise). The VU memory windows map
 // the INLINE units (the first title's composition did the same under MTVU): an EE-side access to VU1
 // memory while the worker owns the unit is not a path this title takes (its microprograms and data
 // arrive through VIF1 MPG / UNPACK). The DMAC's guest call, INT1 raise counter and the kernel's

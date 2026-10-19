@@ -30,6 +30,7 @@
 #include "engine/render/texture_filter_selection.h"
 #include "engine/core/config/config.h"
 #include "engine/title/title_profile.h"
+#include "app/host/clock_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/frame_timeline.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
@@ -60,6 +61,13 @@ public:
     // present hook below, the shown lane by the session's present observer, the boundary lane by
     // the Verify slot's boundary step; written by the census as present_times.csv / present_hist=.
     FrameTimeline timeline;
+    // The clock contract's census (engine ClockCensus, rule 5): per 1 s wall window the boundaries
+    // answered (game_hz), the fields the domain delivered (field_hz) and the presents; the boundary
+    // lane is noted by the Verify slot's boundary step (attributed to its first field's wall edge
+    // through the tick thread's EdgeAt), the present lane by the consumer's output hook. The census
+    // writes the series and the `clock=` invariant row (logic_hz = field_hz: the game's vblank clock
+    // against the wall, 60.0 at real time whatever the frame rate; catch-up ticks; slow motion).
+    ps2r::app::ClockCensus clock_census;
 
 private:
     const ps2r::Config& cfg_;

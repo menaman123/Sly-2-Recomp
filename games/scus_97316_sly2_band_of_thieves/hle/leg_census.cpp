@@ -2,8 +2,10 @@
 // the single-file composition's write_census, cut into the five groups below at the same keys.
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include "engine/cdvd/hle/libcdvd_bindings.h"
 #include "engine/dmac/dmac_channel.h"
@@ -14,6 +16,7 @@
 #include "engine/gs/state/gs_priv_regs.h"
 #include "engine/sif/hle/sce_sif.h"
 #include "engine/vu/macro/vu_macro_bridge.h"
+#include "engine/vu/tiers/vu_lockstep.h"
 #include "engine/vu/tiers/vu_tier_dispatch.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_text.h"
 
@@ -95,6 +98,11 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
     meta->Set("gs_csr", Hex(gs.gs_state.Priv().Read(ps2r::gs::GsPrivRegs::kCsr)));
     meta->Set("gs_draws", std::to_string(gs.draw_sink.Draws()));
     meta->Set("gs_frames", std::to_string(gs.draw_sink.Frames()));
+    // NATIVEEE_GS_CAPTURE: the consumer-stream capture's counters (closed here so the row counts every record).
+    if (gs.gs_capture) {
+        gs.gs_capture->Close();
+        meta->Set("gs_capture", gs.gs_capture->Report());
+    }
     meta->Set("video", gs.video_live ? "gl" : "stub");
     if (gs.video_live) {
         meta->Set("gl_renderer", gs.video.Renderer());
@@ -241,6 +249,41 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
     meta->Set("pace_work_max_breakdown", protocol.WorkMaxBreakdown().empty() ? std::string("none") : protocol.WorkMaxBreakdown());
     meta->Set("pace_long_trace", protocol.LongTrace().empty() ? std::string("none") : protocol.LongTrace());
     meta->Set("tick_profile", protocol.SiteTotals());
+    // The clock contract's census (engine ClockCensus; the series per 1 s wall window) and the INVARIANT row
+    // `clock=`: logic_hz = fields of game time per wall second (the game's vblank clock; 60.00 +- 0.1 at real
+    // time whatever the frame rate), frame_hz = boundaries per wall second (the picture-production rate),
+    // catchup_ticks = boundaries that found their field already noted (frame work > one period) with the
+    // extra fields they delivered, slow_motion = pacer ticks noted and still undelivered at the census beyond
+    // the ONE a running frame always has in flight (a domain that fell behind the wall). The summary skips the
+    // first kClockRampWindows windows (the boot / state-restore ramp) and the partial last one; the series
+    // keep every completed window.
+    {
+        const ps2r::app::ClockCensus& cc = play.clock_census;
+        meta->Set("clock_game_hz", cc.GameHzSeries().empty() ? std::string("none") : cc.GameHzSeries());
+        meta->Set("clock_field_hz", cc.FieldHzSeries().empty() ? std::string("none") : cc.FieldHzSeries());
+        meta->Set("clock_render_fps", cc.RenderFpsSeries().empty() ? std::string("none") : cc.RenderFpsSeries());
+        meta->Set("clock_ee_cpu_ms", cc.EeCpuMsSeries().empty() ? std::string("none") : cc.EeCpuMsSeries());
+        constexpr size_t kClockRampWindows = 5;
+        const std::vector<ps2r::app::ClockCensus::Window> ws = cc.Windows();
+        double logic_sum = 0, frame_sum = 0;
+        uint32_t logic_min = 0, logic_max = 0;
+        size_t n = 0;
+        for (size_t i = kClockRampWindows; i < ws.size(); i++) {
+            const ps2r::app::ClockCensus::Window& w = ws[i];
+            if (n == 0) logic_min = logic_max = w.fields;
+            logic_min = std::min(logic_min, w.fields);
+            logic_max = std::max(logic_max, w.fields);
+            logic_sum += w.fields;
+            frame_sum += w.boundaries;
+            n++;
+        }
+        char row[256];
+        std::snprintf(row, sizeof row, "logic_hz=%.2f:logic_hz_min=%u:logic_hz_max=%u:frame_hz=%.2f:windows=%zu/%zu:catchup_ticks=%llu:catchup_fields=%llu:slow_motion=%llu",
+                      n ? logic_sum / static_cast<double>(n) : 0.0, logic_min, logic_max, n ? frame_sum / static_cast<double>(n) : 0.0, n, ws.size(),
+                      static_cast<unsigned long long>(protocol.PaceLate()), static_cast<unsigned long long>(p_.core.sequencer.PaceLateFields()),
+                      static_cast<unsigned long long>(p_.core.sequencer.Ticks().Pending() > 1 ? p_.core.sequencer.Ticks().Pending() - 1 : 0));
+        meta->Set("clock", row);
+    }
     meta->Set("boundary_wall_ms", p_.park.boundary_wall.empty() ? std::string("none") : p_.park.boundary_wall);
     meta->Set("shutdown", p_.park.shutdown_steps.empty() ? std::string("none") : p_.park.shutdown_steps);
 }
@@ -314,10 +357,12 @@ void LegCensus::WriteVu1(ps2r::verify::RunMeta* meta) {
     std::snprintf(bnpb, sizeof(bnpb), "%.2f", live_vu1.dispatch().block().bundles()
                                                    ? static_cast<double>(bs.run_ns) / static_cast<double>(live_vu1.dispatch().block().bundles())
                                                    : 0.0);
-    // xgkick= : arms / packets submitted / bytes / stagings that allocated (the PATH1 hand-off census).
+    // xgkick= : arms / packets submitted / bytes / Arms that allocated a fresh buffer / batches taken from the
+    // arbiter's PATH1 pool (the PATH1 hand-off census).
     const XgKick::Census* xc = live_vu1.xgkick() ? &live_vu1.xgkick()->census() : nullptr;
     const std::string xg = xc ? ":xgkick=" + std::to_string(xc->arms) + "/" + std::to_string(xc->submits) + "/" +
-                                    std::to_string(xc->submit_bytes) + "/" + std::to_string(xc->staging_allocs)
+                                    std::to_string(xc->submit_bytes) + "/" + std::to_string(xc->staging_allocs) + "/" +
+                                    std::to_string(xc->pool_refills)
                               : std::string();
     meta->Set("vu1_tier", "bundles=" + std::to_string(live_vu1.dispatch().bundles()) + ":cycle=" + std::to_string(live_vu1.cycle()) +
                               ":dropped_kicks=" + std::to_string(live_vu1.DroppedKicks()) + ":unit=" + (worker ? "worker" : "inline") +
@@ -325,6 +370,9 @@ void LegCensus::WriteVu1(ps2r::verify::RunMeta* meta) {
                                           : live_vu1.dispatch().settings().vu1_mode == VuTierMode::Block ? "block"
                                           : live_vu1.dispatch().settings().vu1_mode == VuTierMode::Interp ? "interp" : "cached") +
                               ":block_runs=" + std::to_string(bs.runs) + ":block_ns=" + std::to_string(bs.run_ns) + ":block_ns_per_bundle=" + bnpb + xg);
+    // diag.vu1_lockstep: the tier A/B census (kicks compared, divergent, the first divergent
+    // kick's ordinal, the categories) -- the invariant's in-game oracle for a tier.
+    if (const VuLockstep* ls = live_vu1.dispatch().lockstep()) meta->Set("vu1_lockstep", ls->Summary());
     // The AOT tier: images seen / verified / refused / pending a verdict, kicks run native vs
     // on the fallback, ns per bundle on the native path, the corpus and verifier census.
     if (live_vu1.dispatch().settings().vu1_mode == VuTierMode::Aot) {

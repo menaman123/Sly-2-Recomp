@@ -399,6 +399,26 @@ owner's E330 (the mid-frame depth clear) plus the split; the caster metric still
 body: our Z buffer lacks the body's depth where PCSX2 has it -- the lerp pass's ATST GEQUAL 126 / FB_ONLY decides
 whether the body writes Z; $WORK/shadow_notes.md).
 
+## The renderer throughput harness (`NATIVEEE_GS_CAPTURE`, `tools/gs_replay stream`, `verify/judge_render_throughput.py`) -- round P phase B
+
+The GS consumer ALONE, measured without the game: `NATIVEEE_GS_CAPTURE=<file.gsstream>[,from=<frame>][,count=<frames>]`
+records, in front of the GS queue, everything the consumer thread receives (engine `GsStreamRecorder`: draws with vertices,
+jobs with their upload pixels, frames with the CRTC snapshot, the EE image's local-memory writes between records, the image
+at open; census row `gs_capture=`). `gs_replay stream <cap> --scale N --csv f` (the engine tool) replays it back-to-back
+through the same DrawIrQueueConsumer / DrawPipeline / GlDevice the play composition runs, with no producer, no pacing and
+no frame skip, and writes per-frame ms, draws and the frames-lane hash; `verify/judge_render_throughput.py judge <s1.csv>
+[<s2.csv>]` applies the frozen gates (1000 / p50 ms >= 160 fps at internal scale 1, >= 120 at scale 2, no measured frame
+over 12 ms; 30 warmup frames excluded) and `identity <a.csv> <b.csv>` compares two replays' hash sequences frame by frame
+(the renderer-identity proof of a lever: the same capture through two binaries). A capture is game-derived and stays
+outside the repository (~4.9 MB per Paris frame).
+
+Round P phase B result (host: Apple M4, GL 4.1 over Metal; the capture: 1200 frames of the Paris-hub walk): main 40 fps p50
+at scale 1 / 31 at scale 2, every frame over 12 ms -- RED; after the consumer levers (the deferred present capture, the
+grab -> scanout-deposit pixel sharing, the hidden window's swap as a flush: `NATIVEEE_GS_CONSUMER_LEVERS=0` turns them
+off for an A/B) ~44-45 fps at scale 1 with frames identical to main's -- still RED: the GL per-draw dispatch (~2500 draws +
+1100 AFAIL second passes + 86 destination copies per frame, each copy ending the Metal render pass) caps the consumer at
+~45-55 fps at scale 1; the 160 fps gate needs a Metal backend (programmable blending, one encoder per target).
+
 ## STATUS
 
 - `recomp/`: generated at build time (`recomp/INVOCATION.md`, `MANIFEST.sha256`); 6575 functions,

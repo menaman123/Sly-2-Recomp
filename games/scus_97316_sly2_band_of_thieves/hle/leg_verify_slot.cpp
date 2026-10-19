@@ -32,6 +32,14 @@ LegVerifySlot::LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& 
       display_sequence(cfg.harness.display_sequence),
       cfg_(cfg), host_(host), knobs_(knobs), core_(core), gs_(gs), mtvu_(mtvu), services_(services), audio_(audio), play_(play),
       saves_(saves), park_(park), census_(census), text_watch_(text_watch) {
+    // The clock census attributes a boundary to the wall edge of its first field (the pacer's tick), so
+    // a 1 s window counts the edges the game answered in it, not the answer latencies.
+    play.clock_census.SetEdgeLookup([this](uint64_t tick, std::chrono::steady_clock::time_point* edge) {
+        int64_t ns = 0;
+        if (!tick_thread.EdgeAt(tick, &ns)) return false;
+        *edge = std::chrono::steady_clock::time_point(std::chrono::nanoseconds(ns));
+        return true;
+    });
     // --set harness.inject_key=<KEY>@N[-M][,...]: KEY = F1..F12 or an SDL key name (Escape, Space ...).
     // The validator pinned the format; an unknown name is refused here.
     for (std::string rest = cfg.harness.inject_key; !rest.empty();) {
@@ -179,6 +187,9 @@ void LegVerifySlot::VerifyStep() {
     text_watch_.OnBoundary(park_.boundaries);   // NATIVEEE_WATCH=text: the code-range snapshot compare
     park_.NoteBoundaryWall();
     play_.timeline.Note(FrameTimeline::Lane::Boundary);   // the game-rate lane of present_times.csv
+    // The clock census (rule 5), wall-locked boundaries only: this boundary in its 1 s wall window with
+    // the domain tick it completed at (the fields delivered); fast-forward fields were never pacer ticks.
+    if (core_.sequencer.WallLocked()) play_.clock_census.NoteBoundary(core_.domain.DomainTick(), core_.sequencer.FastForwardFields());
     RingLog::SetFrame(static_cast<uint32_t>(park_.boundaries));
     if (gs_.consumer) {
         const uint32_t present_key = host_.PresentKey(0, boundary);

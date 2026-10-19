@@ -3,6 +3,7 @@
 
 #include "engine/dmac/dmac_channel.h"
 #include "engine/ee/hle/syscall_table.h"
+#include "engine/gif/gif_regs.h"
 #include "engine/vif/vif.h"
 
 namespace ps2r::title::sly2 {
@@ -14,6 +15,10 @@ LegDmaIpu::LegDmaIpu(const LegKnobs& knobs, LegCore& core, LegDevices& devices, 
       ipu_dump_close{ipu_dump},
       ipu_out_dump_close{ipu_out_dump} {
     Dmac& dmac = devices.dmac;
+    // The GIF register block: under the drain thread every access fences the parser first (the STAT /
+    // TAG registers are composed from the transfer state the parser owns).
+    core.mmio.Register(GifRegs::kBase, GifRegs::kSize,
+                       mtvu.mtvu ? mtvu.mtvu->GifWindow(devices.gif_regs) : static_cast<MmioHandler&>(devices.gif_regs), "GIF");
     core.mmio.Register(Vif::kVif0Base, Vif::kRegsSize, vif_gate, "VIF0");
     core.mmio.Register(Vif::kVif1Base, Vif::kRegsSize, vif1_window, "VIF1");
     core.mmio.Register(Vif::kVif1FifoBase, Vif::kFifoSize, vif1_window, "VIF1_FIFO");

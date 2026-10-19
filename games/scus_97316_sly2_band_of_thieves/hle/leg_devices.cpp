@@ -1,7 +1,9 @@
 // games/scus_97316_sly2_band_of_thieves/hle/leg_devices.cpp -- LegDevices (leg_devices.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_devices.h"
 
+#include <filesystem>
 #include <string>
+#include <system_error>
 
 #include "engine/vu/tiers/vu_tier_dispatch.h"
 
@@ -18,7 +20,6 @@ LegDevices::LegDevices(const ps2r::Config& cfg, const TitleProfile& title, const
       vif(vu0, vu1, gif_arbiter, gif_regs),
       dmac(core.ram, core.spad, vif, gif_arbiter) {
     core.mmio.Register(MmioRouter::kGsPrivBase, MmioRouter::kGsPrivEnd - MmioRouter::kGsPrivBase, gs_mmio, "GS_PRIV");
-    core.mmio.Register(GifRegs::kBase, GifRegs::kSize, gif_regs, "GIF");
     // NATIVEEE_GIF_TRACE=1: every GIF tag / register write to stderr (boot triage only).
     if (knobs.gif_trace) {
         gif_trace.SetFilter(knobs.gif_trace_value ? knobs.gif_trace_value->c_str() : nullptr);
@@ -44,6 +45,15 @@ LegDevices::LegDevices(const ps2r::Config& cfg, const TitleProfile& title, const
                                                                        : VuTierMode::Cached;
         if (knobs.vu1_mode) mode = tier_of(*knobs.vu1_mode, mode);
         vu1.dispatch().settings().vu1_mode = mode;
+        // diag.vu1_lockstep: the tier A/B against the interpreter at every kick (engine/vu/tiers/
+        // vu_lockstep.h); copied to the worker's unit with the rest of the settings.
+        vu1.dispatch().settings().lockstep = cfg.diag.vu1_lockstep;
+        if (cfg.diag.vu1_lockstep && !cfg.paths.user_data.empty()) {
+            const std::string dir = cfg.paths.user_data + "/vu1_lockstep";
+            std::error_code ec;
+            std::filesystem::create_directories(dir, ec);
+            if (!ec || std::filesystem::is_directory(dir)) vu1.dispatch().settings().lockstep_dump_dir = dir;
+        }
     }
 }
 

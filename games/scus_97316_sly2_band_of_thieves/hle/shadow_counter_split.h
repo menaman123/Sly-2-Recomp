@@ -43,8 +43,12 @@ struct ShadowCounterSplit : ps2r::gs::DrawIrSink {
     // The rewrite (pure): fills `sub` / `add` (either may end empty: verts.empty()); false = declined
     // (a non-flat triangle, or unmasked channels disagreeing in direction) -- forward the original.
     static bool Split(const ps2r::gs::DrawIr& d, ps2r::gs::DrawIr* sub, ps2r::gs::DrawIr* add);
+    // Split + forward the halves (owned) to `next`; false = declined (counted), nothing forwarded.
+    bool SplitAndForward(const ps2r::gs::DrawIr& d);
 
     void OnDraw(const ps2r::gs::DrawIr& d) override;
+    // The owned form forwards a draw it does not split by move.
+    void OnDrawOwned(ps2r::gs::DrawIr&& d) override;
     void OnJob(const ps2r::gs::JobRec& j) override;
     void OnFrame(const ps2r::gs::JobRec& v) override;
 };

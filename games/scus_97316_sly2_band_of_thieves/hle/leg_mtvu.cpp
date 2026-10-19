@@ -3,14 +3,17 @@
 
 #include <cstdio>
 #include <string>
+#include <utility>
 
 #include "app/host/build_id.h"
 #include "engine/core/log/log.h"
+#include "engine/gif/gif_arbiter.h"
 #include "engine/vu/tiers/vu_tier_dispatch.h"
 
 namespace ps2r::title::sly2 {
 
-LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs& knobs, LegCore& core, LegDevices& devices)
+LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs& knobs, LegCore& core, LegGs& gs,
+                 LegDevices& devices)
     : devices_(devices) {
     // NATIVEEE_MTVU=1|0 (boot triage) forces the stack on / off in every mode (the deterministic
     // profile pins engine.mtvu=off; =1 under it is the frame-identity oracle for the worker). The
@@ -24,9 +27,30 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
                                            devices.vu1.dispatch().settings(), title.quirks.xgkick_defer, mtvu_settings, &core.running);
         mtvu->SetKickDrop(false);
         mtvu->SetDeferBoundaries(false);
-        mtvu->Start(/*with_drain_thread=*/false);
-        PS2R_LOG(HOST, Info, "MTVU: VU1 worker started (drain inline, terminal boundary sync, depth_frames=%d)",
-                 cfg.engine.mtvu_depth);
+        // The drain thread only where the DrawIR chain's consumer never draws on the pushing thread.
+        const bool drain_possible = !gs.video_live || gs.gs_queue_thread;
+        // Opt-in (NATIVEEE_GIF_DRAIN=1) until the drain-thread lane replays byte-identically to the
+        // inline lane: it forks presented pictures from frame 19 (verify_pab_report.md), the census
+        // being equal -- a FINISH-on-thread / idle-field timing item.
+        const bool drain_wanted = knobs.gif_drain_set ? knobs.gif_drain_on : false;
+        mtvu->Start(/*with_drain_thread=*/drain_wanted && drain_possible);
+        if (mtvu->drain().Running()) {
+            GifArbiter& arbiter = devices.gif_arbiter;
+            // The EE's pushes into the DrawIR chain ride the arbiter in stream order: the boundary's
+            // VSync job (then fenced: the Verify slot / the vblank read a completed frame) and the
+            // privileged display registers' jobs (one kick, no wait).
+            gs.ordered_submit = [&arbiter](std::function<void()> work) {
+                arbiter.submitOrdered(std::move(work));
+                arbiter.drain();
+                arbiter.DrainFence();
+            };
+            gs.gs_state.Priv().SetJobDeferrer([&arbiter](std::function<void()> push) {
+                arbiter.submitOrdered(std::move(push));
+                arbiter.drain();
+            });
+        }
+        PS2R_LOG(HOST, Info, "MTVU: VU1 worker started (drain %s, terminal boundary sync, depth_frames=%d)",
+                 mtvu->drain().Running() ? "thread" : "inline", cfg.engine.mtvu_depth);
     }
     // The AOT tier's persistent side on the LIVE VU1 unit (the worker's under MTVU: its dispatch copied
     // the settings above). Only when the tier is selected. No compiler on the host = one notice, the

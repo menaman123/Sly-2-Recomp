@@ -114,7 +114,8 @@ void VideoStack::PresentWindow() {
             output_(std::move(rgba), w, h);
         }
     }
-    win_.Swap();
+    if (swap_hidden_) win_.Swap();
+    else be_.FlushCommands();
 }
 
 void VideoStack::OnWindowResized(int w, int h) {

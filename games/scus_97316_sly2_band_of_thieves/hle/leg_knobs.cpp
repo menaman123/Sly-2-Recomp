@@ -35,6 +35,10 @@ LegKnobs LegKnobs::FromEnvironment() {
         k.mtvu_set = true;
         k.mtvu_on = std::string(env) == "1";
     }
+    if (const char* env = std::getenv("NATIVEEE_GIF_DRAIN")) {
+        k.gif_drain_set = true;
+        k.gif_drain_on = std::string(env) == "1";
+    }
     k.ipu_dump = Text(std::getenv("NATIVEEE_IPU_DUMP"));
     k.ipu_out_dump = Text(std::getenv("NATIVEEE_IPU_OUT_DUMP"));
     k.isr_trace = std::getenv("NATIVEEE_ISR_TRACE") != nullptr;
@@ -49,6 +53,8 @@ LegKnobs LegKnobs::FromEnvironment() {
     k.gs_routes = Text(std::getenv("NATIVEEE_GS_ROUTES"));
     k.gs_rt_dump = Text(std::getenv("NATIVEEE_GS_RT_DUMP"));
     k.gs_texres = Text(std::getenv("NATIVEEE_GS_TEXRES"));
+    k.gs_capture = Text(std::getenv("NATIVEEE_GS_CAPTURE"));
+    if (const char* env = std::getenv("NATIVEEE_GS_CONSUMER_LEVERS")) k.gs_consumer_levers = std::string(env) != "0";
     if (const char* env = std::getenv("NATIVEEE_TEX_DUMP")) {
         char* end = nullptr;
         k.tex_dump_from = static_cast<uint32_t>(std::strtoul(env, &end, 10));

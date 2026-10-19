@@ -1,6 +1,11 @@
 // games/scus_97316_sly2_band_of_thieves/hle/leg_iop.cpp -- LegIop (leg_iop.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_iop.h"
 
+#include <cstdio>
+
+#include "engine/core/threads/park.h"
+#include "engine/gif/gif_arbiter.h"
+
 #include <utility>
 
 #include "engine/ee/cpu/dispatch_table.h"
@@ -91,6 +96,9 @@ LegIop::LegIop(const ps2r::Config& cfg, LegCore& core, LegDevices& devices, LegM
         };
         yd.queue = &EeEventQueue::Instance();
         yd.inhibit = [&sequencer = core.sequencer] { return sequencer.InFlight() != 0; };
+        // The idle runner never passes a field over GS deliveries in flight (the worker's spans,
+        // the drain thread's parser): it parks on their progress as the pre-dispatch's idle wait does.
+        yd.pipeline_wait = [&mtvu_stack] { return mtvu_stack && !mtvu_stack->sync().WaitProgress(); };
         yd.pump_devices = [this, &mtvu_stack](CpuContext& ctx) {
             // The IOP's threads run on their own clock while the EE spins (an RPC status
             // poll into a hosted module needs the module to progress); its SIF commands land.

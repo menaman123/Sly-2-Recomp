@@ -34,6 +34,20 @@ set_tests_properties(Sly2_JudgeTexturesCairo PROPERTIES TIMEOUT 600)
 # main; cap 30: p99 <= 36 ms and no gap > 50 ms). The selftest runs everywhere; the gates need runs.
 add_test(NAME Sly2_JudgeSmoothSelftest
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/judge_smooth.py --selftest)
+
+# judge_pictures.py (round P): pictures per second (unique game-produced frames: the output lane) per
+# wall window with the frozen gates (p50 >= 59, p99 inter-picture gap <= 20 ms, no three-field beat) and
+# the clock invariant from the run.meta `clock=` row (logic_hz 60.0 +- 0.1, slow_motion 0). The selftest
+# runs everywhere; the gates need a play run with --harness-out.
+add_test(NAME Sly2_JudgePicturesSelftest
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/judge_pictures.py --selftest)
+# judge_render_throughput.py (round P phase B): the GS consumer ALONE over a captured consumer stream
+# (engine/gs/hle/capture, `tools/gs_replay stream` -> frames.csv) with the frozen gates (fps p50 >= 160 at internal
+# scale 1 / >= 120 at scale 2 as 1000 / p50 frame ms, no measured frame > 12 ms) and the frames-lane hash identity
+# of two replays. The selftest runs everywhere; the gates need a capture (game-derived, outside the repository).
+add_test(NAME Sly2_JudgeRenderThroughputSelftest
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/judge_render_throughput.py --selftest)
+set_tests_properties(Sly2_JudgeRenderThroughputSelftest PROPERTIES TIMEOUT 60)
 set_tests_properties(Sly2_JudgeSmoothSelftest PROPERTIES TIMEOUT 60)
 
 # --- the SHADOW judge (verify/judge_shadow.py, round H item 2 / D8) --------------------------------
