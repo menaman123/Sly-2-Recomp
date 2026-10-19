@@ -21,11 +21,15 @@ LegKnobs LegKnobs::FromEnvironment() {
     LegKnobs k;
     k.watch = Text(std::getenv("NATIVEEE_WATCH"));
     if (const char* env = std::getenv("NATIVEEE_GS_VERTS")) k.gs_verts_key = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
+    if (const char* env = std::getenv("NATIVEEE_SHADOW_SPLIT")) k.shadow_split = std::string(env) != "0";
+    if (const char* env = std::getenv("NATIVEEE_GS_VERTS_CAP")) k.gs_verts_cap = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
     if (const char* env = std::getenv("NATIVEEE_GS_SKIP_FROM")) k.gs_skip_from = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
+    if (const char* env = std::getenv("NATIVEEE_GS_SKIP_TO")) k.gs_skip_to = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
     k.gs_skip_class = Text(std::getenv("NATIVEEE_GS_SKIP_CLASS"));
     if (const char* env = std::getenv("NATIVEEE_DUMP_EVERY")) k.dump_every = std::max(1u, static_cast<uint32_t>(std::strtoul(env, nullptr, 10)));
     if (const char* env = std::getenv("NATIVEEE_DUMP_FROM")) k.dump_from = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
     k.gif_trace = std::getenv("NATIVEEE_GIF_TRACE") != nullptr;
+    k.gif_trace_value = Text(std::getenv("NATIVEEE_GIF_TRACE"));
     k.vu1_mode = Text(std::getenv("NATIVEEE_VU1_MODE"));
     if (const char* env = std::getenv("NATIVEEE_MTVU")) {
         k.mtvu_set = true;

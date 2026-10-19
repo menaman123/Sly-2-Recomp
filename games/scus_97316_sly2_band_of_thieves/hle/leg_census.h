@@ -69,6 +69,7 @@ private:
     void WriteKernel(ps2r::verify::RunMeta* meta);
     void WriteGs(ps2r::verify::RunMeta* meta);
     void WriteGsPages(ps2r::verify::RunMeta* meta);
+    void WriteShadowSplit(ps2r::verify::RunMeta* meta);
     void WritePlay(ps2r::verify::RunMeta* meta);
     void WriteDevices(ps2r::verify::RunMeta* meta);
     void WriteVu1(ps2r::verify::RunMeta* meta);

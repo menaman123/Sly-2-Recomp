@@ -91,6 +91,7 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
                                  ",worker_busy=" + (mtvu->worker().IsBusy() ? "1" : "0")
                            : "off");
     WriteGsPages(meta);
+    WriteShadowSplit(meta);
     meta->Set("gs_csr", Hex(gs.gs_state.Priv().Read(ps2r::gs::GsPrivRegs::kCsr)));
     meta->Set("gs_draws", std::to_string(gs.draw_sink.Draws()));
     meta->Set("gs_frames", std::to_string(gs.draw_sink.Frames()));
@@ -170,6 +171,15 @@ void LegCensus::WriteGsPages(ps2r::verify::RunMeta* meta) {
                               ":sampled_never_written=" + std::to_string(orphan) + ranges + ":rtt=" + rtt + ":targets=" + targets);
 }
 
+// shadow_split=draws=<n>:tris_sub=<n>:tris_add=<n>:declined=<n>:enabled=<0|1> -- the stencil-shadow counter
+// draws ShadowCounterSplit rewrote into clamped fixed-function pairs (hle/shadow_counter_split.h).
+void LegCensus::WriteShadowSplit(ps2r::verify::RunMeta* meta) {
+    const ShadowCounterSplit& s = p_.gs.shadow_split;
+    meta->Set("shadow_split", "draws=" + std::to_string(s.draws_split.load()) + ":tris_sub=" + std::to_string(s.tris_sub.load()) +
+                                  ":tris_add=" + std::to_string(s.tris_add.load()) + ":declined=" + std::to_string(s.declined.load()) +
+                                  ":enabled=" + std::string(s.enabled ? "1" : "0"));
+}
+
 void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
     LegPad& pad = p_.pad;
     LegAudio& audio = p_.audio;
@@ -186,6 +196,18 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
         meta->Set("input_sources", play.live_input->Sources());
     }
     if (play.session) meta->Set("session_presents", std::to_string(play.session->Presents()));
+    // The frame trains (frame_timeline.h): the per-lane gap statistics and, with a harness out dir, the
+    // full record as present_times.csv (verify/judge_smooth.py).
+    if (play.session) {
+        std::string row = play.timeline.Census();
+        if (!p_.cfg.harness.out_dir.empty()) {
+            const std::string csv = p_.cfg.harness.out_dir + "/present_times.csv";
+            row += play.timeline.WriteCsv(csv) ? ";csv=" + csv : ";csv=unwritable";
+        }
+        meta->Set("present_hist", row);
+        // The presented-frame cadence in force and the pacer's census (video.frame_cap; engine FramePacer).
+        meta->Set("frame_cap", play.session->FrameCapCensus());
+    }
     // The player's settings + save states: ps2r.ini writes, the Controls page's bindings saves, the
     // section registry, the F5 capture census, the F8 route and the restore rows.
     meta->Set("settings_persisted", std::to_string(play.settings_persisted) + ":failed=" + std::to_string(play.settings_persist_failed) +

@@ -67,13 +67,17 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
                 std::fprintf(stderr, "nativeee: settings: %s=%s not saved: %s\n", key.c_str(), value.c_str(), err.c_str());
             }
         });
-        // The Display page: the presenter's rows (mode, aspect, vsync, render rate) seeded from
+        // The Display page: the presenter's rows (mode, aspect, vsync, render rate, frame cap) seeded from
         // video.*; the aspect selection fits the picture in the session window; the texture
         // filter selection is the GL device's sampler choice (video.texture_filter / anisotropy).
         // video.scale is persisted by the row and read at the next start (this video stack builds
         // its ScalePolicy once, at Create).
+        // video.frame_cap seeds the Frame cap row (the presented-frame cadence: off | 30 | 60; the
+        // engine's FramePacer order == the Config enum's).
+        static_assert(static_cast<int>(ps2r::FrameCap::Off) == 0 && static_cast<int>(ps2r::FrameCap::Hz30) == 1 &&
+                      static_cast<int>(ps2r::FrameCap::Hz60) == 2);
         session->ConfigureDisplayRows({cfg.video.scale, static_cast<int>(cfg.video.aspect), static_cast<int>(cfg.video.render_rate),
-                                       static_cast<int>(cfg.video.fullscreen), cfg.harness.display_hz});
+                                       static_cast<int>(cfg.video.fullscreen), cfg.harness.display_hz, static_cast<int>(cfg.video.frame_cap)});
         aspect = std::make_shared<ps2r::gs::AspectSelection>(ShapeOf(cfg.video.aspect));
         session->SetAspect(aspect);
         texture_filter = std::make_shared<ps2r::render::TextureFilterSelection>(FilterOf(cfg.video.texture_filter), cfg.video.anisotropy);
@@ -87,9 +91,14 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         if (gs.frame_dump.Enabled()) session->ConfigureWindowDump(gs.frame_dump.Dir());
         controls_page = std::make_unique<ps2r::app::ControlsPageBinding>(cfg.paths.user_data, settings_file, live_input.get());
         session->ConfigureControlsPage(controls_page->Model());
+        // The presenter's draws: the ones that showed a NEW picture are the shown lane of the record.
+        session->SetPresentObserver([this](std::chrono::steady_clock::time_point at, bool new_picture) {
+            if (new_picture) timeline.NoteAt(FrameTimeline::Lane::Shown, at);
+        });
         // The consumer thread's presented image goes to the session window and, with --dump-frames,
         // every dump_every-th one is written as p<n>.ppm (n = the OUTPUT frame ordinal).
         gs.video.SetOutput([this, &gs](std::vector<uint8_t> rgba, int w, int h) {
+            timeline.Note(FrameTimeline::Lane::Output);
             const uint32_t n = static_cast<uint32_t>(gs.video.OutputFrames());
             if (gs.frame_dump.Enabled() && gs.DumpWanted(n)) gs.frame_dump.Write("p", n, w, h, rgba.data(), /*flip=*/true);
             session->PostFrame(std::move(rgba), w, h);

@@ -2,9 +2,12 @@
 // composition keeps at the head of GsState's chain, always (the run.meta gs_pages= census counts every
 // draw / transfer), with three boot-triage knobs on top:
 //   NATIVEEE_GS_VERTS=<key>     every draw of the frame that ENDS at present key <key> (the draws between
-//                               boundaries key-1 and key) to stderr with its raster state and vertices;
+//                               boundaries key-1 and key) to stderr with its raster state and vertices
+//                               (NATIVEEE_GS_VERTS_CAP=<n> vertices per draw, default 64);
 //   NATIVEEE_GS_SKIP_FROM=<n>   with GS_VERTS: the traced frame's draws from index n on are NOT forwarded
-//                               to the renderer (a draw-order bisect of that frame's picture);
+//   [NATIVEEE_GS_SKIP_TO=<m>]   to the renderer (a draw-order bisect of that frame's picture); with SKIP_TO
+//                               only the draws with index in [n, m) are dropped (the frame's picture is the
+//                               NEXT present: the title displays the buffer a frame finished one vsync later);
 //   NATIVEEE_GS_SKIP_CLASS=<c>[,<c>...]  every frame: drop draws of a class -- m16 (a 16-bit FRAME over
 //                               the buffers), fbmsk (a partial FBMSK other than alpha-only), t8h (a PSMT8H /
 //                               PSMT4HH / PSMT4HL read), rtblend (a textured sprite blending a buffer with
@@ -31,7 +34,8 @@ namespace ps2r::title::sly2 {
 struct VertTraceSink : ps2r::gs::DrawIrSink {
     ps2r::gs::DrawIrSink* next = nullptr;
     std::atomic<bool> on{false};
-    uint32_t skip_from = 0, index = 0;
+    uint32_t skip_from = 0, skip_to = 0, index = 0;
+    uint32_t vert_cap = 64;   // NATIVEEE_GS_VERTS_CAP: vertices printed per traced draw
     bool skip_m16 = false, skip_fbmsk = false, skip_t8h = false, skip_rtblend = false, skip_date = false;
     // Triage classes of the title's two-pass textured objects: `addpass` = the second pass
     // (ALPHA A=Cs B=0 C=As D=Cd, additive with the fragment alpha), `lerppass` = the first

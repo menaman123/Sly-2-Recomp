@@ -14,7 +14,9 @@
 // vsync, render rate, texture filter + anisotropy, perf overlay -- each applied live by the presenter /
 // the GL device and persisted to <user data>/ps2r.ini through SettingsFile, the one writer), its
 // Controls page (the keyboard rows' press-to-bind over <user data>/bindings.ini + the live mapper
-// reload: ControlsPageBinding), the Reproduction saves page (F5 / F8, LegSaves). The seeds are the
+// reload: ControlsPageBinding), the Reproduction saves page (F5 / F8, LegSaves). The presented-frame
+// record (FrameTimeline): every consumer present, every window draw of a new picture and every
+// boundary stamped on the wall clock -- the smoothness judge's input (verify/judge_smooth.py). The seeds are the
 // Config's (video.*, ui.perf_overlay); the aspect / texture-filter selections are shared with the
 // session window (the picture's fit) and the video stack's GL device (the samplers).
 #pragma once
@@ -28,6 +30,7 @@
 #include "engine/render/texture_filter_selection.h"
 #include "engine/core/config/config.h"
 #include "engine/title/title_profile.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/frame_timeline.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_gs.h"
@@ -53,6 +56,10 @@ public:
     std::shared_ptr<ps2r::render::TextureFilterSelection> texture_filter;
     std::unique_ptr<ps2r::app::ControlsPageBinding> controls_page;
     uint64_t settings_persisted = 0, settings_persist_failed = 0;   // census: ps2r.ini writes
+    // The frame trains' wall record (frame_timeline.h): the output lane is noted in the consumer's
+    // present hook below, the shown lane by the session's present observer, the boundary lane by
+    // the Verify slot's boundary step; written by the census as present_times.csv / present_hist=.
+    FrameTimeline timeline;
 
 private:
     const ps2r::Config& cfg_;

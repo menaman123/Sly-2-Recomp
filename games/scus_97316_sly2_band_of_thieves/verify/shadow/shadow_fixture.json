@@ -1,0 +1,29 @@
+{
+  "title": "SCUS_973.16 Sly 2: Band of Thieves (NTSC-U) -- shadow judge fixture (verify/judge_shadow.py)",
+  "note": "Numbers only. Coordinates are field pixels (512x224, the title's 32-bit frame at FBW 512, scissor 0..223). The twin is PCSX2 2.7.329 HW (DumpGSData, SaveRT+SaveAlpha+SaveInfo, SaveFrameStart=<twin_frame> SaveFrameCount=1) of the same scene; ours is NATIVEEE_GS_RT_DUMP=<ours_key>,<fbp>,cap=150 (the frame ENDING at the present key; the title alternates FRAME 0 / 0x70000, odd keys drew into 0x70000 in every run of round H). Both masks = the pixels the P_8H-of-FRAME lerp sprite darkened. The intro cinematic is deterministic from a fast boot on both sides; ours_key is re-picked per run by frame correlation against the twin's fr1 PNG (the headless boot drifts by a few frames between runs) -- the listed key is the one of the judged run.",
+  "local_dark": {"radius": 48, "threshold": 0.08},
+  "cases": {
+    "cairo_intro_museum_1860": {
+      "scene": "intro cinematic, museum hall, Sly by the pillars (PCSX2 f1860; ours p1494 of a plain --headless --set gs.queue=thread boot, frame at FBP 0)",
+      "twin_frame": 1860, "ours_key": 1494, "ours_fbp": "0",
+      "region": [0, 32, 512, 192],
+      "caster_box_twin": [208, 118, 256, 146], "caster_box_ours": [200, 118, 256, 148],
+      "overlap_min": 0.80, "spurious_max": 0.30, "dilate_px": 2, "caster_tolerance": 0.05, "caster_slack_px": 20
+    },
+    "cairo_intro_museum_1920": {
+      "scene": "intro cinematic, museum hall wide shot, Sly running on the floor (PCSX2 f1920; ours p1550, frame at FBP 0)",
+      "twin_frame": 1920, "ours_key": 1550, "ours_fbp": "0",
+      "region": [0, 32, 512, 192],
+      "caster_box_twin": [220, 96, 276, 132], "caster_box_ours": [212, 96, 272, 134],
+      "overlap_min": 0.80, "spurious_max": 0.30, "dilate_px": 2, "caster_tolerance": 0.05, "caster_slack_px": 20
+    },
+    "cairo_hub_museum": {
+      "scene": "episode-0 hub (NATIVEEE_WARP=0 / states/hub_ep0.ps2st frame 40, frame at FBP 0x70000) vs PCSX2 from the same rewritten save (slot-4 state, f15): the same hall but the camera / Sly pose are not matched, so this case is report-only",
+      "gate": false,
+      "twin_frame": 15, "ours_key": 40, "ours_fbp": "70000",
+      "region": [0, 0, 512, 224],
+      "caster_box_twin": [200, 104, 300, 200], "caster_box_ours": [180, 116, 300, 212],
+      "overlap_min": 0.80, "spurious_max": 0.30, "dilate_px": 2, "caster_tolerance": 0.05, "caster_slack_px": 20
+    }
+  }
+}

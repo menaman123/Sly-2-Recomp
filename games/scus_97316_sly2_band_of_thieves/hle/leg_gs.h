@@ -28,6 +28,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/frame_dump.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/shadow_counter_split.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/vert_trace_sink.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/video_stack.h"
 
@@ -52,6 +53,7 @@ public:
     bool gs_queue_thread = false;
     bool gs_queue_lockstep = true;
     VertTraceSink vert_trace;
+    ShadowCounterSplit shadow_split;   // between the trace and the renderer: the counter-draw rewrite (D8)
     ps2r::gs::CountingDrawIrSink draw_sink;
     // The queue stops (drains, joins) before the consumer and the video stack it draws into go (the
     // members unwind in reverse order; this guard runs first).

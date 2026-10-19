@@ -1,0 +1,24 @@
+{
+  "_doc": "judge_solidity.py fixtures (round H item 1). Boxes are [x0, y0, x1, y1) in the 512x224 frame. `state` names a private cold checkpoint ($WORK/states/<state>.ps2st, never in the repository), `frames` the --frames count, `present_key` the judged present (the title displays the buffer a frame finished one vsync later: present K shows frame K-1). `twin` names the PCSX2 2.7.329 SaveFrame (unattended warp + PINE recipe, warp_notes.md / solidity_notes.md) by its f<frame> ordinal in the private run directory.",
+  "paris_ledge": {
+    "state": "ep1_ledge_3090", "frames": 13, "present_key": 11,
+    "twin": {"run": "ep1_pcsx2", "frame": 16},
+    "sly": [195, 135, 250, 190],
+    "wall": [4, 80, 60, 200],
+    "background": [270, 130, 420, 175]
+  },
+  "castle_roof": {
+    "state": "hub_ep5", "frames": 31, "present_key": 30,
+    "twin": {"run": "sol_pcsx2/ep5_a", "frame": 4530},
+    "sly": [195, 120, 270, 190],
+    "wall": [20, 150, 185, 215],
+    "background": [300, 40, 500, 110]
+  },
+  "blimp_deck": {
+    "state": "hub_ep8", "frames": 31, "present_key": 30,
+    "twin": {"run": "sol_pcsx2/ep8_b", "frame": 5100},
+    "sly": [180, 150, 250, 222],
+    "wall": [0, 60, 80, 200],
+    "background": [290, 20, 500, 120]
+  }
+}

@@ -178,6 +178,7 @@ void LegVerifySlot::VerifyStep() {
     park_.boundaries = boundary + 1;
     text_watch_.OnBoundary(park_.boundaries);   // NATIVEEE_WATCH=text: the code-range snapshot compare
     park_.NoteBoundaryWall();
+    play_.timeline.Note(FrameTimeline::Lane::Boundary);   // the game-rate lane of present_times.csv
     RingLog::SetFrame(static_cast<uint32_t>(park_.boundaries));
     if (gs_.consumer) {
         const uint32_t present_key = host_.PresentKey(0, boundary);

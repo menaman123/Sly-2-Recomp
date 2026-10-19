@@ -17,15 +17,23 @@ struct LegKnobs {
     std::optional<std::string> watch;
     // NATIVEEE_GS_VERTS=<key>: trace the draws of the frame ending at present key <key> (0 = off).
     uint32_t gs_verts_key = 0;
-    // NATIVEEE_GS_SKIP_FROM=<n>: with GS_VERTS, drop the traced frame's draws from index n on (0 = off).
+    // NATIVEEE_GS_VERTS_CAP=<n>: vertices printed per traced draw (default 64; the shadow-volume draws of
+    // the stencil block carry up to 420).
+    uint32_t gs_verts_cap = 64;
+    // NATIVEEE_SHADOW_SPLIT=0: forward the stencil-shadow counter draws unsplit (hle/shadow_counter_split.h).
+    bool shadow_split = true;
+    // NATIVEEE_GS_SKIP_FROM=<n> [NATIVEEE_GS_SKIP_TO=<m>]: with GS_VERTS, drop the traced frame's draws with
+    // index in [n, m) (SKIP_TO unset / 0 = to the end of the frame; SKIP_FROM 0 = off) -- the draw bisect.
     uint32_t gs_skip_from = 0;
+    uint32_t gs_skip_to = 0;
     // NATIVEEE_GS_SKIP_CLASS=<c>[,<c>...]: m16 / fbmsk / t8h / rtblend / date (every frame).
     std::optional<std::string> gs_skip_class;
     // NATIVEEE_DUMP_EVERY=N (>= 1) / NATIVEEE_DUMP_FROM=M: which present keys --dump-frames writes.
     uint32_t dump_every = 1;
     uint32_t dump_from = 0;
-    // NATIVEEE_GIF_TRACE=1: every GIF tag / register write to stderr.
+    // NATIVEEE_GIF_TRACE=1 | tbp:<hex>: every GIF tag / register write to stderr (gif_trace_sink.h).
     bool gif_trace = false;
+    std::optional<std::string> gif_trace_value;
     // NATIVEEE_VU1_MODE=interp|cached|block|aot on top of Config engine.vu1_mode.
     std::optional<std::string> vu1_mode;
     // NATIVEEE_MTVU=1|0: force the MTVU stack on / off in every mode (set = the env decides; "1" = on).

@@ -55,6 +55,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         leg_image.cpp
         leg_interrupts.cpp
         leg_iop.cpp
+        frame_timeline.cpp
         leg_knobs.cpp
         leg_mtvu.cpp
         leg_pad.cpp
@@ -70,6 +71,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         nav_probe.cpp
         pad_recorder.cpp
         pad_script.cpp
+        shadow_counter_split.cpp
         store_watch.cpp
         text_watch.cpp
         vert_trace_sink.cpp

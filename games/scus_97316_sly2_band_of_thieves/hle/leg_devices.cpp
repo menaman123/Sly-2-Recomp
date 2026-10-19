@@ -20,7 +20,10 @@ LegDevices::LegDevices(const ps2r::Config& cfg, const TitleProfile& title, const
     core.mmio.Register(MmioRouter::kGsPrivBase, MmioRouter::kGsPrivEnd - MmioRouter::kGsPrivBase, gs_mmio, "GS_PRIV");
     core.mmio.Register(GifRegs::kBase, GifRegs::kSize, gif_regs, "GIF");
     // NATIVEEE_GIF_TRACE=1: every GIF tag / register write to stderr (boot triage only).
-    if (knobs.gif_trace) gif_sink.Add(&gif_trace);
+    if (knobs.gif_trace) {
+        gif_trace.SetFilter(knobs.gif_trace_value ? knobs.gif_trace_value->c_str() : nullptr);
+        gif_sink.Add(&gif_trace);
+    }
     // The VU1 fallback tier from Config engine.vu1_mode (hle = the library ladder, which this title
     // has none of: cached; cached; interp; block = the pre-resolved straight-line block tier;
     // aot = the generic run-time recompiler: a verified image on its specialised block table,

@@ -97,10 +97,16 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
     }
     ps2r::gs::DrawIrSink* gs_sink_head =
         gs_queue ? static_cast<ps2r::gs::DrawIrSink*>(gs_queue.get()) : static_cast<ps2r::gs::DrawIrSink*>(consumer.get());
-    // NATIVEEE_GS_VERTS / NATIVEEE_GS_SKIP_FROM / NATIVEEE_GS_SKIP_CLASS: vert_trace_sink.h.
+    // NATIVEEE_GS_VERTS / NATIVEEE_GS_VERTS_CAP / NATIVEEE_GS_SKIP_FROM / NATIVEEE_GS_SKIP_TO / NATIVEEE_GS_SKIP_CLASS: vert_trace_sink.h.
     if (gs_sink_head) {   // always in the chain: the gs_pages= census counts every draw / transfer
+        // The stencil-shadow counter rewrite sits between the trace (which sees the game's draws) and the renderer.
+        shadow_split.next = gs_sink_head;
+        shadow_split.enabled = knobs.shadow_split;
+        gs_sink_head = &shadow_split;
         vert_trace.next = gs_sink_head;
         vert_trace.skip_from = knobs.gs_skip_from;
+        vert_trace.skip_to = knobs.gs_skip_to;
+        vert_trace.vert_cap = knobs.gs_verts_cap;
         vert_trace.SetSkipClasses(knobs.gs_skip_class ? knobs.gs_skip_class->c_str() : nullptr);
         gs_sink_head = &vert_trace;
     }

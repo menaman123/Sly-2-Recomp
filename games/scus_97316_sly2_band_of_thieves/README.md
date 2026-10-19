@@ -149,12 +149,29 @@ controller uses SDL's standard layout (A cross, B circle, X square, Y triangle).
 Host keys (the engine's SessionGui, title-neutral): **Escape** = the pause menu (the game pauses; Resume /
 Quit), **F1** = the same menu without the pause, **F5** = save state, **F8** = load the newest save state,
 **F9** = pause / resume, **F10** = one tick while paused. The menu's pages: *Display* (display mode, aspect
-ratio, internal scale, render rate, vsync, texture filter, anisotropic filtering, performance overlay --
-applied live by the presenter / the GL device and persisted to `<user data>/ps2r.ini`; the internal scale
-takes effect at the next start in this title), *Controls* (click a PS2 button, press a key: written to
+ratio, internal scale, render rate, **frame cap**, vsync, texture filter, anisotropic filtering, performance
+overlay -- applied live by the presenter / the GL device and persisted to `<user data>/ps2r.ini`; the internal
+scale takes effect at the next start in this title), *Controls* (click a PS2 button, press a key: written to
 `<user data>/bindings.ini`, `input.bindings_file` in ps2r.ini, applied to the live pad at once),
 *Reproduction saves* (F5 / F8 slots under `<save root>/savestates/slot<save.slot>.ps2st` + `.meta`; the
 save root is `paths.save_dir`, else the harness out dir, else `paths.log_dir`).
+
+**Frame cap** (`video.frame_cap = 30 | 60 | off`, default 60; the Display page's *Frame cap* row, applied live
+and persisted): WHICH presenter fields show a new picture -- the presented-frame CADENCE a player sees. The
+game's logic tick is 60 Hz by the clock contract in every setting and no tick is dropped; the cap only picks
+the pictures. `60` shows a new picture at every 60 Hz field edge it is ready for (a game running under 60 fps
+shows a 1/2/3-field mixture: the "not smooth" judder); `30` shows one at every OTHER field edge, a steady
+33.3 ms train (a game producing 30..60 pictures per second shows every one at a fixed cadence; a picture
+superseded inside the period is not shown; a game producing FEWER than 30 pictures per second doubles a field
+when none arrived -- the cap cannot invent frames); `off` shows each picture at the pump it arrives (the GS
+consumer's own cadence, no field quantisation). Measure before choosing: with `--harness-out <dir>` a play run
+writes `<dir>/present_times.csv` (the wall instant of every EE boundary, every consumer present and every window
+draw that showed a new picture) and the run.meta rows `present_hist=` (per lane n:gaps:p50:p99:max:>33ms:>50ms)
+and `frame_cap=` (the pacer's census: admitted / held edges / superseded / late); `verify/judge_smooth.py hist
+<dir>` prints the histogram, `judge_smooth.py judge --main <dir> --after <dir> [--cap30 <dir>]` the round-H
+steadiness gates. On this host (M-series, the Paris hub, shared load) the game produces ~28 pictures per second
+(the EE's GIF drain + the VU1 FINISH wait; the VU1 JIT is the known lever), so `30` is the steadier choice and
+`60` the lower-latency one.
 
 Save states (`LegSaves`): the section registry carries RAM0, SPAD, GCLK, VU0/VU1 memories, THRD (threads +
 parked contexts + shadow call chains), SEMA/EVFL, INTC, DMAC, TIMR, VIFS, VRAM/GSPR/GSST, GIFS, PADS,
@@ -209,7 +226,7 @@ Coverage workflow (the agents' checkpoints; game-derived files live OUTSIDE this
 Harness: `--set harness.inject_key=F5@N,F8@M` presses the keys; `--set harness.display_sequence=
 <frame>:<mode>` submits a Display row (modes: windowed|fullscreen|borderless|scale1..4|vsync|novsync|
 aspect_<auto|4_3|16_9|16_10|21_9>|filter_<title|point|bilinear|trilinear>|aniso<1|2|4|8|16>|overlay|
-nooverlay|rate60|ratedisplay). Census rows: `savestate_sections=`, `savestate_capture=`, `f8=`,
+nooverlay|rate60|ratedisplay|capoff|cap30|cap60). Census rows: `savestate_sections=`, `savestate_capture=`, `f8=`,
 `restores=`, `restored_vsync_frame=`, `restore_mhash=`, `restore_sections=`, `boundary_consumer=`,
 `settings_persisted=`, `display_sequence=`.
 
@@ -358,6 +375,29 @@ markers are not located yet (the navigator needs per-hub coordinates; the first 
 stage's method: off-axis warps + icon rays). The hub audio twin (PCSX2 SDL disk capture of the warp-2 route,
 `$WORK/wp_pcsx2/ep2.raw`, hub music from ~85 s) judged against our mixer dump: FAIL / inconclusive like Paris
 (ours +4.1 dB, envelope corr 0.15, centroid ratio 2.4 -- loop phase and state differ; the audio stage's open item).
+
+## The stencil shadows (`hle/shadow_counter_split.*`, `verify/judge_shadow.py`, `verify/shadow/shadow_fixture.json`) -- round H item 2 (D8)
+
+Sly 2 has no hardware stencil: after the scene it counts shadow-volume faces in the frame buffer's GREEN byte
+(save G into the other buffer's alpha through a 16-bit "texture shuffle" sprite pass; G := 0x7e; untextured flat
+volumes with COLCLAMP off, FBMSK ffff00ff and ALPHA (0 - Cs)*0x80 + Cd whose kicking vertex carries G = 2 (-2) or
+0xfe (+2 by wrap) under ZTST GREATER -- set 1 = the characters' shadows (bit 7), then G[0:6] := 0x3e and set 2 =
+the level's ambient shadow / light-shaft planes (bit 6); bit 6 -> bit 0, an in-place shuffle moves G bits 7 / 0
+into the ALPHA byte, G is restored, and one sprite reads the frame as PSMT8H -- the alpha byte as the index of a
+black palette whose alpha rises with bit 7 / bit 0 and the scene's own alpha bits 1-6 -- and lerps the frame
+towards black). The engine's COLCLAMP = 0 route blends in the fragment program against ONE destination copy per
+draw, so the faces of a closed volume that overlap on screen collapse to +-2 of the last face instead of their
+sum: `ShadowCounterSplit` (a DrawIR sink between the vertex trace and the renderer, `NATIVEEE_SHADOW_SPLIT=0`
+disables it, run.meta `shadow_split=`) rewrites every such counter draw into a subtract batch and an add batch
+(COLCLAMP on, FIX 0x80, colour := the count), which the backend blends in GL fixed function -- serialised per
+fragment, exact while the counter stays inside 0..255. `NATIVEEE_GS_VERTS_CAP=<n>` lifts the 64-vertex print cap
+of GS_VERTS (the volumes carry up to 420). The judge compares the pixels the final darkening draw changed, ours
+(NATIVEEE_GS_RT_DUMP of the tpsm=1b read) vs PCSX2's per-draw SaveRT dump of the same deterministic intro frames
+(overlap >= 0.80, spurious <= 0.30, no extra darkening over the caster); ctest rows Sly2_JudgeShadowSelftest and
+Sly2_ShadowCounterSplit run everywhere. Status: overlap 0.10 -> 0.998 (f1860) / 0.996 (f1920) with the solidity
+owner's E330 (the mid-frame depth clear) plus the split; the caster metric still fails (Sly's own volume marks his
+body: our Z buffer lacks the body's depth where PCSX2 has it -- the lerp pass's ATST GEQUAL 126 / FB_ONLY decides
+whether the body writes Z; $WORK/shadow_notes.md).
 
 ## STATUS
 
