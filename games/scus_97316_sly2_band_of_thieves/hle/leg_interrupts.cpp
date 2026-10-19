@@ -1,7 +1,9 @@
 // games/scus_97316_sly2_band_of_thieves/hle/leg_interrupts.cpp -- LegInterrupts (leg_interrupts.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_interrupts.h"
 
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 #include "engine/core/threads/park.h"
@@ -11,6 +13,8 @@
 #include "engine/ee/hle/syscall_table.h"
 #include "engine/ee/sched/ee_event_queue.h"
 #include "engine/ee/sched/ee_run_token.h"
+#include "engine/ee/sched/ee_yield_point.h"
+#include "engine/gif/gif_arbiter.h"
 #include "engine/gs/hle/sce/gs_sync.h"
 #include "engine/gs/state/gs_priv_regs.h"
 
@@ -59,7 +63,12 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
             ++gs_irq_masked;
             return;
         }
-        intc.Raise(Intc::kGs);
+        // Deferred (E422): the parser that reaches the register runs behind the VU1 worker (and
+        // on the drain thread); the cause enters INTC_STAT at the holder's next OBSERVATION point
+        // (below: a blocking wait with no other READY thread; the kernel idle; a field tick; the
+        // boundary; a completed sync) -- never at a busy scheduling point, where the host's
+        // pipeline timing would pick the guest instruction the interrupt lands behind.
+        intc.RaiseDeferred(Intc::kGs);
         ++gs_irq_raises;
     });
     // The interrupt taken at the next kernel call: every syscall's entry dispatches the pending
@@ -104,12 +113,53 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
                          f0.func_addr, f0.ra, f1.func_addr, f2.func_addr);
         }
         const bool blocking = SyscallTable::IsBlockingWait(num);
+        // A wall field is due (Play: the pacer ticked while this thread ran) and a thread sleeps on
+        // the vblank: it is readied here and, being the higher-priority vsync thread, runs its
+        // boundary now -- the next frame's VIF1 kick overlaps the rest of this thread's logic
+        // tick, as the console's vblank interrupt would have it (E421; census ee_yield wall_wakes).
+        EeYieldPoint::Instance().WakeVblankIfWallFieldDue();
+        // TEMP-PIPE protocol trace (removed before the report)
+        static const bool proto_trace = std::getenv("NATIVEEE_PROTO_TRACE") != nullptr;
+        static uint64_t proto_n = 0;
+        const bool proto_line = proto_trace && proto_n < 200000 && (num == 66 || num == 67 || num == 68 || num == 69 || num == 32 || num == 33);
+        if (proto_line) {
+            ++proto_n;
+            std::fprintf(stderr, "proto: t=%llu tid=%d sc=%d a0=%u seals=%llu idle=%d\n",
+                         (unsigned long long)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(),
+                         EeRunToken::Instance().CurrentTid(), num, ctx.cpuRegs.GPR.r[4].UL[0],
+                         mtvu_stack ? (unsigned long long)mtvu_stack->worker().SealCount() : 0ull,
+                         mtvu_stack ? (mtvu_stack->worker().WorkerIdle() ? 1 : 0) : -1);
+        }
         if (blocking) dmac.ObserveAtKernelWait();
+        if (proto_line && blocking) {
+            std::fprintf(stderr, "proto: t=%llu tid=%d observed sc=%d a0=%u seals=%llu idle=%d\n",
+                         (unsigned long long)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(),
+                         EeRunToken::Instance().CurrentTid(), num, ctx.cpuRegs.GPR.r[4].UL[0],
+                         mtvu_stack ? (unsigned long long)mtvu_stack->worker().SealCount() : 0ull,
+                         mtvu_stack ? (mtvu_stack->worker().WorkerIdle() ? 1 : 0) : -1);
+        }
+        // The observation point (E422): a blocking wait that finds no other READY guest thread
+        // -- the console's idle loop. Only here (and at the kernel idle, a field tick, the
+        // boundary, a completed sync) do the GS causes the pipeline latched enter INTC_STAT: at a
+        // busy entry the pipeline's host timing would otherwise pick the guest instruction the
+        // FINISH lands behind (the inline lane's own race: a frame's three FINISHes landed on
+        // tid 1's WaitSema(7) in one run and on tid 3's WaitSema(6) in the next).
+        const auto observation_point = [&] {
+            return blocking && !EeRunToken::Instance().AnyReadyBesides(EeRunToken::Instance().CurrentTid());
+        };
+        {   // TEMP-PIPE trace
+            static const bool tr = std::getenv("NATIVEEE_PIPE_TRACE") != nullptr;
+            if (tr && intc.DeferredPending())
+                std::fprintf(stderr, "pipe: t=%lld entry-latched tid=%d sc=%d a0=%u blocking=%d others=%d\n",
+                    (long long)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(),
+                    EeRunToken::Instance().CurrentTid(), num, ctx.cpuRegs.GPR.r[4].UL[0], blocking ? 1 : 0,
+                    EeRunToken::Instance().AnyReadyBesides(EeRunToken::Instance().CurrentTid()) ? 1 : 0);
+        }
         for (;;) {
+            // The inline drain parses the sealed prefix here (its GS events latch deferred).
             if (mtvu_stack) mtvu_stack->sync().TryDrainPending();
-            // A GS FINISH / SIGNAL the drain thread raised is a queued event (Intc's foreign-thread
-            // route): applied here, at this scheduling point, so the pending test below sees it.
-            EeEventQueue::Instance().DrainIfPendingOnHolder();
+            EeEventQueue::Instance().DrainIfPendingOnHolder();   // foreign wakes
+            if (observation_point()) intc.CollectDeferred();
             if (dmac.CheckInterrupt()) {
                 InstallDmacHandlers();
                 dmac.DispatchInterrupt(ctx);
@@ -118,11 +168,19 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
                 // No "is the worker busy" test here: the worker publishes idle AFTER its last seal,
                 // so a busy test that read idle could block with that marker undrained; WaitProgress
                 // answers at once (after one drain) when nothing is outstanding.
-                if (blocking && mtvu_stack && !EeRunToken::Instance().AnyReadyBesides(EeRunToken::Instance().CurrentTid())) {
+                if (mtvu_stack && observation_point()) {
                     ++mtvu_idle_wait_entries;
                     if (!mtvu_stack->sync().WaitProgress()) continue;   // progress delivered, the pipeline still runs
-                    EeEventQueue::Instance().DrainIfPendingOnHolder();  // a FINISH the drain thread raised meanwhile
+                    EeEventQueue::Instance().DrainIfPendingOnHolder();
+                    intc.CollectDeferred();                             // a FINISH the pipeline latched meanwhile
                     if (intc.Pending()) continue;                       // the last drain raised a cause
+                    {   // TEMP-PIPE trace
+                        static const bool tr = std::getenv("NATIVEEE_PIPE_TRACE") != nullptr;
+                        if (tr) std::fprintf(stderr, "pipe: t=%lld spinner-exit tid=%d sc=%d a0=%u worker_idle=%d arb_pending=%d drain_working=%d\n",
+                            (long long)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(),
+                            EeRunToken::Instance().CurrentTid(), num, ctx.cpuRegs.GPR.r[4].UL[0], mtvu_stack->worker().WorkerIdle() ? 1 : 0,
+                            devices_.gif_arbiter.hasPending() ? 1 : 0, mtvu_stack->drain().Working() ? 1 : 0);
+                    }
                 }
                 break;
             }

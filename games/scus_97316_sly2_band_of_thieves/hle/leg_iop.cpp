@@ -83,6 +83,9 @@ LegIop::LegIop(const ps2r::Config& cfg, LegCore& core, LegDevices& devices, LegM
         std::unique_ptr<MtvuStack>& mtvu_stack = mtvu.mtvu;
         EeYieldPoint::Deps yd;
         yd.advance_field = [hook = core.protocol.WaitHook()] { hook(0); };
+        // The wall vblank landing on a running thread (E421): under Play a pacer tick nobody has
+        // fired yet readies the vsync thread at the holder's next syscall entry (leg_interrupts).
+        yd.wall_field_due = [&protocol = core.protocol] { return protocol.WallFieldDue(); };
         yd.domain = &core.domain;
         yd.alarms = &Alarms::Instance();
         yd.timers = &core.timers;

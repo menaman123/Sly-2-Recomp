@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 
 namespace ps2r::title::sly2 {
 
@@ -24,6 +25,12 @@ void FrameTimeline::Note(Lane lane) { NoteAt(lane, std::chrono::steady_clock::no
 void FrameTimeline::NoteAt(Lane lane, std::chrono::steady_clock::time_point at) {
     const int i = static_cast<int>(lane);
     const uint64_t ns = at > t0_ ? static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(at - t0_).count()) : 0;
+    {   // TEMP-PIPE protocol trace (removed before the report)
+        static const bool proto_trace = std::getenv("NATIVEEE_PROTO_TRACE") != nullptr;
+        if (proto_trace)
+            std::fprintf(stderr, "proto: t=%llu lane=%s\n",
+                         (unsigned long long)std::chrono::duration_cast<std::chrono::microseconds>(at.time_since_epoch()).count(), LaneName(lane));
+    }
     std::lock_guard<std::mutex> lock(mutex_[i]);
     lanes_[i].push_back(ns);
 }

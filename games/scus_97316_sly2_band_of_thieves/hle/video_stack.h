@@ -1,6 +1,7 @@
 // games/scus_97316_sly2_band_of_thieves/hle/video_stack.h -- VideoStack: the title composition's
-// live video stack over the engine's GENERIC GS renderer -- a hidden SDL window, the GL 4.1
-// context, the GlDevice backend and the plain-GS scene objects (ScalePolicy, RenderTargetCache,
+// live video stack over the engine's GENERIC GS renderer -- the render backend video.backend
+// selects (gl: a hidden SDL window + the GL 4.1 context + GlDevice; metal: MetalDevice, no window,
+// no context -- macOS builds) and the plain-GS scene objects (ScalePolicy, RenderTargetCache,
 // TargetRefresher, TextureResolver, ScanoutComposer, Presenter, DrawPipeline) over an EMPTY
 // VramLayout and NO class registry: every draw takes DrawPipeline::DrawGeneric (the documented
 // "engine built without a title behaves as a plain GS" mode, targets/vram_layout.h). The
@@ -27,6 +28,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -42,7 +44,11 @@
 #include "engine/gs/vram/vram_image.h"
 #include "engine/platform/sdl/gl_context.h"
 #include "engine/platform/sdl/window.h"
+#include "engine/render/backend.h"
 #include "engine/render/backends/gl/gl_device.h"
+#if defined(PS2R_HAS_METAL)
+#include "engine/render/backends/metal/metal_device.h"
+#endif
 
 namespace ps2r::title::sly2 {
 
@@ -66,9 +72,11 @@ public:
     bool Active() const { return pipe_ != nullptr; }
 
     gs::DrawPipeline* Pipe() { return pipe_.get(); }
-    render::GlDevice& Device() { return be_; }
-    const char* Renderer() const { return ctx_.Renderer(); }
-    const char* GlVersion() const { return ctx_.Version(); }
+    // The active backend (GL or Metal); valid after a successful Create().
+    render::Backend& Device() { return *be_; }
+    bool IsMetal() const { return metal_active_; }
+    const char* Renderer() const { return metal_active_ ? renderer_name_.c_str() : ctx_.Renderer(); }
+    const char* GlVersion() const { return metal_active_ ? "Metal" : ctx_.Version(); }
     int Scale() const { return scale_factor_; }
 
     // The context on the calling thread (a no-op when it already is); the release on
@@ -84,7 +92,7 @@ public:
     // Play: the device reads each present's window image behind a fence and hands over the
     // PREVIOUS present's (no GPU drain per present; the output lane one present late; a
     // p<key>.ppm of a windowed run is the previous present). Headless keeps the synchronous read.
-    void SetPresentCaptureDeferred(bool deferred) { be_.SetPresentCaptureDeferred(deferred); }
+    void SetPresentCaptureDeferred(bool deferred) { if (be_) be_->SetPresentCaptureDeferred(deferred); }
     // The hidden window's present: a swap (SDL_GL_SwapWindow -> CGLFlushDrawable of a drawable nobody
     // sees) or a plain command flush (the default; the captured image is what the session window shows).
     void SetSwapHiddenWindow(bool swap) { swap_hidden_ = swap; }
@@ -96,12 +104,19 @@ public:
 
 private:
     bool CreateContext(const VideoConfig& video, const char* title);
+    bool CreateMetal(const VideoConfig& video);
     void BuildScene(int scale, gs::VramImage& vram);
     void PresentWindow();   // the device's swap callback (consumer thread)
 
     platform::Window win_;
     platform::GlContext ctx_;
-    render::GlDevice be_;
+    render::GlDevice gl_;
+#if defined(PS2R_HAS_METAL)
+    std::unique_ptr<render::MetalDevice> metal_;
+#endif
+    render::Backend* be_ = nullptr;   // gl_ or *metal_
+    bool metal_active_ = false;
+    std::string renderer_name_;
     std::thread::id current_thread_{};
     uint64_t rebinds_ = 0;
     int window_w_ = 0, window_h_ = 0;

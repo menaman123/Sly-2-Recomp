@@ -23,7 +23,8 @@ VideoStack::~VideoStack() { Shutdown(); }
 
 bool VideoStack::Create(const VideoConfig& video, const char* title, gs::VramImage& vram) {
     if (Active()) return true;
-    if (!CreateContext(video, title)) {
+    const bool ok = video.backend == VideoBackend::Metal ? CreateMetal(video) : CreateContext(video, title);
+    if (!ok) {
         Shutdown();
         return false;
     }
@@ -44,33 +45,61 @@ bool VideoStack::CreateContext(const VideoConfig& video, const char* title) {
         return false;
     }
     ctx_.SetSwapInterval(video.vsync ? 1 : 0);
-    if (!be_.Init([this] { PresentWindow(); })) {
+    if (!gl_.Init([this] { PresentWindow(); })) {
         PS2R_LOG(HOST, Warn, "video: GlDevice::Init failed (stub present)");
         return false;
     }
+    be_ = &gl_;
+    metal_active_ = false;
     window_w_ = kNativeWindowW;
     window_h_ = kNativeWindowH;
-    be_.SetWindowSize(window_w_, window_h_);
+    be_->SetWindowSize(window_w_, window_h_);
     // Every Present draws into the owned capture framebuffer and reads it back: the
     // image the session window shows and the --dump-frames p<key>.ppm.
-    be_.ArmPresentCapture(true);
+    be_->ArmPresentCapture(true);
     current_thread_ = std::this_thread::get_id();
     PS2R_LOG(HOST, Info, "video: GL %s / %s (hidden window, capture %dx%d)", ctx_.Version(), ctx_.Renderer(),
              window_w_, window_h_);
     return true;
 }
 
+// video.backend=metal: the Metal device (no window, no context; any thread may drive it).
+bool VideoStack::CreateMetal(const VideoConfig& video) {
+    (void)video;
+#if defined(PS2R_HAS_METAL)
+    metal_ = std::make_unique<render::MetalDevice>();
+    if (!metal_->Init([this] { PresentWindow(); })) {
+        PS2R_LOG(HOST, Warn, "video: MetalDevice::Init failed (stub present)");
+        metal_.reset();
+        return false;
+    }
+    be_ = metal_.get();
+    metal_active_ = true;
+    renderer_name_ = std::string("Metal ") + metal_->DeviceName();
+    window_w_ = kNativeWindowW;
+    window_h_ = kNativeWindowH;
+    be_->SetWindowSize(window_w_, window_h_);
+    be_->ArmPresentCapture(true);
+    current_thread_ = std::this_thread::get_id();
+    PS2R_LOG(HOST, Info, "video: %s (offscreen, capture %dx%d)", renderer_name_.c_str(), window_w_, window_h_);
+    return true;
+#else
+    PS2R_LOG(HOST, Warn, "video: video.backend=metal is not built on this host (stub present)");
+    return false;
+#endif
+}
+
 void VideoStack::BuildScene(int scale, gs::VramImage& vram) {
     scale_factor_ = scale;
     vram_ = &vram;
     scale_ = std::make_unique<gs::ScalePolicy>(gs::ScaleSettings{scale}, &layout_);
-    cache_ = std::make_unique<gs::RenderTargetCache>(be_, *vram_, *scale_);
-    refresher_ = std::make_unique<gs::TargetRefresher>(be_, *vram_, *cache_);
-    resolver_ = std::make_unique<gs::TextureResolver>(be_, *vram_, *cache_, *refresher_, layout_);
-    scanout_ = std::make_unique<gs::ScanoutComposer>(be_, *cache_);
+    cache_ = std::make_unique<gs::RenderTargetCache>(*be_, *vram_, *scale_);
+    refresher_ = std::make_unique<gs::TargetRefresher>(*be_, *vram_, *cache_);
+    resolver_ = std::make_unique<gs::TextureResolver>(*be_, *vram_, *cache_, *refresher_, layout_);
+    scanout_ = std::make_unique<gs::ScanoutComposer>(*be_, *cache_);
     presenter_ = std::make_unique<gs::Presenter>(*scanout_);
     gs::DrawPipeline::Deps deps;
-    deps.be = &be_;
+    deps.be = be_;
     deps.vram = vram_;
     deps.cache = cache_.get();
     deps.refresher = refresher_.get();
@@ -91,7 +120,7 @@ void VideoStack::BuildScene(int scale, gs::VramImage& vram) {
 }
 
 void VideoStack::EnsureCurrent() {
-    if (!ctx_.IsCreated()) return;
+    if (!ctx_.IsCreated()) return;   // Metal: no context to bind
     const std::thread::id me = std::this_thread::get_id();
     if (me == current_thread_ && SDL_GL_GetCurrentWindow() == win_.Handle()) return;
     if (ctx_.MakeCurrent(win_)) {
@@ -109,24 +138,24 @@ void VideoStack::PresentWindow() {
     if (output_) {
         std::vector<uint8_t> rgba;
         int w = 0, h = 0;
-        if (be_.ReadPresented(&rgba, &w, &h) && w > 0 && h > 0) {
+        if (be_ && be_->ReadPresented(&rgba, &w, &h) && w > 0 && h > 0) {
             ++output_frames_;
             output_(std::move(rgba), w, h);
         }
     }
-    if (swap_hidden_) win_.Swap();
-    else be_.FlushCommands();
+    if (swap_hidden_ && !metal_active_) win_.Swap();
+    else if (be_) be_->FlushCommands();
 }
 
 void VideoStack::OnWindowResized(int w, int h) {
-    if (!be_.IsInitialized() || w <= 0 || h <= 0) return;
+    if (!be_ || w <= 0 || h <= 0) return;
     window_w_ = w;
     window_h_ = h;
-    be_.SetWindowSize(w, h);
+    be_->SetWindowSize(w, h);
 }
 
 void VideoStack::Shutdown() {
-    if (ctx_.IsCreated() && be_.IsInitialized()) EnsureCurrent();
+    if (ctx_.IsCreated() && gl_.IsInitialized()) EnsureCurrent();
     pipe_.reset();
     presenter_.reset();
     scanout_.reset();
@@ -136,7 +165,12 @@ void VideoStack::Shutdown() {
     scale_.reset();
     vram_ = nullptr;
     output_ = {};
-    if (be_.IsInitialized()) be_.Shutdown();
+    if (gl_.IsInitialized()) gl_.Shutdown();
+#if defined(PS2R_HAS_METAL)
+    metal_.reset();
+#endif
+    be_ = nullptr;
+    metal_active_ = false;
     ctx_.Destroy();
     win_.Destroy();
 }

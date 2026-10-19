@@ -12,6 +12,7 @@
 #include "engine/ee/hle/sdk_binding_manifest.h"
 #include "engine/ee/hle/syscall_table.h"
 #include "engine/ee/sched/ee_run_token.h"
+#include "engine/ee/sched/ee_event_queue.h"
 #include "engine/ee/sched/ee_yield_point.h"
 #include "engine/gs/state/gs_priv_regs.h"
 #include "engine/sif/hle/sce_sif.h"
@@ -65,6 +66,14 @@ void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
     meta->Set("sdk_rows_hit", std::to_string(SdkBindingManifest::Instance().HitTotal()));
     meta->Set("sdk_rows_hit_list", SdkBindingManifest::Instance().HitList());
     meta->Set("ee_yield", EeYieldPoint::Instance().Stats().Format());
+    {
+        // The foreign-event queue: how many enqueues poked every park (no token holder) vs the
+        // holder's parks only (E420: a blocked thread is never woken for an event the holder applies).
+        const EeEventQueue& q = EeEventQueue::Instance();
+        meta->Set("ee_events", "pokes_all=" + std::to_string(q.PokesAll()) + ":pokes_holder=" + std::to_string(q.PokesHolder()) +
+                                   ":ring_drops=" + std::to_string(q.RingFullDrops()) +
+                                   ":nonholder_drains=" + std::to_string(q.NonHolderDrainRequests()));
+    }
     meta->Set("ee_yield_budget", std::to_string(LegIop::kYieldBudget));
     meta->Set("vblank_waits", std::to_string(EeRunToken::Instance().VblankWaits()) + ":idle=" +
                                   std::to_string(EeRunToken::Instance().VblankWaitsIdle()));

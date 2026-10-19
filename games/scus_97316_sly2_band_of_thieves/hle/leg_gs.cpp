@@ -26,12 +26,12 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
     // by the modelled transfer: Dmac::StartChannel(GIF) -> ChainWalker -> GifParser ->
     // GsState::WriteRegister(FINISH) -> GsPrivRegs::Finish() -> the observer (leg_interrupts.cpp) -> Intc kGs.
     gs_state.SetQuirks(ps2r::gs::VertexKickQuirks{title.quirks.round_sprite_mode});
-    gs_queue_split_image = core.play_mode && cfg.video.backend == ps2r::VideoBackend::Gl &&
+    gs_queue_split_image = core.play_mode && cfg.video.backend != ps2r::VideoBackend::Soft &&
                            cfg.gs.queue == ps2r::GsQueue::Pipelined;
     if (gs_queue_split_image) pipeline_vram = std::make_unique<ps2r::gs::VramImage>();
-    video_live = core.want_video && cfg.video.backend == ps2r::VideoBackend::Gl &&
+    video_live = core.want_video && cfg.video.backend != ps2r::VideoBackend::Soft &&
                  video.Create(cfg.video, "Sly 2 -- NativeEE (GS)", pipeline_vram ? *pipeline_vram : gs_state.Vram());
-    if (core.want_video && !video_live) std::fprintf(stderr, "nativeee: no GL video stack (video=stub; see the log)\n");
+    if (core.want_video && !video_live) std::fprintf(stderr, "nativeee: no video stack (video=stub; see the log)\n");
     // gs.queue=inline: the consumer runs on the pushing EE thread (the context re-bound per
     // thread); otherwise the DrawIR ring carries the stream to the consumer on its own host
     // thread, which owns the GL context. Headless (dump): LOCKSTEP -- every push returns once

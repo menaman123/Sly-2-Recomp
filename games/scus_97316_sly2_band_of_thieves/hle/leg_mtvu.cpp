@@ -7,6 +7,7 @@
 
 #include "app/host/build_id.h"
 #include "engine/core/log/log.h"
+#include "engine/ee/intc/intc.h"
 #include "engine/gif/gif_arbiter.h"
 #include "engine/vu/tiers/vu_tier_dispatch.h"
 
@@ -27,6 +28,10 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
                                            devices.vu1.dispatch().settings(), title.quirks.xgkick_defer, mtvu_settings, &core.running);
         mtvu->SetKickDrop(false);
         mtvu->SetDeferBoundaries(false);
+        // A completed EE-side sync (the pipeline ran empty on the EE's demand) is an observation
+        // point for the GS causes the pipeline latched (E422, leg_interrupts: the FINISH /
+        // SIGNAL observer raises deferred; the INTC collects at observation points only).
+        mtvu->sync().SetAfterSyncHook(+[](void* user) { static_cast<Intc*>(user)->CollectDeferred(); }, &core.intc);
         // The drain thread only where the DrawIR chain's consumer never draws on the pushing thread.
         const bool drain_possible = !gs.video_live || gs.gs_queue_thread;
         // Opt-in (NATIVEEE_GIF_DRAIN=1) until the drain-thread lane replays byte-identically to the
