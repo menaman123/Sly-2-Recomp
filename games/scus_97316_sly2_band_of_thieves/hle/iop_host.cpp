@@ -493,6 +493,9 @@ void IopHost::WriteCensus(verify::RunMeta* meta) {
     meta->Set("iop_rpc_stalls", std::to_string(table_.Rpc().Stalls()));
     meta->Set("iop_printf_calls", std::to_string(stdio_.Calls()));
     meta->Set("iop_timer_beats", std::to_string(table_.Kernel().TimerBeats()));
+    // The IOP frame clock's quanta (one per delivered field): equals the SPU field pumps + the
+    // boundary pumps in play mode, the boundary count headless.
+    meta->Set("iop_frame_quanta", std::to_string(table_.Kernel().Clock().Frames()));
     // The libsd services the hosted 989snd reached (ordinal:count) and the voice-transfer bytes.
     meta->Set("iop_libsd", libsd_.CallsCensus() + ":trans_bytes=" + std::to_string(libsd_.VoiceTransBytes()));
     // The modules' own disc traffic (spiop streams through cdvdman's sceCdRead).

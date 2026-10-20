@@ -191,6 +191,9 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegPlay play(cfg, title, core, gs, audio);
     if (play.Failed()) return 2;
     LegIop iop(cfg, core, devices, mtvu, interrupts, disc, services);
+    // The IOP's frame clock follows the SPU's: the Verify slot's field pump runs one IOP quantum per
+    // catch-up field between the SPU quanta it mixes (play mode; headless has no catch-up fields).
+    audio.field_quantum = [&iop](CpuContext& ctx) { iop.PumpFieldQuantum(ctx); };
     LegSaves saves(cfg, host, title, core, gs, devices, mtvu, services, iop, play, g_build_id);
     LegPad pad(cfg, title_dir, knobs, core, services, play);
     LegImage image(cfg, host, title, elf_path, title_dir, knobs, core, disc, services, iop);

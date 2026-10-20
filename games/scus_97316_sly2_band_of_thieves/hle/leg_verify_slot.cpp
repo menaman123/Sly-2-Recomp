@@ -62,8 +62,13 @@ LegVerifySlot::LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& 
         harness_keys.push_back(k);
     }
     census.SetDisplaySequence(&display_sequence);
-    core.sequencer.SetStep(BoundarySequencer::Step::Verify, [this](CpuContext&) {
-        VerifyStep();
+    // The mem lane (VerifyHost: the 34 MB guest-RAM FNV-1a every 60 boundaries, 36-44 ms ON THE BOUNDARY
+    // THREAD = one forced 3-field frame per second): the deterministic / headless oracle lanes' instrument,
+    // OFF in play (the clock contract's rule 5) unless NATIVEEE_MEM_LANE forces it. The recorded mem.mhash
+    // values are untouched when the lane is on (same hash, same cadence); run.meta publishes mem_lane=.
+    host.SetMemLane(knobs.mem_lane_set ? knobs.mem_lane_on : !core.play_mode);
+    core.sequencer.SetStep(BoundarySequencer::Step::Verify, [this](CpuContext& ctx) {
+        VerifyStep(ctx);
         return true;
     });
     if (play.session) {
@@ -160,14 +165,19 @@ void LegVerifySlot::HarnessVerbs(uint64_t at_boundary) {
     }
 }
 
-void LegVerifySlot::VerifyStep() {
+void LegVerifySlot::VerifyStep(CpuContext& ctx) {
     using ps2r::ringlog::RingLog;
     ps2r::sound::Mixer& mixer = services_.mixer;
     HarnessVerbs(park_.boundaries);
     // The play-mode FIELD PUMP (the first title's rule, ee_bootstrap_play.cpp): the mixer is caught up
     // to one quantum per domain tick, each pushed to the DEVICE ring only; the boundary's own pump
     // below is the hashed one (the lane keeps exactly 800 frames per boundary). Play only: the
-    // headless lane is the boundary-only pump it always was.
+    // headless lane is the boundary-only pump it always was. The IOP rides the same clock: the
+    // IopDispatch step (slot 5) ran its quantum for the boundary's own field; each catch-up field here
+    // mixes its SPU quantum, then runs the IOP one quantum (LegAudio::field_quantum) -- IOP quantum k
+    // precedes SPU quantum k at any frame rate, so a 989snd stream half the voice just left is refilled
+    // within one field (one quantum per BOUNDARY left the IOP at frame_hz/60 of SPU time: stale halves,
+    // then the streamer's starvation KOFF -- the "corrupted audio" below 60 boundaries/s).
     if (audio_.audio_sink.Running()) {
         const uint64_t now = core_.domain.DomainTick();
         if (audio_.audio_pumped_tick == 0) audio_.audio_pumped_tick = now;   // the first boundary anchors
@@ -176,6 +186,7 @@ void LegVerifySlot::VerifyStep() {
             play_.PushAudioRing(mixer.Output());
             ++audio_.audio_pumped_tick;
             ++audio_.audio_field_pumps;
+            if (audio_.field_quantum) audio_.field_quantum(ctx);
         }
         audio_.audio_pumped_tick = now;
     }

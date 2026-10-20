@@ -7,10 +7,12 @@
 // hashed buffer. Pad-with-tail (the clock contract, rule 4): a late game tick repeats the previous
 // quantum's tail -- never a gap, never a pitch change. NATIVEEE_AUDIO_DUMP taps the device stream, or
 // (NATIVEEE_AUDIO_DUMP_SOURCE=mixer, and always when no device runs) the mixer's boundary output
-// (audio_dump.h). The census counters (audio_device=) and the field pump's state live here.
+// (audio_dump.h). The census counters (audio_device=) and the field pump's state live here; the field pump
+// also runs the IOP one frame quantum per catch-up field (field_quantum), so IOP time follows SPU time.
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "engine/core/config/config.h"
@@ -37,6 +39,12 @@ public:
     // The mixer's boundary quantum (Mixer::kFramesPerVsync frames) into the dump when it taps the mixer.
     void TapMixer(const float* out);
     bool DumpsMixer() const { return dump_mixer; }
+    // The field pump's IOP side (bound by the composition to LegIop::PumpFieldQuantum): one IOP frame
+    // quantum per catch-up field, run after that field's SPU quantum and before the next -- the IOP's
+    // frame clock advances once per delivered field, as the SPU's does (the IopDispatch step covers the
+    // boundary's own field). Unbound: the IOP stays on the boundary clock.
+    using FieldQuantum = std::function<void(CpuContext&)>;
+    FieldQuantum field_quantum;
 
     ps2r::platform::sdl::AudioPullRing audio_ring;
     ps2r::platform::sdl::SdlAudioSink audio_sink;

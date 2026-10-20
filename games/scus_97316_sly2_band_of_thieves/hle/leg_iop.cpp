@@ -64,8 +64,7 @@ LegIop::LegIop(const ps2r::Config& cfg, LegCore& core, LegDevices& devices, LegM
         return f;
     });
     core.sequencer.SetStep(BoundarySequencer::Step::IopDispatch, [this](CpuContext& ctx) {
-        iop_host.Table().PumpAtBoundary();
-        SceSif::DeliverPendingCommands(ctx);   // SIF commands the IOP sent since the last boundary
+        PumpFieldQuantum(ctx);   // the boundary's own field; the Verify slot's field pump runs the catch-up fields' quanta
         return true;
     });
     // The SIF command path IOP -> EE: a hosted module's sceSifSendCmd lands in libkernl's command
@@ -114,6 +113,11 @@ LegIop::LegIop(const ps2r::Config& cfg, LegCore& core, LegDevices& devices, LegM
         yd.budget = kYieldBudget;
         EeYieldPoint::Instance().Bind(std::move(yd));
     }
+}
+
+void LegIop::PumpFieldQuantum(CpuContext& ctx) {
+    iop_host.Table().PumpAtBoundary();
+    SceSif::DeliverPendingCommands(ctx);   // SIF commands the IOP sent since the last quantum
 }
 
 }  // namespace ps2r::title::sly2

@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "engine/sound/voice.h"
+
 #include "engine/cdvd/hle/libcdvd_bindings.h"
 #include "engine/dmac/dmac_channel.h"
 #include "engine/ee/hle/sdk_binding_manifest.h"
@@ -246,7 +248,8 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
                                         ":field_pumps=" + std::to_string(audio.audio_field_pumps) +
                                         ":lead=" + std::to_string(audio.audio_ring.LeadQuanta())
                                   : std::string("none"));
-    meta->Set("audio_mixed", "pumps=" + std::to_string(p_.services.mixer.Pumps()) + ":frames=" + std::to_string(p_.services.mixer.FramesMixed()));
+    meta->Set("audio_mixed", "pumps=" + std::to_string(p_.services.mixer.Pumps()) + ":frames=" + std::to_string(p_.services.mixer.FramesMixed()) +
+                                 ":interp=" + (ps2r::sound::Voice::Gaussian() ? "gaussian" : "linear"));
     // The pace census (play; the pacer's protocol): boundaries that parked for the wall
     // edge / arrived late, the longest frame's work, the first long frames with the
     // TickProfile breakdown (Boundary / GifDrain / ... / other = recompiled code), the
@@ -378,7 +381,11 @@ void LegCensus::WriteVu1(ps2r::verify::RunMeta* meta) {
                               ":mode=" + (live_vu1.dispatch().settings().vu1_mode == VuTierMode::Aot ? "aot"
                                           : live_vu1.dispatch().settings().vu1_mode == VuTierMode::Block ? "block"
                                           : live_vu1.dispatch().settings().vu1_mode == VuTierMode::Interp ? "interp" : "cached") +
-                              ":block_runs=" + std::to_string(bs.runs) + ":block_ns=" + std::to_string(bs.run_ns) + ":block_ns_per_bundle=" + bnpb + xg);
+                              ":block_runs=" + std::to_string(bs.runs) + ":block_ns=" + std::to_string(bs.run_ns) + ":block_ns_per_bundle=" + bnpb +
+                              // blocks= block executions (a delay slot counts one) / through a generated REGION function /
+                              // ops run inside them / ops whose stall came from the static schedule / ops that consulted the model.
+                              ":blocks=" + std::to_string(bs.blocks_run) + "/" + std::to_string(bs.blocks_native) + "/" +
+                              std::to_string(bs.ops_native) + "/" + std::to_string(bs.ops_static) + "/" + std::to_string(bs.ops_model) + xg);
     // diag.vu1_lockstep: the tier A/B census (kicks compared, divergent, the first divergent
     // kick's ordinal, the categories) -- the invariant's in-game oracle for a tier.
     if (const VuLockstep* ls = live_vu1.dispatch().lockstep()) meta->Set("vu1_lockstep", ls->Summary());

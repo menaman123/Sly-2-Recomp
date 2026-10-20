@@ -39,6 +39,10 @@ LegKnobs LegKnobs::FromEnvironment() {
         k.gif_drain_set = true;
         k.gif_drain_on = std::string(env) == "1";
     }
+    if (const char* env = std::getenv("NATIVEEE_MEM_LANE")) {
+        k.mem_lane_set = true;
+        k.mem_lane_on = std::string(env) == "1";
+    }
     k.ipu_dump = Text(std::getenv("NATIVEEE_IPU_DUMP"));
     k.ipu_out_dump = Text(std::getenv("NATIVEEE_IPU_OUT_DUMP"));
     k.isr_trace = std::getenv("NATIVEEE_ISR_TRACE") != nullptr;

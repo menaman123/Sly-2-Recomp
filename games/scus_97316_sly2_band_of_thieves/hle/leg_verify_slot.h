@@ -67,7 +67,7 @@ public:
 private:
     [[noreturn]] void EndLegFromBoundary(const char* detail);
     void HarnessVerbs(uint64_t at_boundary);
-    void VerifyStep();
+    void VerifyStep(CpuContext& ctx);
     void WriteRoutes(uint32_t present_key, const ps2r::gs::DrawPipeline::Frame& fr);
 
     const ps2r::Config& cfg_;

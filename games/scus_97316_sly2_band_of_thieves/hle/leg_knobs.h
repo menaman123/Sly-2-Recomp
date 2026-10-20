@@ -44,6 +44,11 @@ struct LegKnobs {
     // consumer runs on its own thread or no video stack exists).
     bool gif_drain_set = false;
     bool gif_drain_on = false;
+    // NATIVEEE_MEM_LANE=1|0: force the harness mem lane (VerifyHost's 34 MB guest-RAM FNV every 60 boundaries,
+    // ~40 ms on the boundary thread) on / off (set = the env decides; the default: on in the headless /
+    // deterministic lanes, OFF in play -- the clock contract's rule 5, run.meta mem_lane=).
+    bool mem_lane_set = false;
+    bool mem_lane_on = false;
     // NATIVEEE_IPU_DUMP=<file> / NATIVEEE_IPU_OUT_DUMP=<file>: the toIPU feed / the fromIPU drain, appended.
     std::optional<std::string> ipu_dump;
     std::optional<std::string> ipu_out_dump;
