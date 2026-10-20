@@ -55,6 +55,7 @@ LegKnobs LegKnobs::FromEnvironment() {
     k.gs_texres = Text(std::getenv("NATIVEEE_GS_TEXRES"));
     k.gs_capture = Text(std::getenv("NATIVEEE_GS_CAPTURE"));
     if (const char* env = std::getenv("NATIVEEE_GS_CONSUMER_LEVERS")) k.gs_consumer_levers = std::string(env) != "0";
+    if (const char* env = std::getenv("NATIVEEE_GL_SHADER_BLEND")) k.gl_shader_blend = std::string(env) == "1";
     if (const char* env = std::getenv("NATIVEEE_TEX_DUMP")) {
         char* end = nullptr;
         k.tex_dump_from = static_cast<uint32_t>(std::strtoul(env, &end, 10));

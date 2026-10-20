@@ -89,6 +89,9 @@ struct LegKnobs {
     // grab -> scanout-deposit pixel sharing, the hidden window's swap as a flush) -- the A/B of one binary against
     // itself (leg_gs.cpp).
     bool gs_consumer_levers = true;
+    // NATIVEEE_GL_SHADER_BLEND=1: the GL device blends EVERY blended draw through its exact shader arm (the
+    // fixed-function route off) -- the per-pixel oracle the Metal identity judge compares against (leg_gs.cpp).
+    bool gl_shader_blend = false;
     // NATIVEEE_WATCHDOG_S=<s> (default 60; 0 = off) / NATIVEEE_RAM_DUMP=<file> at the watchdog park.
     uint64_t watchdog_s = 60;
     std::optional<std::string> ram_dump;

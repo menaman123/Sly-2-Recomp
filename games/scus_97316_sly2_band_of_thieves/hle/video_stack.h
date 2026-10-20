@@ -96,6 +96,8 @@ public:
     // The hidden window's present: a swap (SDL_GL_SwapWindow -> CGLFlushDrawable of a drawable nobody
     // sees) or a plain command flush (the default; the captured image is what the session window shows).
     void SetSwapHiddenWindow(bool swap) { swap_hidden_ = swap; }
+    // GL arm only: every blended draw through the exact shader blend (the identity oracle).
+    void SetGlForceShaderBlend(bool on) { if (!metal_active_) gl_.SetForceShaderBlend(on); }
     // A SetWindow job changed the window size (consumer thread): the device's capture /
     // fallback viewport follows; the hidden OS window is left alone.
     void OnWindowResized(int w, int h);

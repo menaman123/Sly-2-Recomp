@@ -47,6 +47,7 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         // synchronous read (p<key>.ppm = that present).
         if (core.play_mode && knobs.gs_consumer_levers) video.SetPresentCaptureDeferred(true);
         video.SetSwapHiddenWindow(!knobs.gs_consumer_levers);   // levers on: the hidden window's swap is a flush
+        if (knobs.gl_shader_blend) video.SetGlForceShaderBlend(true);
         video.Pipe()->Cache().Readback().SetOfferEnabled(knobs.gs_consumer_levers);
         // The display grab when no target sits at the scanout base: the CRTC's own read --
         // decode the DISPFB tuple out of local memory (an uploaded movie frame the title points
