@@ -24,6 +24,7 @@
 #include "engine/ee/sched/ee_yield_point.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/iop_host.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_devices.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_disc.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_interrupts.h"
@@ -36,7 +37,7 @@ class LegIop {
 public:
     static constexpr uint32_t kYieldBudget = EeYieldPoint::kDefaultBudget;   // census ee_yield_budget=
 
-    LegIop(const ps2r::Config& cfg, LegCore& core, LegDevices& devices, LegMtvu& mtvu, LegInterrupts& interrupts,
+    LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, LegDevices& devices, LegMtvu& mtvu, LegInterrupts& interrupts,
            LegDisc& disc, LegServices& services);
     LegIop(const LegIop&) = delete;
     LegIop& operator=(const LegIop&) = delete;

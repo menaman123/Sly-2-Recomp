@@ -44,6 +44,11 @@ struct LegKnobs {
     // consumer runs on its own thread or no video stack exists).
     bool gif_drain_set = false;
     bool gif_drain_on = false;
+    // NATIVEEE_MTVU_EARLY_FINISH=1|0: force the E425/E426 lever (the GS FINISH raised at the EE's
+    // staging point, the deferred boundary, the composed GIF_STAT) on / off on top of Config
+    // engine.mtvu_early_finish (set = the env decides; "1" = on). MTVU only.
+    bool early_finish_set = false;
+    bool early_finish_on = false;
     // NATIVEEE_MEM_LANE=1|0: force the harness mem lane (VerifyHost's 34 MB guest-RAM FNV every 60 boundaries,
     // ~40 ms on the boundary thread) on / off (set = the env decides; the default: on in the headless /
     // deterministic lanes, OFF in play -- the clock contract's rule 5, run.meta mem_lane=).
@@ -55,6 +60,10 @@ struct LegKnobs {
     // NATIVEEE_ISR_TRACE=1: one stderr line per GS SIGNAL / FINISH event and per syscall entry with a
     // pending INTC cause.
     bool isr_trace = false;
+    // NATIVEEE_IDLE_TRACE=1: one stderr line per idle field (the kernel idle passed a vblank with every
+    // guest thread blocked and the GS pipeline owing nothing) with the guest thread table -- the
+    // schedule-change triage line (census ee_yield idle_first=).
+    bool idle_trace = false;
     // NATIVEEE_AUDIO_DUMP=<file.wav>: a 48 kHz stereo int16 WAV of the audio -- the DEVICE stream (play
     // mode, the default) or, with NATIVEEE_AUDIO_DUMP_SOURCE=mixer (and always without a device: headless),
     // the MIXER's 800-frame output of every boundary (emulated-time audio, host speed independent).
@@ -94,6 +103,10 @@ struct LegKnobs {
     // grab -> scanout-deposit pixel sharing, the hidden window's swap as a flush) -- the A/B of one binary against
     // itself (leg_gs.cpp).
     bool gs_consumer_levers = true;
+    // NATIVEEE_GS_SKIP_DEPTH=<1|2>: the pipelined queue's frame-skip depth (complete pending frames the ring may
+    // hold before the oldest is dropped); 0 = the default (1: the previous frame is dropped as soon as the consumer
+    // is still on the one before it). Wired in leg_gs.cpp.
+    uint32_t gs_skip_depth = 0;
     // NATIVEEE_GL_SHADER_BLEND=1: the GL device blends EVERY blended draw through its exact shader arm (the
     // fixed-function route off) -- the per-pixel oracle the Metal identity judge compares against (leg_gs.cpp).
     bool gl_shader_blend = false;

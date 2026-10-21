@@ -17,6 +17,7 @@
 #include "engine/ee/hle/syscall_table.h"
 #include "engine/ee/hle/thread_manager.h"
 #include "engine/ee/recomp_abi/host_app/memory.h"
+#include "engine/vif/vif.h"
 #include "engine/sif/hle/sce_sif.h"
 #include "engine/ee/sched/ee_event_queue.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
@@ -100,7 +101,14 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
     }
     gifs_section.Register(registry);
     pads_section.Register(registry);
-    vu1_register_section.SetOnRestored([mtvu_stack, &vu1] { if (mtvu_stack) mtvu_stack->MirrorVu1(vu1); });
+    // The VIFS section (restored before this one) rewrote VIF1's CYCLE: the early-FINISH scan
+    // re-seeds its CL / WL and drops anything pre-raised (a restore clears the pipeline).
+    Vif& vif = devices.vif;
+    vu1_register_section.SetOnRestored([mtvu_stack, &vu1, &vif] {
+        if (!mtvu_stack) return;
+        mtvu_stack->MirrorVu1(vu1);
+        mtvu_stack->ResyncEarlyFinish(VifRegsCl(vif.regs(1)), VifRegsWl(vif.regs(1)));
+    });
     vu1_register_section.Register(registry);
     // The hosted IOP (IOPH) BEFORE the SPU sections: a re-armed IOP thread's entry may touch the SPU
     // through libsd on its way to its first park; the SPU image restored after it is the saved one.

@@ -11,6 +11,7 @@
 #include "engine/ee/cpu/dispatch_table.h"
 #include "engine/ee/hle/alarms.h"
 #include "engine/ee/hle/syscall_table.h"
+#include "engine/ee/hle/thread_manager.h"
 #include "engine/ee/sched/ee_event_queue.h"
 #include "engine/sif/hle/sce_sif.h"
 #include "games/scus_97316_sly2_band_of_thieves/iop/iop_modules.h"
@@ -45,7 +46,7 @@ IopHost::ExpectedHashes ExpectedIopHashes() {
 
 }  // namespace
 
-LegIop::LegIop(const ps2r::Config& cfg, LegCore& core, LegDevices& devices, LegMtvu& mtvu, LegInterrupts& interrupts,
+LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, LegDevices& devices, LegMtvu& mtvu, LegInterrupts& interrupts,
                LegDisc& disc, LegServices& services)
     : iop_host(cfg, core.ram, services.rpc_router, services.spu_core, disc.Reader(), ExpectedIopHashes()) {
     SyscallTable::Instance().SetSifDmaCopy([this](uint32_t ee_src, uint32_t iop_dst, uint32_t size) {
@@ -101,6 +102,17 @@ LegIop::LegIop(const ps2r::Config& cfg, LegCore& core, LegDevices& devices, LegM
         // The idle runner never passes a field over GS deliveries in flight (the worker's spans,
         // the drain thread's parser): it parks on their progress as the pre-dispatch's idle wait does.
         yd.pipeline_wait = [&mtvu_stack] { return mtvu_stack && !mtvu_stack->sync().WaitProgress(); };
+        if (knobs.idle_trace) {
+            yd.on_idle_field = [](uint64_t tick, int tid) {
+                std::fprintf(stderr, "idle-trace: field at tick %llu on tid %d:", (unsigned long long)tick, tid);
+                for (int t = 0; t < 32; ++t) {
+                    ThreadStatus st;
+                    if (ThreadManager::Instance().ReferThreadStatus(t, st) < 0 || st.status == THS_DORMANT) continue;
+                    std::fprintf(stderr, " tid%d{st=%d prio=%d wait=%u id=%u}", t, st.status, st.current_priority, st.wait_type, st.wait_id);
+                }
+                std::fprintf(stderr, "\n");
+            };
+        }
         yd.pump_devices = [this, &mtvu_stack](CpuContext& ctx) {
             // The IOP's threads run on their own clock while the EE spins (an RPC status
             // poll into a hosted module needs the module to progress); its SIF commands land.

@@ -14,6 +14,7 @@
 // boundary: the VSync job the engine does not push itself).
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -68,6 +69,11 @@ public:
         ~GsQueueStop() { if (q) q->Stop(); }
     } gs_queue_stop;
     FrameDump frame_dump;
+    // Whether anyone reads the boundary's display grab (the consumer's grab_wanted hook, read on the
+    // consumer thread): the harness lanes (VerifyHost armed: frames.fhash, F5, the dumps) or a frame
+    // dump. A player's session has neither -- the grab and its hash are then skipped (perf2). Set by
+    // the Verify slot's constructor, before the first frame.
+    std::atomic<bool> grab_wanted{true};
     uint64_t grab_local_memory = 0, grab_fallback = 0, grabs = 0;   // census gs_grab_sources=
     uint32_t dump_every = 1, dump_from = 0;
     // NATIVEEE_GS_RT_DUMP (boot triage, headless lockstep): the colour image INCLUDING the stored alpha

@@ -1,0 +1,70 @@
+{
+  "title": "SCUS_973.16 Sly 2: Band of Thieves (NTSC-U) -- cel-shading judge fixture (verify/judge_cel.py)",
+  "note": "Numbers only. Coordinates are field pixels (512x224). The twin is PCSX2 2.7.329 HW (DumpGSData SaveInfo + SaveTexture/SaveAlpha [+ SaveFrame] of the named frame); ours is the presented frame p<key>.ppm of the named state (headless, gs.queue=thread). char_box / char_z select the character's body-pass draws in the twin's draw list (every vertex inside, lerp pass ALPHA 0101 ATST GEQUAL); the mask they cover is applied to both frames.",
+  "defaults": {
+    "ring_px": 2,
+    "ink_lum": 40,
+    "coverage_min": 0.9,
+    "extra_max": 0.1,
+    "thick_px": 1.0,
+    "mode_frac": 0.15,
+    "mode_sep": 8,
+    "mode_px": 6,
+    "material_min_px": 60,
+    "leak_lo": 0.5,
+    "leak_step_default": 16,
+    "leak_max": 0.02
+  },
+  "cases": {
+    "paris_ledge": {
+      "scene": "Paris rooftop hub, the spawn ledge right after the X press, camera behind Sly (PCSX2 slot-2 state, per-draw dump f15 = ep1_pcsx2/hwdump_tex draws 60425..64725, frame PNG = the f15 fr1 of the same dump (hwdump_tex/64723_f00015_fr1: the f15 draws land on it, the f16 fr1 is the other field); ours states/ep1_ledge_3090.ps2st present key 11)",
+      "twin_frame": 15,
+      "ours_key": 11,
+      "char_box": [
+        130,
+        80,
+        350,
+        224
+      ],
+      "char_z": [
+        50000,
+        95000
+      ]
+    },
+    "cairo_museum_1860": {
+      "scene": "intro cinematic, museum hall, Sly by the pillars (PCSX2 f1860 per-draw dump sh_pcsx2/hwdump_intro + its fr1 PNG; ours states/intro_museum_1471.ps2st present key 6 -- the cinematic is deterministic from boot on both sides, so the poses match and the ring metric is gated)",
+      "twin_frame": 1860,
+      "ours_key": 6,
+      "pose_matched": true,
+      "char_box": [
+        196,
+        108,
+        266,
+        156
+      ],
+      "char_z": [
+        18000,
+        23000
+      ],
+      "ink_lum": 48,
+      "ink_lum_note": "the intro cinematic runs under a fade: the ink lands at L 38 in the twin (42 ours, the colour stage's few levels of global tone -- bg mean 26.5 vs 27.7); the default 40 cuts through it"
+    },
+    "palace_hub": {
+      "scene": "episode-2 palace (India jungle) hub, the spawn ledge, camera behind Sly (PCSX2 slot-3 state from the same rewritten save: per-draw dump f15 = wp_pcsx2/hwdump_ep2, frame PNG f16 fr1; ours states/hub_ep2.ps2st present key 11, NATIVEEE_GS_VERTS=11 TEX_DUMP=0,12). Same spawn, idle phase differs -> ring reported only.",
+      "twin_frame": 15,
+      "ours_key": 11,
+      "char_box": [
+        190,
+        110,
+        340,
+        200
+      ],
+      "char_z": [
+        95000,
+        135000
+      ],
+      "gate": false,
+      "gate_note": "report-only: the ink gates pass (visible 0.92, thickness 3 = 3, 999 vs 1033 ink lines) but contrast 0.79 and the tbp 258000 band set fail for reasons outside the ink: the twin's Sly carries the stencil self-shadow / ground shadow (its dark modes 28..32) which ours lacks in this hub with BOTH the baseline and fix/cel (the 28 shadow-class draws are emitted; the darkening never lands: judge_shadow item, no palace case there), and PCSX2 expands lines to a 1-px perpendicular band (2 px per step near 45 degrees) where the GS / ours draw the one-pixel DDA line, so its ink mean is darker. Re-gate once judge_shadow covers the palace."
+    }
+  }
+}

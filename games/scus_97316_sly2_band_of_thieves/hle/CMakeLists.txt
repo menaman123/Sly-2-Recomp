@@ -11,7 +11,7 @@
 #                  SessionRuntime window + live pad) as a chain of phase classes, one per leg_*.{h,cpp}
 #                  pair in the first title's construction order (leg_knobs = the NATIVEEE_* knobs, the
 #                  title's one getenv site; leg_core, leg_gs, leg_devices, leg_mtvu, leg_dma_ipu,
-#                  leg_interrupts, leg_disc, leg_services, leg_audio, leg_play, leg_iop, leg_pad,
+#                  leg_interrupts, leg_vif_irq, leg_disc, leg_services, leg_audio, leg_play, leg_iop, leg_pad,
 #                  leg_image, leg_park, leg_census, leg_park_sink, leg_verify_slot, leg_watchdog; the
 #                  trace sinks vert_trace_sink / gif_trace_sink and audio_dump are their own classes),
 #                  plus iop_host.cpp: the title's three embedded
@@ -66,6 +66,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         leg_services.cpp
         leg_text.cpp
         leg_verify_slot.cpp
+        leg_vif_irq.cpp
         leg_watchdog.cpp
         nav_json.cpp
         nav_probe.cpp

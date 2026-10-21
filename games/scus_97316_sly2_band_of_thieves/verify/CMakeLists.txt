@@ -70,6 +70,18 @@ target_link_libraries(sly2_test_shadow_counter_split PRIVATE ps2r_gs_ir)
 add_test(NAME Sly2_ShadowCounterSplit COMMAND sly2_test_shadow_counter_split)
 set_tests_properties(Sly2_ShadowCounterSplit PROPERTIES TIMEOUT 60)
 
+# --- the CEL-SHADING judge (verify/judge_cel.py, stage CEL) ------------------------------------------
+# The title's ink (one GS LINE pair per visible silhouette edge, PRIM 0xc1 LINE ABE AA1 + TEST ATST NEVER
+# AFAIL RGB_ONLY ZTST GREATER, colour 16/16/16/128, then the Z pass) and its two-palette shading judged
+# against PCSX2's per-draw SaveInfo dump + frame PNG of the same scene: ink contrast / visibility /
+# thickness over each side's own line list, the ring coverage on pose-matched cases, the per-material
+# luminance modes and gradient leak inside the body mask, and the character's textures byte-identical
+# (Oracle A). Fixture verify/cel/cel_fixture.json (numbers only; frames, dumps and twins are game-derived
+# and stay outside the repository). The selftest runs everywhere.
+add_test(NAME Sly2_JudgeCelSelftest
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/judge_cel.py --selftest)
+set_tests_properties(Sly2_JudgeCelSelftest PROPERTIES TIMEOUT 120)
+
 # --- the SOLIDITY gate (verify/judge_solidity.py) ---------------------------------------------------
 # One presented frame against its PCSX2 twin inside the fixture's masks (verify/solidity/fixtures.json:
 # numbers only): lum_wall / lum_sly_w1 <= 6, see_through <= 0.1 (round H item 1: the D1 / D3 / D7

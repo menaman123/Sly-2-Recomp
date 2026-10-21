@@ -84,6 +84,7 @@ private:
     LegCensus& census_;
     TextWatch& text_watch_;
     bool failed_ = false;
+    bool tex_dump_done_ = false;   // NATIVEEE_TEX_DUMP armed once and disarmed
 };
 
 }  // namespace ps2r::title::sly2

@@ -46,8 +46,21 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
     // kicking tid, the kernel's IMR word and whether the cause was raised or masked.
     const bool isr_trace = knobs.isr_trace;
     GifParser& gif_parser = devices.gif_parser;
-    gs.gs_state.Priv().SetInterruptObserver([this, isr_trace, &gif_parser, &intc](uint32_t csr_event) {
+    GifArbiter& gif_arbiter = devices.gif_arbiter;
+    gs.gs_state.Priv().SetInterruptObserver([this, isr_trace, &gif_parser, &gif_arbiter, &intc](uint32_t csr_event) {
         ++gs_irq_events;
+        {
+            const int kind = (csr_event & ps2r::gs::GsPrivRegs::kCsrSignal) ? 1 : 0;
+            int path = 0;
+            switch (gif_parser.ActivePath()) {
+                case GifPath::Path1: path = 1; break;
+                case GifPath::Path2: path = 2; break;
+                case GifPath::Path3: path = 3; break;
+                default: break;
+            }
+            ++gs_irq_kind_path[kind][path];
+            if (gif_arbiter.OnDrainThread()) ++gs_irq_on_drain; else ++gs_irq_on_ee;
+        }
         const bool masked = (SyscallTable::Instance().GsImr() & (static_cast<uint64_t>(csr_event) << 8)) != 0;
         if (isr_trace)
             std::fprintf(stderr, "gs-irq: t=%llu tid=%d event=0x%x imr=0x%llx %s path=%d p1=%llu p2=%llu p3=%llu\n",

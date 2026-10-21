@@ -7,8 +7,10 @@
 
 #include "app/host/build_id.h"
 #include "engine/core/log/log.h"
+#include "engine/ee/cpu/shadow_call_stack.h"
 #include "engine/ee/intc/intc.h"
 #include "engine/gif/gif_arbiter.h"
+#include "engine/gs/state/gs_priv_regs.h"
 #include "engine/vu/tiers/vu_tier_dispatch.h"
 
 namespace ps2r::title::sly2 {
@@ -27,7 +29,25 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
         mtvu = std::make_unique<MtvuStack>(devices.vif, devices.dmac.walker(), devices.gif_arbiter, devices.vu1.dispatch(),
                                            devices.vu1.dispatch().settings(), title.quirks.xgkick_defer, mtvu_settings, &core.running);
         mtvu->SetKickDrop(false);
-        mtvu->SetDeferBoundaries(false);
+        // E425/E426 (engine.mtvu_early_finish / NATIVEEE_MTVU_EARLY_FINISH; default off). The early
+        // FINISH applies wherever the worker runs; the DEFERRED boundary (E426: no terminal sync at
+        // SyncV, no VSync drain fence, the composed GIF_STAT) only in the paced play composition --
+        // the headless / unpaced lanes keep the terminal sync so their Verify grab reads the frame
+        // the boundary closed (the fhash lane stays keyed by boundary: the oracle lanes are inert).
+        early_finish = knobs.early_finish_set ? knobs.early_finish_on : cfg.engine.mtvu_early_finish;
+        const bool paced = core.play_mode && gs.video_live && !knobs.unpaced;
+        deferred_boundary = early_finish && paced;
+        mtvu->SetDeferBoundaries(deferred_boundary);
+        mtvu->SetComposedGifStat(deferred_boundary);
+        // E427: with the boundary deferred, the vsync thread's sceGsSyncPath (0x2403d8, the
+        // libgraph body: VIF1_STAT / GIF_STAT polled until idle; 12 polls per frame on tid 3,
+        // census vif1_stat_poll_site) would otherwise park on the worker and -- at priority 2
+        // over the logic thread's 5 -- keep the frame a series; the EE-side view answers it.
+        mtvu->SetVif1IdleView(deferred_boundary);
+        mtvu->SetVif1PollSite(+[](void*) -> uint32_t {
+            ShadowCallStack::Frame f{};
+            return ShadowCallStack::Top(0, f) ? f.func_addr : 0u;
+        }, nullptr);
         // A completed EE-side sync (the pipeline ran empty on the EE's demand) is an observation
         // point for the GS causes the pipeline latched (E422, leg_interrupts: the FINISH /
         // SIGNAL observer raises deferred; the INTC collects at observation points only).
@@ -44,18 +64,34 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
             // The EE's pushes into the DrawIR chain ride the arbiter in stream order: the boundary's
             // VSync job (then fenced: the Verify slot / the vblank read a completed frame) and the
             // privileged display registers' jobs (one kick, no wait).
-            gs.ordered_submit = [&arbiter](std::function<void()> work) {
+            // Under the deferred boundary (E426) the fence goes: the frame's packets may still be
+            // unparsed at the boundary by design; the wall-locked Verify grab reads LastFrameHeaderCopy.
+            const bool fence = !deferred_boundary;
+            gs.ordered_submit = [&arbiter, fence](std::function<void()> work) {
                 arbiter.submitOrdered(std::move(work));
                 arbiter.drain();
-                arbiter.DrainFence();
+                if (fence) arbiter.DrainFence();
             };
             gs.gs_state.Priv().SetJobDeferrer([&arbiter](std::function<void()> push) {
                 arbiter.submitOrdered(std::move(push));
                 arbiter.drain();
             });
         }
-        PS2R_LOG(HOST, Info, "MTVU: VU1 worker started (drain %s, terminal boundary sync, depth_frames=%d)",
-                 mtvu->drain().Running() ? "thread" : "inline", cfg.engine.mtvu_depth);
+        // E425 early FINISH (engine.mtvu_early_finish / NATIVEEE_MTVU_EARLY_FINISH; default off): the
+        // EE raises the GS FINISH -- CSR.FINISH + the INTC edge through the same observer as the
+        // parser's raise, so IMR masking and the deferred collection are unchanged -- when it has
+        // STAGED the chain carrying the write (the VIF1 walk's closing PATH2 DIRECT, tid 3's PATH3
+        // chains), and the parser's own Finish() for that write consumes the pre-raised count: one
+        // edge per FINISH write (O4: gs_irq 1800 / intc GS edges 1800 on the Paris 600 lane).
+        if (early_finish) {
+            GifArbiter& arbiter = devices.gif_arbiter;
+            ps2r::gs::GsPrivRegs& priv = gs.gs_state.Priv();
+            mtvu->EnableEarlyFinish(+[](void* user) { static_cast<ps2r::gs::GsPrivRegs*>(user)->FinishNow(); }, &priv);
+            priv.SetFinishConsumer([&arbiter] { return arbiter.ConsumePreRaisedFinish(); });
+        }
+        PS2R_LOG(HOST, Info, "MTVU: VU1 worker started (drain %s, %s boundary, depth_frames=%d, early_finish=%s)",
+                 mtvu->drain().Running() ? "thread" : "inline", deferred_boundary ? "deferred" : "terminal sync",
+                 cfg.engine.mtvu_depth, early_finish ? "on" : "off");
     }
     // The AOT tier's persistent side on the LIVE VU1 unit (the worker's under MTVU: its dispatch copied
     // the settings above). Only when the tier is selected. No compiler on the host = one notice, the

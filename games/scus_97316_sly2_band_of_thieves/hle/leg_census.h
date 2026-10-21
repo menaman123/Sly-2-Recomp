@@ -19,6 +19,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_gs.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_image.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_interrupts.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_vif_irq.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_iop.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_mtvu.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_pad.h"
@@ -44,6 +45,7 @@ public:
         LegMtvu& mtvu;
         LegDmaIpu& dma_ipu;
         LegInterrupts& interrupts;
+        LegVifIrq& vif_irq;
         LegServices& services;
         LegAudio& audio;
         LegPlay& play;

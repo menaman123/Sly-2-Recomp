@@ -18,14 +18,17 @@ LegDmaIpu::LegDmaIpu(const LegKnobs& knobs, LegCore& core, LegDevices& devices, 
     // The GIF register block: under the drain thread every access fences the parser first (the STAT /
     // TAG registers are composed from the transfer state the parser owns).
     core.mmio.Register(GifRegs::kBase, GifRegs::kSize,
-                       mtvu.mtvu ? mtvu.mtvu->GifWindow(devices.gif_regs) : static_cast<MmioHandler&>(devices.gif_regs), "GIF");
+                       mtvu.mtvu ? mtvu.mtvu->GifWindow(static_cast<GifRegs&>(devices.gif_regs)) : static_cast<MmioHandler&>(devices.gif_regs), "GIF");
     core.mmio.Register(Vif::kVif0Base, Vif::kRegsSize, vif_gate, "VIF0");
     core.mmio.Register(Vif::kVif1Base, Vif::kRegsSize, vif1_window, "VIF1");
     core.mmio.Register(Vif::kVif1FifoBase, Vif::kFifoSize, vif1_window, "VIF1_FIFO");
     core.map.RegisterHwWindow(0x11000000u, 0x1000u, devices.vu0.state().micro, "VU0_MICRO");
     core.map.RegisterHwWindow(0x11004000u, 0x1000u, devices.vu0.state().data, "VU0_DATA");
-    core.map.RegisterHwWindow(0x11008000u, 0x4000u, devices.vu1.state().micro, "VU1_MICRO");
-    core.map.RegisterHwWindow(0x1100C000u, 0x4000u, devices.vu1.state().data, "VU1_DATA");
+    // The VU1 windows map the LIVE unit (the worker's under MTVU): the title's VIF1 interrupt handler
+    // reads the lit vertex colours its VU1 lighting routine left at 0x1100c320+ (leg_vif_irq.h) while
+    // the worker is parked on the i-bit stall -- the inline unit never sees the worker's stream.
+    core.map.RegisterHwWindow(0x11008000u, 0x4000u, mtvu.LiveVu1().state().micro, "VU1_MICRO");
+    core.map.RegisterHwWindow(0x1100C000u, 0x4000u, mtvu.LiveVu1().state().data, "VU1_DATA");
     core.mmio.Register(0x10008000u, 0x6064u, dmac, "DMAC");
     core.mmio.Register(0x1000F520u, 0x10u, dmac, "D_ENABLER");
     core.mmio.Register(0x1000F590u, 0x10u, dmac, "D_ENABLEW");

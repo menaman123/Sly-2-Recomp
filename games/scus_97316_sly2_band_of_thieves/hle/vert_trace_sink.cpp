@@ -65,14 +65,15 @@ bool VertTraceSink::Observe(const ps2r::gs::DrawIr& d) {
     if (on.load(std::memory_order_relaxed)) {
         const uint32_t idx = index++;
         if (skip_from && idx >= skip_from && (skip_to == 0 || idx < skip_to)) return false;
-        std::fprintf(stderr, "verts: seq=%u prim=%u tme=%d abe=%d fbp=0x%x fbw=%u psm=%u fbmsk=0x%x zbp=0x%x zpsm=%u zmsk=%d zte=%d ztst=%u ate=%d atst=%u aref=%u afail=%u scissor=%u,%u-%u,%u off=%.1f,%.1f tbp=0x%x tbw=%u tpsm=%u tw=%u th=%u tcc=%u tfx=%u cbp=0x%x cpsm=%u csm=%u csa=%u cld=%u fst=%d texa=%u/%u/%d alpha=%u%u%u%u/%u n=%u\n",
+        std::fprintf(stderr, "verts: seq=%u prim=%u tme=%d abe=%d fbp=0x%x fbw=%u psm=%u fbmsk=0x%x zbp=0x%x zpsm=%u zmsk=%d zte=%d ztst=%u ate=%d atst=%u aref=%u afail=%u scissor=%u,%u-%u,%u off=%.1f,%.1f tbp=0x%x tbw=%u tpsm=%u tw=%u th=%u tcc=%u tfx=%u cbp=0x%x cpsm=%u csm=%u csa=%u cld=%u fst=%d texa=%u/%u/%d alpha=%u%u%u%u/%u n=%u img=%016llx kpc=%u kord=%u hle=%u\n",
                      d.seq, d.prim_type, d.tex_enabled ? 1 : 0, d.alpha_blend ? 1 : 0, d.raster.frame.fbp, d.raster.frame.fbw,
                      d.raster.frame.psm, d.raster.frame.fbmsk, d.raster.zbuf.zbp, d.raster.zbuf.psm, d.raster.zbuf.zmsk ? 1 : 0,
                      d.raster.test.zte ? 1 : 0, d.raster.test.ztst, d.raster.test.ate ? 1 : 0, d.raster.test.atst, d.raster.test.aref,
                      d.raster.test.afail, d.raster.scissor.x0, d.raster.scissor.y0, d.raster.scissor.x1, d.raster.scissor.y1, d.off_x,
                      d.off_y, d.tex.tbp, d.tex.tbw, d.tex.psm, d.tex.tw, d.tex.th, d.tex.tcc, d.tex.tfx, d.tex.cbp, d.tex.cpsm, d.tex.csm,
                      d.tex.csa, d.tex.cld, d.tex.fst ? 1 : 0, d.tex.texa_ta0, d.tex.texa_ta1, d.tex.texa_aem ? 1 : 0, d.raster.alpha.a,
-                     d.raster.alpha.b, d.raster.alpha.c, d.raster.alpha.d, d.raster.alpha.fix, d.vertex_count);
+                     d.raster.alpha.b, d.raster.alpha.c, d.raster.alpha.d, d.raster.alpha.fix, d.vertex_count,
+                     static_cast<unsigned long long>(d.identity.image_hash), d.identity.kick_pc, d.identity.kick_ord, d.identity.hle_handler);
         for (size_t i = 0; i < d.verts.size() && i < vert_cap; ++i)
             std::fprintf(stderr, "verts:   v%zu xyz=%.1f,%.1f,%.0f stq=%g,%g,%g uv=%u,%u rgba=%02x%02x%02x%02x fog=%u\n", i, d.verts[i].x,
                          d.verts[i].y, d.verts[i].z, d.verts[i].s, d.verts[i].t, d.verts[i].q, d.verts[i].uv_u, d.verts[i].uv_v, d.verts[i].r,

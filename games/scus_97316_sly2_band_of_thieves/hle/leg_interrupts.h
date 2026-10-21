@@ -31,6 +31,11 @@ public:
     void InstallDmacHandlers();
 
     uint64_t gs_irq_events = 0, gs_irq_masked = 0, gs_irq_raises = 0;              // census gs_irq=
+    // E425 hazard census: GS events by kind and the parser's active path at the raise
+    // ([0] = FINISH, [1] = SIGNAL; path index 0 = none/unknown, 1..3 = PATH1..3) and the
+    // thread they were raised on (the EE holder vs the drain thread).
+    uint64_t gs_irq_kind_path[2][4] = {};
+    uint64_t gs_irq_on_ee = 0, gs_irq_on_drain = 0;
     uint64_t syscall_entry_isrs = 0, syscall_entry_isrs_deferred = 0;              // census syscall_entry_isrs=
     uint64_t mtvu_idle_wait_entries = 0;                                           // census mtvu= idle_wait_entries
 

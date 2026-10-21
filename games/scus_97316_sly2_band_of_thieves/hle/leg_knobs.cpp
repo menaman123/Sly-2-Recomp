@@ -39,6 +39,10 @@ LegKnobs LegKnobs::FromEnvironment() {
         k.gif_drain_set = true;
         k.gif_drain_on = std::string(env) == "1";
     }
+    if (const char* env = std::getenv("NATIVEEE_MTVU_EARLY_FINISH")) {
+        k.early_finish_set = true;
+        k.early_finish_on = std::string(env) == "1";
+    }
     if (const char* env = std::getenv("NATIVEEE_MEM_LANE")) {
         k.mem_lane_set = true;
         k.mem_lane_on = std::string(env) == "1";
@@ -46,6 +50,7 @@ LegKnobs LegKnobs::FromEnvironment() {
     k.ipu_dump = Text(std::getenv("NATIVEEE_IPU_DUMP"));
     k.ipu_out_dump = Text(std::getenv("NATIVEEE_IPU_OUT_DUMP"));
     k.isr_trace = std::getenv("NATIVEEE_ISR_TRACE") != nullptr;
+    k.idle_trace = std::getenv("NATIVEEE_IDLE_TRACE") != nullptr;
     k.audio_dump = Text(std::getenv("NATIVEEE_AUDIO_DUMP"));
     if (const char* env = std::getenv("NATIVEEE_AUDIO_DUMP_SOURCE")) k.audio_dump_mixer = std::string(env) == "mixer";
     k.spu_trace = Text(std::getenv("NATIVEEE_SPU_TRACE"));
@@ -60,6 +65,7 @@ LegKnobs LegKnobs::FromEnvironment() {
     k.gs_capture = Text(std::getenv("NATIVEEE_GS_CAPTURE"));
     if (const char* env = std::getenv("NATIVEEE_GS_CONSUMER_LEVERS")) k.gs_consumer_levers = std::string(env) != "0";
     if (const char* env = std::getenv("NATIVEEE_GL_SHADER_BLEND")) k.gl_shader_blend = std::string(env) == "1";
+    if (const char* env = std::getenv("NATIVEEE_GS_SKIP_DEPTH")) k.gs_skip_depth = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
     if (const char* env = std::getenv("NATIVEEE_TEX_DUMP")) {
         char* end = nullptr;
         k.tex_dump_from = static_cast<uint32_t>(std::strtoul(env, &end, 10));

@@ -41,6 +41,8 @@
 //                  sink, the IPU + FIFO port + its DMAC channel wiring (+ dumps), the COP2 bridge
 //   LegInterrupts  GsSync::BindDmac, the DMAC handler install, the GS interrupt observer, the
 //                  syscall-entry pre-dispatch
+//   LegVifIrq      the VIFcode i-bit interrupt stall (the worker's park + the EE-side service; the
+//                  inline walk's in-place handler) -- the title's VU1-lit vertex colours ride it
 //   LegDisc        IsoFs / ReadEngine / StreamReader, the SifDma id hook
 //   LegServices    RpcRouter, the memory card store + model + MCSERV face, PadProtocol + the padman
 //                  face, SpuCore, Mixer, SdBlockTrans + the SDRDRV face
@@ -114,6 +116,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_verify_slot.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_vif_irq.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_watchdog.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/warp_tool.h"
 
@@ -173,6 +176,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegMtvu mtvu(cfg, title, knobs, core, gs, devices);
     LegDmaIpu dma_ipu(knobs, core, devices, mtvu);
     LegInterrupts interrupts(knobs, core, gs, devices, mtvu);
+    LegVifIrq vif_irq(core, devices, mtvu);
     LegDisc disc(cfg, title, host);
     LegServices services(cfg, core);
     LegAudio audio(cfg, knobs, core, services.spu_core);
@@ -190,7 +194,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     if (warp.Requested() && !warp.Applied()) return 2;
     LegPlay play(cfg, title, core, gs, audio);
     if (play.Failed()) return 2;
-    LegIop iop(cfg, core, devices, mtvu, interrupts, disc, services);
+    LegIop iop(cfg, knobs, core, devices, mtvu, interrupts, disc, services);
     // The IOP's frame clock follows the SPU's: the Verify slot's field pump runs one IOP quantum per
     // catch-up field between the SPU quanta it mixes (play mode; headless has no catch-up fields).
     audio.field_quantum = [&iop](CpuContext& ctx) { iop.PumpFieldQuantum(ctx); };
@@ -201,7 +205,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // NATIVEEE_WATCH=text[;...]: the code-range snapshot compare (text_watch.h) -- after the ELF load.
     TextWatch text_watch(knobs.watch ? knobs.watch->c_str() : nullptr, core.ram);
     LegPark park(host, knobs, core, devices, mtvu);
-    LegCensus census(LegCensus::Phases{cfg, host, title, core, gs, devices, mtvu, dma_ipu, interrupts, services, audio, play, saves,
+    LegCensus census(LegCensus::Phases{cfg, host, title, core, gs, devices, mtvu, dma_ipu, interrupts, vif_irq, services, audio, play, saves,
                                        iop, pad, image, text_watch, park});
     LegParkSink park_sink(host, census, park, play, disc, iop);
     LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);

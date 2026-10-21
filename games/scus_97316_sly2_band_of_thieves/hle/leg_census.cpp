@@ -16,6 +16,7 @@
 #include "engine/ee/sched/ee_run_token.h"
 #include "engine/ee/sched/ee_event_queue.h"
 #include "engine/ee/sched/ee_yield_point.h"
+#include "engine/gs/state/gs_mmio_handler.h"
 #include "engine/gs/state/gs_priv_regs.h"
 #include "engine/sif/hle/sce_sif.h"
 #include "engine/vu/macro/vu_macro_bridge.h"
@@ -24,6 +25,13 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_text.h"
 
 namespace ps2r::title::sly2 {
+namespace {
+std::string FormatMs(double ms) {
+    char b[32];
+    std::snprintf(b, sizeof b, "%.2f", ms);
+    return b;
+}
+}  // namespace
 
 void LegCensus::Write() {
     ps2r::verify::RunMeta* meta = p_.host.Meta();
@@ -80,6 +88,20 @@ void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
     meta->Set("vblank_waits", std::to_string(EeRunToken::Instance().VblankWaits()) + ":idle=" +
                                   std::to_string(EeRunToken::Instance().VblankWaitsIdle()));
     meta->Set("syscall_entry_isrs", std::to_string(irq.syscall_entry_isrs) + ":deferred=" + std::to_string(irq.syscall_entry_isrs_deferred));
+    {
+        // The VIFcode i-bit stall (leg_vif_irq.h): worker parks, handlers run in place / inside a sync
+        // wait, and the refusals (no guest context; a wait inside an ISR; a stall seen before its cause).
+        const LegVifIrq& v = p_.vif_irq;
+        std::string row = "stalls=" + std::to_string(v.stalls) + ":inline_isrs=" + std::to_string(v.inline_isrs) +
+                          ":inline_refused=" + std::to_string(v.inline_refused) + ":sync_isrs=" + std::to_string(v.sync_isrs) +
+                          ":sync_not_pending=" + std::to_string(v.sync_not_pending) + ":sync_refused=" + std::to_string(v.sync_refused);
+        if (p_.mtvu.mtvu)
+            row += ":sync_services=" + std::to_string(p_.mtvu.mtvu->sync().IrqServices()) +
+                   ":sync_service_refusals=" + std::to_string(p_.mtvu.mtvu->sync().IrqServiceRefusals()) +
+                   ":worker_stalls=" + std::to_string(p_.mtvu.mtvu->worker().IrqStalls()) +
+                   ":worker_stall_ns=" + std::to_string(p_.mtvu.mtvu->worker().IrqStallNs());
+        meta->Set("vif_irq", row);
+    }
     meta->Set("intc_raises", std::to_string(intc.RaiseCount()));
     meta->Set("intc_dispatches", std::to_string(intc.DispatchCount()));
     // Refusals are a cause raised WHILE a handler ran (the console: EXL masks interrupts
@@ -92,6 +114,24 @@ void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
     meta->Set("intc_edges", intc.EdgeCensus());
     meta->Set("gs_irq", "events=" + std::to_string(irq.gs_irq_events) + ":masked=" + std::to_string(irq.gs_irq_masked) +
                             ":raises=" + std::to_string(irq.gs_irq_raises));
+    // E425 hazard census: the GS events by kind / parser path / raising thread, and the EE's
+    // reads of the GS event state (CSR by the event bits it carried, SIGLBLID, the W1C clears).
+    {
+        std::string s;
+        static const char* const kKind[2] = {"finish", "signal"};
+        for (int k = 0; k < 2; ++k)
+            for (int p = 0; p < 4; ++p)
+                if (irq.gs_irq_kind_path[k][p])
+                    s += std::string(s.empty() ? "" : ":") + kKind[k] + "_p" + std::to_string(p) + "=" +
+                         std::to_string(irq.gs_irq_kind_path[k][p]);
+        if (s.empty()) s = "none";
+        meta->Set("gs_irq_kinds", s + ":on_ee=" + std::to_string(irq.gs_irq_on_ee) + ":on_drain=" + std::to_string(irq.gs_irq_on_drain));
+        const ps2r::gs::GsMmioHandler::ReadCensus& rc = p_.devices.gs_mmio.Census();
+        meta->Set("gs_priv_reads", "csr=" + std::to_string(rc.csr) + ":csr_finish_set=" + std::to_string(rc.csr_finish_set) +
+                                       ":csr_signal_set=" + std::to_string(rc.csr_signal_set) + ":siglblid=" + std::to_string(rc.siglblid) +
+                                       ":other=" + std::to_string(rc.other) + ":csr_clear_finish=" + std::to_string(rc.csr_clear_finish) +
+                                       ":csr_clear_signal=" + std::to_string(rc.csr_clear_signal));
+    }
     meta->Set("gs_priv_writes", std::to_string(p_.gs.gs_state.Priv().Writes()));
 }
 
@@ -127,12 +167,16 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
                                          ":frames=" + std::to_string(c.frames) + ":uploads=" + std::to_string(c.uploads) +
                                          ":uploads_dropped=" + std::to_string(c.uploads_dropped) +
                                          ":resizes=" + std::to_string(c.resizes) + ":presents=" + std::to_string(c.presents) +
-                                         ":grab_empty=" + std::to_string(c.grab_empty));
+                                         ":grab_empty=" + std::to_string(c.grab_empty) +
+                                         ":grab_deferred=" + std::string(gs.consumer->GrabDeferred() ? "on" : "off") +
+                                         ":grabs_skipped=" + std::to_string(c.grabs_skipped) +
+                                         ":grabs_deferred=" + std::to_string(c.grabs_deferred) +
+                                         ":grabs_completed=" + std::to_string(c.grabs_completed));
         }
         if (gs.gs_queue) {
             const ps2r::gs::DrawIrThreadQueue::Counters& q = gs.gs_queue->Count();
             meta->Set("gs_queue", std::string(gs.gs_queue->policy() == ps2r::gs::DrawIrThreadQueue::Policy::Lockstep ? "lockstep" : "pipelined") +
-                                      (gs.gs_queue->FrameSkip() ? ":frame_skip" : "") +
+                                      (gs.gs_queue->FrameSkip() ? ":frame_skip=" + std::to_string(gs.gs_queue->FrameSkipDepth()) : "") +
                                       ":enqueued=" + std::to_string(q.enqueued) + ":consumed=" + std::to_string(q.consumed) +
                                       ":frames=" + std::to_string(q.frames) + ":frames_dropped=" + std::to_string(q.frames_dropped) +
                                       ":frame_waits=" + std::to_string(q.frame_waits) +
@@ -140,7 +184,15 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
                                       ":vram_ops=" + std::to_string(q.vram_ops) + ":snapshots=" + std::to_string(q.snapshots) +
                                       ":l2l=" + std::to_string(q.l2l_ee_served) + "/" + std::to_string(q.l2l_snapshot_served) + "/" +
                                       std::to_string(q.l2l_stale_max) + "/" + std::to_string(q.l2l_unserved) +
-                                      ":faulted=" + (gs.gs_queue->Faulted() ? "1" : "0"));
+                                      ":faulted=" + (gs.gs_queue->Faulted() ? "1" : "0") +
+                                      // The consumer thread's own time inside the pipeline by record kind (ms), and
+                                      // per presented frame -- the renderer's cost independent of the game's pace.
+                                      ":deliver_ms=" + std::to_string(q.deliver_draw_ns / 1000000u) + "/" +
+                                      std::to_string(q.deliver_frame_ns / 1000000u) + "/" + std::to_string(q.deliver_other_ns / 1000000u) +
+                                      ":consumer_ms_per_frame=" + FormatMs(q.frames > q.frames_dropped
+                                                                               ? static_cast<double>(q.deliver_draw_ns + q.deliver_frame_ns + q.deliver_other_ns) / 1e6 /
+                                                                                     static_cast<double>(q.frames - q.frames_dropped)
+                                                                               : 0.0));
         } else {
             meta->Set("gs_queue", "inline");
         }

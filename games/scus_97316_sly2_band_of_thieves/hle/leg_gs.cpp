@@ -70,10 +70,22 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
             hooks.crtc = crtc_now;
         }
         hooks.window_resized = [this](int w, int h) { video.OnWindowResized(w, h); };
+        hooks.grab_wanted = [this] { return grab_wanted.load(std::memory_order_relaxed); };
         consumer = std::make_unique<ps2r::gs::DrawIrQueueConsumer>(*video.Pipe(), std::move(hooks));
         // Play: the frames-lane hash is taken where the grab is made (the consumer thread, at
         // the present scale); the wall-locked boundary reads the header + hash, never the pixels.
         if (!gs_queue_lockstep) consumer->SetFrameHashScale(video.Scale());
+        // Play, pipelined (the split image: the pipeline image is read on the consumer thread
+        // alone): the frame-end grab is QUEUED on the GPU and published one boundary late, and
+        // the scanout deposit takes its own deferred read -- the consumer no longer drains the
+        // GPU pipeline at every frame end (perf2: 11 % of the consumer thread sat in
+        // glReadPixels). The lane hash is still HashNativeScale over the picture's bytes; the
+        // boundary's LastFrame lags the stream by one picture (it already lagged by the
+        // consumer's backlog under frame skip). Lockstep / headless keep the synchronous grab.
+        if (core.play_mode && knobs.gs_consumer_levers && !gs_queue_lockstep && gs_queue_split_image) {
+            consumer->SetGrabDeferred(true);
+            video.Pipe()->Cache().SetDeferredDeposit(true);
+        }
         if (gs_queue_thread) {
             ps2r::gs::DrawIrThreadQueue::Hooks qh;
             qh.upload_pixels = [this] { return &gs_state.Xfer().LastUploadPixels(); };
@@ -91,7 +103,13 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
                     [this](ps2r::gs::VramImage::Span source, ps2r::gs::VramImage& image) {
                         return gs_queue->ServeLocalToLocalSource(source, image);
                     });
-                gs_queue->SetFrameSkip(true);
+                // Frame skip depth (perf2, measured): depth 2 (the ring may hold two complete pending
+                // frames; the consumer may lag a whole field) does not buy a picture -- the frame the
+                // one-frame rule drops costs no consumer time, while at depth 2 it is rendered and the
+                // 60 Hz pacer supersedes it anyway (two pictures inside one field edge: superseded
+                // 1 -> 13 / 1200 in the same-minute pair, frames_dropped 3 -> 2). Depth 1 stays the
+                // default; NATIVEEE_GS_SKIP_DEPTH=2 is the A/B for when the EE chain reaches 60.
+                gs_queue->SetFrameSkip(true, knobs.gs_skip_depth ? knobs.gs_skip_depth : 1u);
             }
             video.ReleaseCurrent();
             gs_queue->Start([this] {
@@ -148,6 +166,12 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         gs_sink_head = &vert_trace;
     }
     draw_sink.SetNext(gs_sink_head);
+    // The title reads only Draws()/Frames() of the counting sink (gs_draws= / gs_frames=): its
+    // DrawRec FNV chain is off. The DrawIr snapshot extras (vertex_hash, bbox) exist for the
+    // .gsstream recorder and its reader's hash oracle; they are computed only while a capture
+    // is armed. Both run on the GIF drain thread (~1 ms/frame of byte-wise FNV in Paris).
+    draw_sink.SetHashing(false);
+    gs_state.Flush().SetRecordSnapshot(knobs.gs_capture.has_value());
     gs_state.SetSink(&draw_sink);
     // NATIVEEE_GS_RT_DUMP=<key>,<fbp hex>[,cap=<n>][,at=<i>[+<i>...]][,noclass][,nofbmsk][,nopost] (leg_gs.h).
     if (knobs.gs_rt_dump) {

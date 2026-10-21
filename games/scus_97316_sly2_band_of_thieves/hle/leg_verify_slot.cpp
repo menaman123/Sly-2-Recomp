@@ -32,6 +32,9 @@ LegVerifySlot::LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& 
       display_sequence(cfg.harness.display_sequence),
       cfg_(cfg), host_(host), knobs_(knobs), core_(core), gs_(gs), mtvu_(mtvu), services_(services), audio_(audio), play_(play),
       saves_(saves), park_(park), census_(census), text_watch_(text_watch) {
+    // The display grab has a reader only under a harness (frames.fhash, the F5 slot, the dumps) or a
+    // frame dump; a player's session skips the grab and its hash (gs_consumer grabs_skipped).
+    gs_.grab_wanted.store(host_.Armed() || gs_.frame_dump.Enabled(), std::memory_order_relaxed);
     // The clock census attributes a boundary to the wall edge of its first field (the pacer's tick), so
     // a 1 s window counts the edges the game answered in it, not the answer latencies.
     play.clock_census.SetEdgeLookup([this](uint64_t tick, std::chrono::steady_clock::time_point* edge) {
@@ -40,6 +43,13 @@ LegVerifySlot::LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& 
         *edge = std::chrono::steady_clock::time_point(std::chrono::nanoseconds(ns));
         return true;
     });
+    // NATIVEEE_TEX_DUMP=0,<to>: arm before the first frame runs (a cold-restored state decodes the whole
+    // scene in its first frame, before any boundary the VerifyStep arm below could catch).
+    if (knobs.tex_dump_to && knobs.tex_dump_from == 0 && gs.video.Pipe()) {
+        ps2r::gs::TextureDumpSink& sink = gs.video.Pipe()->Resolver().DumpSink();
+        const std::string dir = (gs.frame_dump.Enabled() ? gs.frame_dump.Dir() : cfg.harness.out_dir) + "/textures";
+        if (!sink.Arm(dir)) std::fprintf(stderr, "nativeee: NATIVEEE_TEX_DUMP: cannot create %s\n", dir.c_str());
+    }
     // --set harness.inject_key=<KEY>@N[-M][,...]: KEY = F1..F12 or an SDL key name (Escape, Space ...).
     // The validator pinned the format; an unknown name is refused here.
     for (std::string rest = cfg.harness.inject_key; !rest.empty();) {
@@ -225,14 +235,18 @@ void LegVerifySlot::VerifyStep(CpuContext& ctx) {
         // NATIVEEE_TEX_DUMP=<from>,<to> (leg_knobs.h): the texture oracle dump of the frames ending at present
         // keys [from, to] -- armed at the boundary that opens frame `from`, disarmed after the boundary that
         // closes frame `to` (headless lockstep: the consumer is idle at the boundary).
+        // The arm fires at the first boundary at or past `from` (not only the one equal to it), so a
+        // cold-restored state -- whose first boundary may already carry a later key -- still dumps the
+        // textures its first frames decode (stage CEL: the character's two CLUTs from a ledge state).
         if (knobs_.tex_dump_to && gs_.video.Pipe() && !core_.sequencer.WallLocked()) {
             ps2r::gs::TextureDumpSink& sink = gs_.video.Pipe()->Resolver().DumpSink();
-            if (present_key + 1 == knobs_.tex_dump_from && !sink.Armed()) {
+            if (present_key + 1 >= knobs_.tex_dump_from && !sink.Armed() && !tex_dump_done_) {
                 const std::string dir = (gs_.frame_dump.Enabled() ? gs_.frame_dump.Dir() : cfg_.harness.out_dir) + "/textures";
                 if (!sink.Arm(dir)) std::fprintf(stderr, "nativeee: NATIVEEE_TEX_DUMP: cannot create %s\n", dir.c_str());
             } else if (sink.Armed() && (present_key >= knobs_.tex_dump_to ||
                                         (cfg_.harness.frames > 0 && boundary + 1 >= static_cast<uint64_t>(cfg_.harness.frames)))) {
                 sink.Disarm();
+                tex_dump_done_ = true;
                 const ps2r::gs::TextureDumpSink::Stats& st = sink.GetStats();
                 std::fprintf(stderr,
                              "nativeee: NATIVEEE_TEX_DUMP keys %u..%u: decodes=%llu distinct=%llu oracle_b_bad=%llu serves=%llu "
