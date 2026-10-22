@@ -157,6 +157,8 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
     meta->Set("video", gs.video_live ? "gl" : "stub");
     if (gs.video_live) {
         meta->Set("gl_renderer", gs.video.Renderer());
+        // The backend in force and how it was chosen (video.backend=auto picks per host).
+        meta->Set("video_backend", std::string(gs.video.ActiveBackend()) + (gs.video.BackendAuto() ? " (auto)" : ""));
         meta->Set("gl_version", gs.video.GlVersion());
         meta->Set("gs_window", std::to_string(gs.video.WindowW()) + "x" + std::to_string(gs.video.WindowH()) +
                                    ":rebinds=" + std::to_string(gs.video.Rebinds()) +
@@ -172,6 +174,30 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
                                          ":grabs_skipped=" + std::to_string(c.grabs_skipped) +
                                          ":grabs_deferred=" + std::to_string(c.grabs_deferred) +
                                          ":grabs_completed=" + std::to_string(c.grabs_completed));
+            // DrawCoalescer (engine gs/hle/ir): the ink line-pair fold ahead of the pipeline.
+            const ps2r::gs::DrawCoalescer::Counters& k = gs.consumer->CoalesceCount();
+            meta->Set("gs_coalesce", std::string(gs.consumer->Coalesce() ? "on" : "off") + ":in=" + std::to_string(k.in) +
+                                         ":passed=" + std::to_string(k.passed) + ":out=" + std::to_string(k.out) +
+                                         ":absorbed=" + std::to_string(k.absorbed) + ":runs=" + std::to_string(k.runs) +
+                                         ":pairs=" + std::to_string(k.pairs) + ":reject_orphan_z=" + std::to_string(k.reject_orphan_z) +
+                                         ":reject_colour=" + std::to_string(k.reject_colour) + ":reject_state=" + std::to_string(k.reject_state));
+        }
+        if (gs.video.Pipe()) {
+            // The decode fallback's census and its warm-up series (per 1 s window of the
+            // consumer's clock: frames/lookups/decodes/decode_us/upload_us).
+            const ps2r::gs::TextureResolver::Census& t = gs.video.Pipe()->Resolver().Stats();
+            meta->Set("texres", "lookups=" + std::to_string(t.lookups) + ":l1_hits=" + std::to_string(t.l1_hits) +
+                                    ":l2_hits=" + std::to_string(t.l2_hits) + ":sig_hits=" + std::to_string(t.sig_hits) +
+                                    ":decodes=" + std::to_string(t.decodes) + ":decode_ms=" + std::to_string(t.decode_ns / 1000000u) +
+                                    ":upload_ms=" + std::to_string(t.upload_ns / 1000000u) +
+                                    ":prep_bytes=" + std::to_string(t.prep_bytes) + ":view_bytes=" + std::to_string(t.view_bytes) +
+                                    ":owned_serves=" + std::to_string(t.owned_serves) + ":owned_misses=" + std::to_string(t.owned_misses));
+            const std::string warm = gs.video.Pipe()->Resolver().WarmSeries();
+            meta->Set("texres_warm", warm.empty() ? std::string("none") : warm);
+            // The consumer's work per 1 s window: frames/draws/draw_calls/uploads/upload_kb/
+            // readbacks/readback_kb/copies/program_binds/framebuffer_binds/texture_binds.
+            const std::string gw = gs.video.Pipe()->WarmSeries();
+            meta->Set("gs_warm", gw.empty() ? std::string("none") : gw);
         }
         if (gs.gs_queue) {
             const ps2r::gs::DrawIrThreadQueue::Counters& q = gs.gs_queue->Count();
@@ -327,6 +353,9 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
         meta->Set("clock_field_hz", cc.FieldHzSeries().empty() ? std::string("none") : cc.FieldHzSeries());
         meta->Set("clock_render_fps", cc.RenderFpsSeries().empty() ? std::string("none") : cc.RenderFpsSeries());
         meta->Set("clock_ee_cpu_ms", cc.EeCpuMsSeries().empty() ? std::string("none") : cc.EeCpuMsSeries());
+        meta->Set("clock_gs_cpu_ms", cc.GsCpuMsSeries().empty() ? std::string("none") : cc.GsCpuMsSeries());
+        meta->Set("clock_faults", cc.FaultsSeries().empty() ? std::string("none") : cc.FaultsSeries());
+        meta->Set("clock_footprint_kb", cc.FootprintKbSeries().empty() ? std::string("none") : cc.FootprintKbSeries());
         constexpr size_t kClockRampWindows = 5;
         const std::vector<ps2r::app::ClockCensus::Window> ws = cc.Windows();
         double logic_sum = 0, frame_sum = 0;

@@ -89,6 +89,10 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         // --dump-frames <dir> in play: the presented WINDOW image the session ends on (<dir>/w_final.ppm:
         // the picture plus the menu overlays -- what the user saw), the pin for the menu pages.
         if (gs.frame_dump.Enabled()) session->ConfigureWindowDump(gs.frame_dump.Dir());
+        // The F1 panel's Renderer line: the backend in force and how it was chosen.
+        if (gs.video_live)
+            session->SetRenderer(std::string(gs.video.ActiveBackend()) + (gs.video.BackendAuto() ? " (auto): " : ": ") +
+                                 gs.video.Renderer());
         controls_page = std::make_unique<ps2r::app::ControlsPageBinding>(cfg.paths.user_data, settings_file, live_input.get());
         session->ConfigureControlsPage(controls_page->Model());
         // The presenter's draws: the ones that showed a NEW picture are the shown lane of the record.

@@ -67,7 +67,10 @@ public:
     // ScaleSettings{video.scale} over `vram`: the GS's local-memory image (the one its transfer
     // engine writes), which the decode tiers, the target cache and the refresher read. The
     // caller keeps it alive past Shutdown(). False = no GL available (nothing was built).
-    bool Create(const VideoConfig& video, const char* title, gs::VramImage& vram);
+    // `play`: the windowed play session. video.backend=auto resolves to Metal only there (an
+    // Apple-silicon-class device present); the headless / dump lanes keep GL, so every frame-hash
+    // gate taken on the GL arm stays comparable across hosts.
+    bool Create(const VideoConfig& video, const char* title, gs::VramImage& vram, bool play = false);
     void Shutdown();
     bool Active() const { return pipe_ != nullptr; }
 
@@ -75,6 +78,9 @@ public:
     // The active backend (GL or Metal); valid after a successful Create().
     render::Backend& Device() { return *be_; }
     bool IsMetal() const { return metal_active_; }
+    // The backend in force ("metal" / "gl") and whether video.backend=auto chose it.
+    const char* ActiveBackend() const { return metal_active_ ? "metal" : "gl"; }
+    bool BackendAuto() const { return backend_auto_; }
     const char* Renderer() const { return metal_active_ ? renderer_name_.c_str() : ctx_.Renderer(); }
     const char* GlVersion() const { return metal_active_ ? "Metal" : ctx_.Version(); }
     int Scale() const { return scale_factor_; }
@@ -118,6 +124,7 @@ private:
 #endif
     render::Backend* be_ = nullptr;   // gl_ or *metal_
     bool metal_active_ = false;
+    bool backend_auto_ = false;
     std::string renderer_name_;
     std::thread::id current_thread_{};
     uint64_t rebinds_ = 0;

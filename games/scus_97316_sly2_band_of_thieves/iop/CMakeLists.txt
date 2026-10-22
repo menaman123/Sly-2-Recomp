@@ -39,7 +39,7 @@ function(ps2r_sly2_iop_module id module base)
     set(_generated "${_gen}/iop_recompiled.h" "${_gen}/iop_recompiled.cpp")
     add_custom_command(
         OUTPUT ${_generated}
-        COMMAND $<TARGET_FILE:ps2r_iop_recompiler>
+        COMMAND ps2r_iop_recompiler   # the target name: emulator-aware in a cross build
                 --input "${_irx}" --base ${base} --namespace iop_${id} --import-call --quiet
                 --output-header "${_gen}/iop_recompiled.h" --output-cpp "${_gen}/iop_recompiled.cpp"
         DEPENDS ps2r_iop_recompiler "${_ready}"

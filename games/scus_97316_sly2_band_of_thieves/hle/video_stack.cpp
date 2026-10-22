@@ -21,9 +21,22 @@ constexpr int kHiddenWindowH = 64;
 VideoStack::VideoStack() = default;
 VideoStack::~VideoStack() { Shutdown(); }
 
-bool VideoStack::Create(const VideoConfig& video, const char* title, gs::VramImage& vram) {
+bool VideoStack::Create(const VideoConfig& video, const char* title, gs::VramImage& vram, bool play) {
     if (Active()) return true;
-    const bool ok = video.backend == VideoBackend::Metal ? CreateMetal(video) : CreateContext(video, title);
+    // video.backend=auto: in PLAY, Metal when the host has an Apple-silicon-class Metal device
+    // (MTLGPUFamilyApple7+: the arm the Metal backend is built and measured for), else GL; the
+    // headless / dump lanes resolve to GL (the frame-hash gates' arm). Explicit values as given.
+    VideoBackend chosen = video.backend;
+    backend_auto_ = chosen == VideoBackend::Auto;
+    if (backend_auto_) {
+        chosen = VideoBackend::Gl;
+#if defined(PS2R_HAS_METAL)
+        if (play && render::MetalDevice::Recommended()) chosen = VideoBackend::Metal;
+#else
+        (void)play;
+#endif
+    }
+    const bool ok = chosen == VideoBackend::Metal ? CreateMetal(video) : CreateContext(video, title);
     if (!ok) {
         Shutdown();
         return false;

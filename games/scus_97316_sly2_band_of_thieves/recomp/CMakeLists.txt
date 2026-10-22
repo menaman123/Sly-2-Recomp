@@ -63,7 +63,10 @@ endif()
 add_custom_command(
     OUTPUT ${_generated}
     ${_copy_stubs}
-    COMMAND ${CMAKE_COMMAND} -E chdir "${_cwd}" $<TARGET_FILE:ps2r_recompiler_v2>
+    # The target NAME (not $<TARGET_FILE:>): a cross build (engine/platform/windows/
+    # toolchain_cross_macos.cmake) then runs the host twin through CMAKE_CROSSCOMPILING_EMULATOR;
+    # WORKING_DIRECTORY below is the cwd the tool wants.
+    COMMAND ps2r_recompiler_v2
             --input "${PS2R_TITLE_ELF}"
             --output-header "${_gen}/recompiled.h" --output-cpp "${_gen}/recompiled.cpp"
             --shards ${PS2R_SLY2_RECOMP_SHARDS} --init-parts ${PS2R_SLY2_RECOMP_SHARDS}

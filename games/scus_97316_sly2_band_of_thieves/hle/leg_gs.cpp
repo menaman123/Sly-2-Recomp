@@ -30,7 +30,7 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
                            cfg.gs.queue == ps2r::GsQueue::Pipelined;
     if (gs_queue_split_image) pipeline_vram = std::make_unique<ps2r::gs::VramImage>();
     video_live = core.want_video && cfg.video.backend != ps2r::VideoBackend::Soft &&
-                 video.Create(cfg.video, "Sly 2 -- NativeEE (GS)", pipeline_vram ? *pipeline_vram : gs_state.Vram());
+                 video.Create(cfg.video, "Sly 2 -- NativeEE (GS)", pipeline_vram ? *pipeline_vram : gs_state.Vram(), core.play_mode);
     if (core.want_video && !video_live) std::fprintf(stderr, "nativeee: no video stack (video=stub; see the log)\n");
     // gs.queue=inline: the consumer runs on the pushing EE thread (the context re-bound per
     // thread); otherwise the DrawIR ring carries the stream to the consumer on its own host
@@ -109,6 +109,10 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
                 // 60 Hz pacer supersedes it anyway (two pictures inside one field edge: superseded
                 // 1 -> 13 / 1200 in the same-minute pair, frames_dropped 3 -> 2). Depth 1 stays the
                 // default; NATIVEEE_GS_SKIP_DEPTH=2 is the A/B for when the EE chain reaches 60.
+                // Round 3 (pacing, slip presenter + FIFO, judge_pacing same-minute pair, load 19-21):
+                // depth 2 frame_hz 43.3 / shown 2f=268 / doubled 59.9 % vs depth 1 45.7 / 209 /
+                // 54.7 %; consumer 20.1 vs 19.6 ms/frame -- the second pending frame is rendered
+                // for nothing while the consumer is the bound. Depth 1 confirmed.
                 gs_queue->SetFrameSkip(true, knobs.gs_skip_depth ? knobs.gs_skip_depth : 1u);
             }
             video.ReleaseCurrent();

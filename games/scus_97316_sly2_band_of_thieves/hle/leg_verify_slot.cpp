@@ -12,6 +12,7 @@
 #include "engine/ee/hle/thread_manager.h"
 #include "engine/gs/hle/present/scanout_composer.h"
 #include "engine/gs/state/gs_priv_regs.h"
+#include "engine/platform/host/platform.h"
 #include "engine/sound/mixer.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_text.h"
 
@@ -210,7 +211,12 @@ void LegVerifySlot::VerifyStep(CpuContext& ctx) {
     play_.timeline.Note(FrameTimeline::Lane::Boundary);   // the game-rate lane of present_times.csv
     // The clock census (rule 5), wall-locked boundaries only: this boundary in its 1 s wall window with
     // the domain tick it completed at (the fields delivered); fast-forward fields were never pacer ticks.
-    if (core_.sequencer.WallLocked()) play_.clock_census.NoteBoundary(core_.domain.DomainTick(), core_.sequencer.FastForwardFields());
+    if (core_.sequencer.WallLocked()) {
+        play_.clock_census.NoteBoundary(core_.domain.DomainTick(), core_.sequencer.FastForwardFields());
+        // The process's memory counters in the same window (two cheap kernel reads): the
+        // warm-up census reads first-touch heap growth as the first windows' faults.
+        play_.clock_census.NoteMemory(ps2r::host::ProcessPageFaults(), ps2r::host::ProcessFootprintBytes());
+    }
     RingLog::SetFrame(static_cast<uint32_t>(park_.boundaries));
     if (gs_.consumer) {
         const uint32_t present_key = host_.PresentKey(0, boundary);

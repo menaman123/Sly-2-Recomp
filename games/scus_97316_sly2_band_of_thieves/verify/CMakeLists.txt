@@ -41,6 +41,12 @@ add_test(NAME Sly2_JudgeSmoothSelftest
 # runs everywhere; the gates need a play run with --harness-out.
 add_test(NAME Sly2_JudgePicturesSelftest
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/judge_pictures.py --selftest)
+# judge_pacing.py (round 3): the presenter's pacing from the SHOWN lane with the frozen gates (p99 shown gap
+# <= 20 ms, <= 1 % of gaps > 20 ms = doubled frames, none > 40 ms), the field histogram, the per-second drop
+# table and the production floor (fields minus pictures received: the repeats no presenter can avoid) so the
+# presenter's own cost is read apart from the game's rate. The selftest runs everywhere; the gates need a run.
+add_test(NAME Sly2_JudgePacingSelftest
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/judge_pacing.py --selftest)
 # judge_render_throughput.py (round P phase B): the GS consumer ALONE over a captured consumer stream
 # (engine/gs/hle/capture, `tools/gs_replay stream` -> frames.csv) with the frozen gates (fps p50 >= 160 at internal
 # scale 1 / >= 120 at scale 2 as 1000 / p50 frame ms, no measured frame > 12 ms) and the frames-lane hash identity
@@ -90,3 +96,27 @@ set_tests_properties(Sly2_JudgeCelSelftest PROPERTIES TIMEOUT 120)
 add_test(NAME Sly2_JudgeSoliditySelftest
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/judge_solidity.py --selftest)
 set_tests_properties(Sly2_JudgeSoliditySelftest PROPERTIES TIMEOUT 120)
+
+# --- the METAL IDENTITY judge (verify/judge_metal_identity.py, round 3 track metal) ------------------
+# The Metal arm's picture per pixel inside the BAND the GL arm's two blend routes span (fixed-function
+# default vs `--force-shader-blend`, +-2/255): outside <= 0.3 % of the pixels and max excess <= 8 on every
+# 50th frame of the Paris / Castle / Cairo consumer-stream captures (game-derived, never in the repository:
+# under $NATIVEEE_PRIVATE_FIXTURES/games/scus_97316_sly2_band_of_thieves/verify/metal/<capture>.gsstream).
+# The selftest runs everywhere; the gate needs a Metal device (macOS) and replays gs_replay three times per
+# capture (one process at a time), SKIP (77) without the captures or a device.
+add_test(NAME Sly2_JudgeMetalIdentitySelftest
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/judge_metal_identity.py --selftest)
+set_tests_properties(Sly2_JudgeMetalIdentitySelftest PROPERTIES TIMEOUT 60)
+if(APPLE AND TARGET gs_replay)
+    ps2r_add_private_fixture_test(NAME Sly2_JudgeMetalIdentity
+        FIXTURES games/scus_97316_sly2_band_of_thieves/verify/metal/paris_600_1800.gsstream
+                 games/scus_97316_sly2_band_of_thieves/verify/metal/castle_1000_1150.gsstream
+                 games/scus_97316_sly2_band_of_thieves/verify/metal/cairo_450_600.gsstream
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/judge_metal_identity.py run
+                --gs-replay $<TARGET_FILE:gs_replay>
+                --stream {PRIVATE_FIXTURES}/games/scus_97316_sly2_band_of_thieves/verify/metal/paris_600_1800.gsstream
+                --stream {PRIVATE_FIXTURES}/games/scus_97316_sly2_band_of_thieves/verify/metal/castle_1000_1150.gsstream
+                --stream {PRIVATE_FIXTURES}/games/scus_97316_sly2_band_of_thieves/verify/metal/cairo_450_600.gsstream
+                --artefacts ${CMAKE_CURRENT_BINARY_DIR}/judge_metal_identity --frames 300 --step 50)
+    set_tests_properties(Sly2_JudgeMetalIdentity PROPERTIES TIMEOUT 900)
+endif()

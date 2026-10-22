@@ -95,7 +95,7 @@
 #include "engine/ee/hle/thread_manager.h"
 #include "engine/ee/sched/ee_run_token.h"
 #include "engine/platform/host/platform.h"
-#include "engine/platform/posix/crash_handler.h"
+#include "engine/platform/crash_handler.h"
 #include "engine/title/title_profile.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
