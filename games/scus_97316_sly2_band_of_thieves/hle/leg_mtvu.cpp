@@ -10,6 +10,7 @@
 #include "engine/ee/cpu/shadow_call_stack.h"
 #include "engine/ee/intc/intc.h"
 #include "engine/gif/gif_arbiter.h"
+#include "engine/gs/hle/queue/draw_ir_thread_queue.h"
 #include "engine/gs/state/gs_priv_regs.h"
 #include "engine/vu/tiers/vu_tier_dispatch.h"
 
@@ -18,6 +19,12 @@ namespace ps2r::title::sly2 {
 LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs& knobs, LegCore& core, LegGs& gs,
                  LegDevices& devices)
     : devices_(devices) {
+    // The DrawIR queue's producer stages its Pipelined records (pipeline2): the end of every drain pass --
+    // on the drain thread, or inline on the EE -- hands the staged records to the ring, so none waits for
+    // the next kick (a frame record / ordered work flush on their own).
+    if (gs.gs_queue)
+        devices.gif_arbiter.SetPassEndHook(+[](void* user) { static_cast<ps2r::gs::DrawIrThreadQueue*>(user)->EndOfPass(); },
+                                           gs.gs_queue.get());
     // NATIVEEE_MTVU=1|0 (boot triage) forces the stack on / off in every mode (the deterministic
     // profile pins engine.mtvu=off; =1 under it is the frame-identity oracle for the worker). The
     // Config default is on and the loader records no "was set", so the env knob is the headless opt-in.
@@ -124,6 +131,11 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
             bs.prelude_dir = cfg.engine.vu1_aot_prelude;
             bs.pack_dir = cfg.engine.vu1_aot_pack;   // "" = <executable dir>/vu1_aot_pack (the shipped pack)
             bs.opt_level = cfg.engine.vu1_aot_opt;
+            bs.region.block_cap = cfg.engine.vu1_aot_region_blocks;
+            bs.region.op_cap = cfg.engine.vu1_aot_region_ops;
+            bs.region.taken_targets = cfg.engine.vu1_aot_region_taken;
+            bs.region.chain = cfg.engine.vu1_aot_chain;
+            bs.region.mac_acc = cfg.engine.vu1_aot_mac_acc;
             vu1_aot_builder = std::make_unique<ps2r::app::Vu1AotBuilder>(live.dispatch().aot(), bs);
             std::string bnote;
             if (vu1_aot_builder->Open(&bnote)) {

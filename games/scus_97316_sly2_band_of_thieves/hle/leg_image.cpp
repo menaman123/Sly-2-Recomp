@@ -35,6 +35,7 @@ LegImage::LegImage(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
     BootEnv::Instance().Configure(title.boot);
     BootEnv::Instance().PreSeed();
     Ps2Float::SetGuestThreadRounding();
+    DispatchTable::SetFastDispatch(cfg.engine.ee_fast_dispatch);   // before Initialize: the generated init tail latches it
     DispatchTable::Initialize();
     if (!InstallDispatch(cfg, host, title, title_dir, knobs, core, disc, services, iop)) error_ = 2;
 }

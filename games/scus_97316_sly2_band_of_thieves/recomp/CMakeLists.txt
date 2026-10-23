@@ -9,8 +9,11 @@
 #
 # Shape adapted from the first title's recomp/CMakeLists.txt (which compiled frozen, committed
 # output; here the generation step is added in front): shards as one OBJECT library at -O2, the
-# common TU at -O0, the semantic flags -fno-strict-aliasing -fwrapv -ffp-contract=off (-w: the
-# generated TUs are not our code).
+# common TU at -O2 as well since the eecode round (it holds the per-call dispatch path --
+# recomp_raw_dispatch, EeCallFrameGuard, ee_call_stack_pop, find_containing_function -- which at
+# the first title's -O0 showed as separate leaves worth ~0.5 ms/frame of the EE thread; ~2 min of
+# compile on an M4 under load), the semantic flags -fno-strict-aliasing -fwrapv -ffp-contract=off
+# (-w: the generated TUs are not our code).
 if(NOT PS2R_TITLE_RECOMP_AVAILABLE)
     message(STATUS "games/scus_97316_sly2_band_of_thieves: no title ELF -- ps2r_title_recomp not defined "
                    "(give -DNATIVEEE_DISC=<iso> or -DNATIVEEE_TITLE_ELF=<SCUS_973.16>)")
@@ -112,16 +115,16 @@ endif()
 if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC" AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set(PS2R_RECOMP_SEMANTIC_FLAGS /w /clang:-fno-strict-aliasing /clang:-fwrapv /clang:-ffp-contract=off /bigobj)
     set(PS2R_RECOMP_SHARD_OPT /O2)
-    set(PS2R_RECOMP_COMMON_OPT /Od)
+    set(PS2R_RECOMP_COMMON_OPT /O2)
 elseif(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     message(WARNING "ps2r_title_recomp: MSVC has no -fwrapv equivalent; use the clang-cl presets for a release build")
     set(PS2R_RECOMP_SEMANTIC_FLAGS /w /fp:precise /bigobj)
     set(PS2R_RECOMP_SHARD_OPT /O2)
-    set(PS2R_RECOMP_COMMON_OPT /Od)
+    set(PS2R_RECOMP_COMMON_OPT /O2)
 else()
     set(PS2R_RECOMP_SEMANTIC_FLAGS -w -fno-strict-aliasing -fwrapv -ffp-contract=off)
     set(PS2R_RECOMP_SHARD_OPT -O2)
-    set(PS2R_RECOMP_COMMON_OPT -O0)
+    set(PS2R_RECOMP_COMMON_OPT -O2)
 endif()
 
 # The body shards: one OBJECT library (shard-only options target-wide). The generated header is
@@ -149,7 +152,7 @@ if(PS2R_RECOMP_PCH)
         ${CMAKE_SOURCE_DIR}/engine/ee/recomp_abi/anchor/recomp_pch.h)
 endif()
 
-# The common TU (the dispatch table, init parts, continuations) at -O0, plus the shard objects.
+# The common TU (the dispatch table, init parts, continuations) at -O2, plus the shard objects.
 # No glue TUs: the recon stage verified that none of the first title's address-keyed emitters
 # fire for this ELF (no hle_*/HLE_* reference in the generated code).
 add_library(ps2r_title_recomp STATIC

@@ -98,7 +98,9 @@ public:
     // Play: the device reads each present's window image behind a fence and hands over the
     // PREVIOUS present's (no GPU drain per present; the output lane one present late; a
     // p<key>.ppm of a windowed run is the previous present). Headless keeps the synchronous read.
-    void SetPresentCaptureDeferred(bool deferred) { if (be_) be_->SetPresentCaptureDeferred(deferred); }
+    void SetPresentCaptureDeferred(bool deferred) { present_capture_deferred_ = deferred; if (be_) be_->SetPresentCaptureDeferred(deferred); }
+    // The present capture is read one present late (the picture posted at a present is the previous present's).
+    bool PresentCaptureDeferred() const { return present_capture_deferred_; }
     // The hidden window's present: a swap (SDL_GL_SwapWindow -> CGLFlushDrawable of a drawable nobody
     // sees) or a plain command flush (the default; the captured image is what the session window shows).
     void SetSwapHiddenWindow(bool swap) { swap_hidden_ = swap; }
@@ -144,6 +146,7 @@ private:
     Output output_;
     uint64_t output_frames_ = 0;
     bool swap_hidden_ = false;
+    bool present_capture_deferred_ = false;
 };
 
 }  // namespace ps2r::title::sly2

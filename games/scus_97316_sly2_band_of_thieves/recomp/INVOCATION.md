@@ -47,3 +47,15 @@ kernel's no-return syscalls (`addiu v1,zero,{0x04 Exit, 0x23 ExitThread, 0x24 Ex
 Report: `continuations: 6575 bodies, 72351 exact entries, 2 restartable wait thunks` (was 6574 bodies); the new
 function is 0x100228 (crt0's root 0x100220 now ends at 0x100228); recompiled_shard_000.cpp, recompiled.h,
 recompiled.cpp and continuations.h changed, the 31 other shards are byte-identical. MANIFEST.sha256 re-recorded.
+
+## Regeneration 2026-10-22 (eecode round 4, E1 dispatch fast path)
+
+Tool change `tools/recompiler_v2/recompiler_tool/recompiler.cpp` (emission only; discovery untouched):
+`recomp_call` tests `g_recomp_fn_hooked[id]` alone (the call-census bool is folded into the init tail's hooked[]
+recompute instead of being re-read per call); every JR/JALR site caches the containing dense id (`s_id_<pc>`)
+beside its `{s_t_, s_f_}` pair and dispatches an un-hooked id through `recomp_raw_dispatch`; the raw path's gate
+is the engine seam `recomp_fast_dispatch_enabled` (`DispatchTable::SetFastDispatch` <- `engine.ee_fast_dispatch`)
+instead of `PS2_EE_RAWDISP`. Report unchanged (6575 bodies, 72351 exact entries, 2 restartable wait thunks);
+every shard changed (the indirect sites), recompiled.h / recompiled.cpp changed, continuations.h only in its header
+comment (the shard hash list; the table itself is identical). The common TU is now compiled at -O2 (recomp/CMakeLists.txt
+PS2R_RECOMP_COMMON_OPT). MANIFEST.sha256 re-recorded.

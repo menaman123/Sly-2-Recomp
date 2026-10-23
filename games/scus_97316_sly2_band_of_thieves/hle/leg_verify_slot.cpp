@@ -208,7 +208,8 @@ void LegVerifySlot::VerifyStep(CpuContext& ctx) {
     park_.boundaries = boundary + 1;
     text_watch_.OnBoundary(park_.boundaries);   // NATIVEEE_WATCH=text: the code-range snapshot compare
     park_.NoteBoundaryWall();
-    play_.timeline.Note(FrameTimeline::Lane::Boundary);   // the game-rate lane of present_times.csv
+    // (The boundary lane of present_times.csv is noted at the slot-0 PresentRendezvous step, leg_gs.cpp,
+    // right before the frame's VSync push: the latency census's origin.)
     // The clock census (rule 5), wall-locked boundaries only: this boundary in its 1 s wall window with
     // the domain tick it completed at (the fields delivered); fast-forward fields were never pacer ticks.
     if (core_.sequencer.WallLocked()) {

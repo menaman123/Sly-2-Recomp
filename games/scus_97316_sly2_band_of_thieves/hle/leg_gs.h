@@ -29,6 +29,7 @@
 #include "engine/gs/state/gs_state.h"
 #include "engine/title/title_profile.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/frame_dump.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/frame_timeline.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/shadow_counter_split.h"
@@ -52,6 +53,23 @@ public:
     std::unique_ptr<ps2r::gs::VramImage> pipeline_vram;   // the pipeline's own image (split); null = shared
     bool video_live = false;
     std::unique_ptr<ps2r::gs::DrawIrQueueConsumer> consumer;
+    // The latency tap (frame_timeline.h): the sink right in front of the consumer, on the consumer's
+    // thread. Notes the `consumed` lane when a frame record's delivery returns (the frame's draws
+    // rendered, its grab queued) and publishes the frame ordinal the consumer is on, which the
+    // output callback (leg_play.cpp) tags its posted picture with. Transparent otherwise.
+    struct LatencyTap : ps2r::gs::DrawIrSink {
+        ps2r::gs::DrawIrSink* next = nullptr;
+        FrameTimeline* timeline = nullptr;           // set by LegPlay; read on the consumer thread
+        std::atomic<uint64_t> current_frame{0};     // JobRec::src_frame of the frame record in delivery
+        void OnDraw(const ps2r::gs::DrawIr& d) override { next->OnDraw(d); }
+        void OnDrawOwned(ps2r::gs::DrawIr&& d) override { next->OnDrawOwned(std::move(d)); }
+        void OnJob(const ps2r::gs::JobRec& j) override { next->OnJob(j); }
+        void OnFrame(const ps2r::gs::JobRec& v) override {
+            current_frame.store(v.src_frame, std::memory_order_relaxed);
+            next->OnFrame(v);
+            if (timeline && v.arg1 == 1) timeline->Note(FrameTimeline::Lane::Consumed, v.src_frame);
+        }
+    } latency_tap;
     std::unique_ptr<ps2r::gs::DrawIrThreadQueue> gs_queue;
     bool gs_queue_thread = false;
     bool gs_queue_lockstep = true;

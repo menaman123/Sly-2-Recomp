@@ -96,17 +96,25 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         controls_page = std::make_unique<ps2r::app::ControlsPageBinding>(cfg.paths.user_data, settings_file, live_input.get());
         session->ConfigureControlsPage(controls_page->Model());
         // The presenter's draws: the ones that showed a NEW picture are the shown lane of the record.
-        session->SetPresentObserver([this](std::chrono::steady_clock::time_point at, bool new_picture) {
-            if (new_picture) timeline.NoteAt(FrameTimeline::Lane::Shown, at);
+        session->SetPresentObserver([this](std::chrono::steady_clock::time_point at, bool new_picture, uint64_t tag, uint64_t) {
+            if (new_picture) timeline.NoteAt(FrameTimeline::Lane::Shown, at, tag);
         });
+        // The latency census (frame_timeline.h): the drained / consumed lanes are noted on the drain and
+        // consumer threads through the tap; the posted picture carries its EE frame ordinal to the presenter.
+        gs.latency_tap.timeline = &timeline;
         // The consumer thread's presented image goes to the session window and, with --dump-frames,
         // every dump_every-th one is written as p<n>.ppm (n = the OUTPUT frame ordinal).
-        gs.video.SetOutput([this, &gs](std::vector<uint8_t> rgba, int w, int h) {
-            timeline.Note(FrameTimeline::Lane::Output);
+        // The picture's frame ordinal: the frame record the consumer is delivering, or the one before it
+        // when the present capture is read one present late (SetPresentCaptureDeferred, leg_gs.cpp).
+        const uint64_t capture_lag = gs.video.PresentCaptureDeferred() ? 1u : 0u;
+        gs.video.SetOutput([this, &gs, capture_lag](std::vector<uint8_t> rgba, int w, int h) {
+            const uint64_t frame = gs.latency_tap.current_frame.load(std::memory_order_relaxed);
+            const uint64_t tag = frame >= capture_lag ? frame - capture_lag : 0;
+            timeline.Note(FrameTimeline::Lane::Output, tag);
             clock_census.NotePresent();
             const uint32_t n = static_cast<uint32_t>(gs.video.OutputFrames());
             if (gs.frame_dump.Enabled() && gs.DumpWanted(n)) gs.frame_dump.Write("p", n, w, h, rgba.data(), /*flip=*/true);
-            session->PostFrame(std::move(rgba), w, h);
+            session->PostFrame(std::move(rgba), w, h, tag);
         });
     }
 }

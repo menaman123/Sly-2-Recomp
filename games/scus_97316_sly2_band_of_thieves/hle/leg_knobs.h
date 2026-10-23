@@ -116,6 +116,10 @@ struct LegKnobs {
     // hold before the oldest is dropped); 0 = the default (1: the previous frame is dropped as soon as the consumer
     // is still on the one before it). Wired in leg_gs.cpp.
     uint32_t gs_skip_depth = 0;
+    // NATIVEEE_GS_QUEUE_STAGE=<n>: records the pipelined queue's producer stages before they enter the ring under
+    // one lock (pipeline2); 1 = every push enters the ring at once (the pre-staging behaviour, the A/B); 0 = the
+    // queue's default (64). Wired in leg_gs.cpp.
+    uint32_t gs_queue_stage = 0;
     // NATIVEEE_GL_SHADER_BLEND=1: the GL device blends EVERY blended draw through its exact shader arm (the
     // fixed-function route off) -- the per-pixel oracle the Metal identity judge compares against (leg_gs.cpp).
     bool gl_shader_blend = false;

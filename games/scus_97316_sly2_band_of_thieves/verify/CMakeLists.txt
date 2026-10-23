@@ -120,3 +120,15 @@ if(APPLE AND TARGET gs_replay)
                 --artefacts ${CMAKE_CURRENT_BINARY_DIR}/judge_metal_identity --frames 300 --step 50)
     set_tests_properties(Sly2_JudgeMetalIdentity PROPERTIES TIMEOUT 900)
 endif()
+
+# scene_matrix.py (round 4, track scenes): the SCENE MATRIX -- one play run per scene x video backend (hubs of
+# every episode, the dense Paris spawn view, a ledge, a mission, the Cairo museum, a briefing cutscene, the cold
+# boot through the FMV; Metal and GL) read into a RED / GREEN table: GREEN = pictures/s p50 >= 59 AND doubled frames
+# <= 1 % (judge_pictures' output lane + judge_pacing's shown lane), DEFECT = the run parked / crashed / timed out;
+# per cell also frame_hz, gs_draws per frame, VU1 worker / GIF drain / consumer ms per frame from run.meta. `plan`
+# lists the scenes, `cell` reads one run, `table` writes the matrix, `soak` reads a long run per 10 s window. The
+# runs are driven by a shell wrapper around the play harness (the work tree's scene_matrix.sh: one windowed
+# process at a time); the selftest runs everywhere on synthetic runs.
+add_test(NAME Sly2_SceneMatrixSelftest
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scene_matrix.py --selftest)
+set_tests_properties(Sly2_SceneMatrixSelftest PROPERTIES TIMEOUT 60)

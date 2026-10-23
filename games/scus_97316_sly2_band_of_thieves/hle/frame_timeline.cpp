@@ -3,7 +3,7 @@
 
 #include <algorithm>
 #include <cstdio>
-#include <cstdlib>
+#include <unordered_map>
 
 namespace ps2r::title::sly2 {
 
@@ -14,32 +14,55 @@ FrameTimeline::FrameTimeline() : t0_(std::chrono::steady_clock::now()) {
 const char* FrameTimeline::LaneName(Lane lane) {
     switch (lane) {
         case Lane::Boundary: return "boundary";
+        case Lane::Drained: return "drained";
+        case Lane::Consumed: return "consumed";
         case Lane::Output: return "output";
         case Lane::Shown: return "shown";
     }
     return "?";
 }
 
-void FrameTimeline::Note(Lane lane) { NoteAt(lane, std::chrono::steady_clock::now()); }
+void FrameTimeline::Note(Lane lane, uint64_t frame) { NoteAt(lane, std::chrono::steady_clock::now(), frame); }
 
-void FrameTimeline::NoteAt(Lane lane, std::chrono::steady_clock::time_point at) {
+void FrameTimeline::NoteAt(Lane lane, std::chrono::steady_clock::time_point at, uint64_t frame) {
     const int i = static_cast<int>(lane);
     const uint64_t ns = at > t0_ ? static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(at - t0_).count()) : 0;
-    {   // TEMP-PIPE protocol trace (removed before the report)
-        static const bool proto_trace = std::getenv("NATIVEEE_PROTO_TRACE") != nullptr;
-        if (proto_trace)
-            std::fprintf(stderr, "proto: t=%llu lane=%s\n",
-                         (unsigned long long)std::chrono::duration_cast<std::chrono::microseconds>(at.time_since_epoch()).count(), LaneName(lane));
-    }
     std::lock_guard<std::mutex> lock(mutex_[i]);
-    lanes_[i].push_back(ns);
+    lanes_[i].push_back(Mark{ns, frame});
 }
 
-std::vector<uint64_t> FrameTimeline::Instants(Lane lane) const {
+std::vector<FrameTimeline::Mark> FrameTimeline::Marks(Lane lane) const {
     const int i = static_cast<int>(lane);
     std::lock_guard<std::mutex> lock(mutex_[i]);
     return lanes_[i];
 }
+
+std::vector<uint64_t> FrameTimeline::Instants(Lane lane) const {
+    const std::vector<Mark> marks = Marks(lane);
+    std::vector<uint64_t> t;
+    t.reserve(marks.size());
+    for (const Mark& m : marks) t.push_back(m.t_ns);
+    return t;
+}
+
+namespace {
+
+// p50 / p99 / max of a set of durations (ns), as ms.
+void Percentiles(std::vector<uint64_t>& v, double* p50, double* p99, double* max) {
+    *p50 = *p99 = *max = 0;
+    if (v.empty()) return;
+    std::sort(v.begin(), v.end());
+    const auto pct = [&](double p) {
+        size_t k = static_cast<size_t>(p * static_cast<double>(v.size() - 1) + 0.5);
+        if (k >= v.size()) k = v.size() - 1;
+        return static_cast<double>(v[k]) / 1e6;
+    };
+    *p50 = pct(0.50);
+    *p99 = pct(0.99);
+    *max = static_cast<double>(v.back()) / 1e6;
+}
+
+}  // namespace
 
 FrameTimeline::Stats FrameTimeline::StatsOfInstants(const std::vector<uint64_t>& t) {
     Stats s;
@@ -53,15 +76,7 @@ FrameTimeline::Stats FrameTimeline::StatsOfInstants(const std::vector<uint64_t>&
         if (g > 33000000) ++s.over_33;
         if (g > 50000000) ++s.over_50;
     }
-    std::sort(gaps.begin(), gaps.end());
-    const auto pct = [&](double p) {
-        size_t k = static_cast<size_t>(p * static_cast<double>(gaps.size() - 1) + 0.5);
-        if (k >= gaps.size()) k = gaps.size() - 1;
-        return static_cast<double>(gaps[k]) / 1e6;
-    };
-    s.p50_ms = pct(0.50);
-    s.p99_ms = pct(0.99);
-    s.max_ms = static_cast<double>(gaps.back()) / 1e6;
+    Percentiles(gaps, &s.p50_ms, &s.p99_ms, &s.max_ms);
     return s;
 }
 
@@ -80,15 +95,53 @@ std::string FrameTimeline::Census() const {
     return out;
 }
 
+// Boundary frame k (tagged) -> the FIRST instant of `lane` tagged k. A later lane may carry a tag more
+// than once (a picture re-posted) -- the first is the one the chain produced.
+FrameTimeline::Latency FrameTimeline::LatencyTo(Lane lane) const {
+    Latency l;
+    const std::vector<Mark> from = Marks(Lane::Boundary);
+    const std::vector<Mark> to = Marks(lane);
+    std::unordered_map<uint64_t, uint64_t> at;
+    at.reserve(to.size());
+    for (const Mark& m : to)
+        if (m.frame != 0) at.emplace(m.frame, m.t_ns);
+    std::vector<uint64_t> d;
+    d.reserve(from.size());
+    for (const Mark& b : from) {
+        if (b.frame == 0) continue;
+        const auto it = at.find(b.frame);
+        if (it == at.end() || it->second < b.t_ns) { ++l.missing; continue; }
+        d.push_back(it->second - b.t_ns);
+    }
+    l.matched = d.size();
+    Percentiles(d, &l.p50_ms, &l.p99_ms, &l.max_ms);
+    return l;
+}
+
+std::string FrameTimeline::LatencyCensus() const {
+    uint64_t tagged = 0;
+    for (const Mark& b : Marks(Lane::Boundary)) tagged += b.frame != 0;
+    std::string out = "frames=" + std::to_string(tagged);
+    if (tagged == 0) return out;
+    for (int i = 1; i < kLanes; ++i) {
+        const Latency l = LatencyTo(static_cast<Lane>(i));
+        char row[160];
+        std::snprintf(row, sizeof(row), ";%s=%llu/%llu:%.2f/%.2f/%.2f", LaneName(static_cast<Lane>(i)),
+                      static_cast<unsigned long long>(l.matched), static_cast<unsigned long long>(l.missing), l.p50_ms, l.p99_ms, l.max_ms);
+        out += row;
+    }
+    return out;
+}
+
 bool FrameTimeline::WriteCsv(const std::string& path) const {
     FILE* f = std::fopen(path.c_str(), "w");
     if (!f) return false;
-    std::fprintf(f, "lane,ordinal,t_ns\n");
+    std::fprintf(f, "lane,ordinal,t_ns,frame\n");
     for (int i = 0; i < kLanes; ++i) {
-        const std::vector<uint64_t> t = Instants(static_cast<Lane>(i));
+        const std::vector<Mark> t = Marks(static_cast<Lane>(i));
         for (size_t k = 0; k < t.size(); ++k)
-            std::fprintf(f, "%s,%llu,%llu\n", LaneName(static_cast<Lane>(i)), static_cast<unsigned long long>(k),
-                         static_cast<unsigned long long>(t[k]));
+            std::fprintf(f, "%s,%llu,%llu,%llu\n", LaneName(static_cast<Lane>(i)), static_cast<unsigned long long>(k),
+                         static_cast<unsigned long long>(t[k].t_ns), static_cast<unsigned long long>(t[k].frame));
     }
     return std::fclose(f) == 0;
 }

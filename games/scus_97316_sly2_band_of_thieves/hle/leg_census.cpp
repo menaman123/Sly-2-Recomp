@@ -11,6 +11,7 @@
 
 #include "engine/cdvd/hle/libcdvd_bindings.h"
 #include "engine/dmac/dmac_channel.h"
+#include "engine/ee/cpu/dispatch_table.h"
 #include "engine/ee/hle/sdk_binding_manifest.h"
 #include "engine/ee/hle/syscall_table.h"
 #include "engine/ee/sched/ee_run_token.h"
@@ -76,6 +77,19 @@ void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
     meta->Set("sdk_rows_hit", std::to_string(SdkBindingManifest::Instance().HitTotal()));
     meta->Set("sdk_rows_hit_list", SdkBindingManifest::Instance().HitList());
     meta->Set("ee_yield", EeYieldPoint::Instance().Stats().Format());
+    // The guest threads' own CPU (host thread clock between GuestEnter and GuestExit): "tid:ms,...;total=ms".
+    // tid 1 = the logic thread, tid 3 = the render/vsync thread in Sly 2.
+    meta->Set("ee_cpu_ms", EeRunToken::Instance().CpuCensus());
+    {
+        // The dispatch path (engine.ee_fast_dispatch): fast = un-hooked ids run recomp_raw_dispatch; the hooked count
+        // is the ids that keep the observer chain (every installed body; ALL of them when the knob is off).
+        uint32_t hooked = 0;
+        const uint32_t fns = DispatchTable::FunctionCount();
+        for (uint32_t i = 0; i < fns; ++i)
+            if (DispatchTable::IsHooked(DispatchTable::AddressOfId(i))) ++hooked;
+        meta->Set("ee_dispatch", std::string(DispatchTable::FastDispatch() ? "fast" : "chain") + ":hooked=" + std::to_string(hooked) +
+                                     ":functions=" + std::to_string(fns) + ":installs=" + std::to_string(DispatchTable::InstallCount()));
+    }
     {
         // The foreign-event queue: how many enqueues poked every park (no token holder) vs the
         // holder's parks only (E420: a blocked thread is never woken for an event the holder applies).
@@ -205,6 +219,18 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
             // readbacks/readback_kb/copies/program_binds/framebuffer_binds/texture_binds.
             const std::string gw = gs.video.Pipe()->WarmSeries();
             meta->Set("gs_warm", gw.empty() ? std::string("none") : gw);
+            // The backend's whole-run call census and its CPU-side GPU waits: the consumer thread's
+            // frame-end synchronisation (readback / present-capture / ring-wrap waits) in count and ms.
+            if (const ps2r::render::CallCensus* bc = gs.video.Device().Census()) {
+                meta->Set("gs_backend", std::string(gs.video.ActiveBackend()) + ":draw_calls=" + std::to_string(bc->draw_calls) +
+                                            ":submits=" + std::to_string(bc->submits) + ":gpu_ms=" + std::to_string(bc->gpu_ns / 1000000u) +
+                                            ":uploads=" + std::to_string(bc->uploads) + ":upload_kb=" + std::to_string(bc->upload_bytes / 1024u) +
+                                            ":readbacks=" + std::to_string(bc->readbacks) + ":readback_kb=" + std::to_string(bc->readback_bytes / 1024u) +
+                                            ":readback_waits=" + std::to_string(bc->readback_waits) + ":capture_waits=" + std::to_string(bc->capture_waits) +
+                                            ":gpu_waits=" + std::to_string(bc->gpu_waits) + "/" + std::to_string(bc->gpu_wait_ns / 1000000u) + "ms" +
+                                            ":copies=" + std::to_string(bc->copies) + ":barriers=" + std::to_string(bc->barriers) +
+                                            ":state_sets=" + std::to_string(bc->state_sets) + ":uniform_sets=" + std::to_string(bc->uniform_sets));
+            }
         }
         if (gs.gs_queue) {
             const ps2r::gs::DrawIrThreadQueue::Counters& q = gs.gs_queue->Count();
@@ -213,6 +239,11 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
                                       ":enqueued=" + std::to_string(q.enqueued) + ":consumed=" + std::to_string(q.consumed) +
                                       ":frames=" + std::to_string(q.frames) + ":frames_dropped=" + std::to_string(q.frames_dropped) +
                                       ":frame_waits=" + std::to_string(q.frame_waits) +
+                                      // The producer's in-push waits (room: pipelined without frame skip; lockstep: per
+                                      // record) and the RunOrdered waits -- the chain's back-pressure on its producer.
+                                      ":room_waits=" + std::to_string(q.room_waits) + "/" + std::to_string(q.room_wait_us / 1000u) + "ms" +
+                                      ":lockstep_waits=" + std::to_string(q.lockstep_waits) + "/" + std::to_string(q.lockstep_wait_us / 1000u) + "ms" +
+                                      ":ordered_waits=" + std::to_string(q.ordered_waits) + "/" + std::to_string(q.ordered_wait_us / 1000u) + "ms" +
                                       ":max_depth=" + std::to_string(q.max_depth) + ":payload_bytes=" + std::to_string(q.payload_bytes) +
                                       ":vram_ops=" + std::to_string(q.vram_ops) + ":snapshots=" + std::to_string(q.snapshots) +
                                       ":l2l=" + std::to_string(q.l2l_ee_served) + "/" + std::to_string(q.l2l_snapshot_served) + "/" +
@@ -309,6 +340,8 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
             row += play.timeline.WriteCsv(csv) ? ";csv=" + csv : ";csv=unwritable";
         }
         meta->Set("present_hist", row);
+        // The chain's per-frame latency behind the EE boundary (frame_timeline.h; matched by frame tag).
+        meta->Set("present_latency", play.timeline.LatencyCensus());
         // The presented-frame cadence in force and the pacer's census (video.frame_cap; engine FramePacer).
         meta->Set("frame_cap", play.session->FrameCapCensus());
     }

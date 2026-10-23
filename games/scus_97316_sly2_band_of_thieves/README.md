@@ -448,3 +448,19 @@ off for an A/B) ~44-45 fps at scale 1 with frames identical to main's -- still R
 - libpad/libmc/libgraph rows and statics in `title_profile.cpp`: UNKNOWN / not bound (libpad runs raw
   through the engine's SIF rows and padman server).
 - `vu1_library`, `renderer_profile`: STATUS-only, no target.
+
+The scene matrix (`verify/scene_matrix.py`, round 4): one hub is not "everywhere". `plan` lists the scenes
+(the hubs of episodes 0-8 from their savestates, the Cairo museum, the dense Paris spawn view with no input, a
+ledge, two mission checkpoints, the Satellite Sabotage briefing cutscene, and the cold boot through the intro
+FMV); a driver runs each one windowed on both video backends (Metal = `auto`, and `--set video.backend=gl`), one
+process at a time, 900 frames (1500 for the cold boot); `cell <out>` reads one run (run.meta + present_times.csv:
+frame_hz, pictures/s p50 on the output lane, the doubled-frame share / p99 / >40 ms gaps on the shown lane,
+gs_draws per frame, VU1 worker and GIF drain ms per frame from `mtvu=`, consumer ms per frame from `gs_queue=`);
+`table <out>... --out MATRIX.md` writes the scene x backend matrix with GREEN (p50 >= 59 AND doubled <= 1 %),
+RED, or DEFECT (park != none, non-zero exit, watchdog, short run); `soak <out> --window-s 10` reads a long run per
+window with the warmup census series (`clock_footprint_kb`, `clock_game_hz`, ...); `content <out>...` lists what
+the game asks of each stage per frame (draws, VU1 bundles, ns/bundle = the host-state normaliser, worker / drain /
+consumer ms); `diff --before <out>... --after <out>...` puts two binaries' (or two host windows') cells side by
+side; `table --quietest` keeps, of several takes of one cell, the one taken on the quietest host and marks the
+spread; each cell also tells held fields (2+ fields) from a < 1-field cadence wobble. ctest row
+`Sly2_SceneMatrixSelftest` (synthetic runs; the real cells need a disc and a window).

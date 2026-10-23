@@ -72,6 +72,7 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         hooks.window_resized = [this](int w, int h) { video.OnWindowResized(w, h); };
         hooks.grab_wanted = [this] { return grab_wanted.load(std::memory_order_relaxed); };
         consumer = std::make_unique<ps2r::gs::DrawIrQueueConsumer>(*video.Pipe(), std::move(hooks));
+        latency_tap.next = consumer.get();
         // Play: the frames-lane hash is taken where the grab is made (the consumer thread, at
         // the present scale); the wall-locked boundary reads the header + hash, never the pixels.
         if (!gs_queue_lockstep) consumer->SetFrameHashScale(video.Scale());
@@ -91,9 +92,10 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
             qh.upload_pixels = [this] { return &gs_state.Xfer().LastUploadPixels(); };
             qh.crtc = crtc_now;
             gs_queue = std::make_unique<ps2r::gs::DrawIrThreadQueue>(
-                *consumer, std::move(qh),
+                latency_tap, std::move(qh),
                 gs_queue_lockstep ? ps2r::gs::DrawIrThreadQueue::Policy::Lockstep : ps2r::gs::DrawIrThreadQueue::Policy::Pipelined,
                 4096, pipeline_vram.get());
+            if (knobs.gs_queue_stage) gs_queue->SetStageDepth(knobs.gs_queue_stage);
             if (pipeline_vram) {
                 gs_state.Vram().SetMirror(gs_queue->ProducerMirror());
                 // A local->local copy's source under frame skip: never wait -- the EE image is
@@ -125,7 +127,7 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         }
     }
     ps2r::gs::DrawIrSink* gs_sink_head =
-        gs_queue ? static_cast<ps2r::gs::DrawIrSink*>(gs_queue.get()) : static_cast<ps2r::gs::DrawIrSink*>(consumer.get());
+        gs_queue ? static_cast<ps2r::gs::DrawIrSink*>(gs_queue.get()) : (consumer ? static_cast<ps2r::gs::DrawIrSink*>(&latency_tap) : nullptr);
     // NATIVEEE_GS_CAPTURE=<file.gsstream> (leg_knobs.h): the consumer-stream capture sits right in front of the
     // queue / consumer -- the file holds exactly the stream the consumer receives (after the shadow split) -- and
     // takes over the EE image's mirror, forwarding to the queue's producer mirror (the split image) or to none.
@@ -231,14 +233,26 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
     core.sequencer.SetStep(BoundarySequencer::Step::PresentRendezvous, [this, &core](CpuContext&) {
         const uint32_t ticket = core.rendezvous.Issue();
         if (!core.rendezvous.WaitFor(ticket, core.running)) return false;
-        const auto push = [this] {
+        // The game-rate lane of present_times.csv and the latency census's origin: the EE frame boundary,
+        // tagged with the frame it closes (the VSync job's src_frame), BEFORE the push (the drain thread may
+        // deliver the record before this step returns).
+        if (latency_tap.timeline) latency_tap.timeline->Note(FrameTimeline::Lane::Boundary, gs_frame_boundaries);
+        // The frame ordinal is captured HERE, on the EE: under the deferred boundary ordered_submit returns
+        // before the work runs, and the EE increments gs_frame_boundaries right after -- read inside the work
+        // on the drain thread it was N or N+1 by the race (the seq / epoch stamps are the drain thread's by
+        // design: they are the stream position).
+        const uint64_t frame = gs_frame_boundaries;
+        const auto push = [this, frame] {
             ps2r::gs::JobRec vs{};
             vs.type = static_cast<uint32_t>(ps2r::gs::JobKind::VSync);
             vs.seq = gs_state.Seq();
-            vs.src_frame = static_cast<uint32_t>(gs_frame_boundaries);
+            vs.src_frame = static_cast<uint32_t>(frame);
             vs.arg1 = 1;   // the EE game-frame boundary
             vs.vram_epoch = gs_state.Vram().UploadEpoch();
             draw_sink.OnFrame(vs);
+            // The drain stage is done with this frame: its packets are parsed and the frame record
+            // is in the queue (on the drain thread under ordered_submit, else on the EE itself).
+            if (latency_tap.timeline) latency_tap.timeline->Note(FrameTimeline::Lane::Drained, vs.src_frame);
         };
         if (ordered_submit) ordered_submit(push);
         else push();

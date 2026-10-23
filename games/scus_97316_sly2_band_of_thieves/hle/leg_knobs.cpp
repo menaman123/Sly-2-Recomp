@@ -74,6 +74,7 @@ LegKnobs LegKnobs::FromEnvironment() {
     if (const char* env = std::getenv("NATIVEEE_GS_CONSUMER_LEVERS")) k.gs_consumer_levers = std::string(env) != "0";
     if (const char* env = std::getenv("NATIVEEE_GL_SHADER_BLEND")) k.gl_shader_blend = std::string(env) == "1";
     if (const char* env = std::getenv("NATIVEEE_GS_SKIP_DEPTH")) k.gs_skip_depth = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
+    if (const char* env = std::getenv("NATIVEEE_GS_QUEUE_STAGE")) k.gs_queue_stage = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
     if (const char* env = std::getenv("NATIVEEE_TEX_DUMP")) {
         char* end = nullptr;
         k.tex_dump_from = static_cast<uint32_t>(std::strtoul(env, &end, 10));
