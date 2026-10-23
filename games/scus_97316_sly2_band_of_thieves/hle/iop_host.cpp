@@ -487,6 +487,7 @@ void IopHost::WriteCensus(verify::RunMeta* meta) {
     meta->Set("iop_rpc_servers", rpc_servers_census_);
     meta->Set("iop_heap_ptr", Hex(sysmem_.Heap().HeapPtr()));
     meta->Set("iop_dma_bytes_in", std::to_string(dma_bytes_));
+    meta->Set("iop_ee_dma_bytes", std::to_string(ee_sink_.Bytes()));   // IOP -> EE (sceSifSetDma + SIF command data)
     meta->Set("iop_module_rows", table_.ModulesCensus());
     meta->Set("iop_rpc_submitted", std::to_string(table_.Rpc().Submitted()));
     meta->Set("iop_rpc_completed", std::to_string(table_.Rpc().Completed()));

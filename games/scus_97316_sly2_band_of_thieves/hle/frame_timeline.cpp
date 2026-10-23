@@ -18,6 +18,8 @@ const char* FrameTimeline::LaneName(Lane lane) {
         case Lane::Consumed: return "consumed";
         case Lane::Output: return "output";
         case Lane::Shown: return "shown";
+        case Lane::Input: return "input";
+        case Lane::Pad: return "pad";
     }
     return "?";
 }
@@ -35,6 +37,12 @@ std::vector<FrameTimeline::Mark> FrameTimeline::Marks(Lane lane) const {
     const int i = static_cast<int>(lane);
     std::lock_guard<std::mutex> lock(mutex_[i]);
     return lanes_[i];
+}
+
+uint64_t FrameTimeline::LastFrame(Lane lane) const {
+    const int i = static_cast<int>(lane);
+    std::lock_guard<std::mutex> lock(mutex_[i]);
+    return lanes_[i].empty() ? 0u : lanes_[i].back().frame;
 }
 
 std::vector<uint64_t> FrameTimeline::Instants(Lane lane) const {
@@ -118,12 +126,56 @@ FrameTimeline::Latency FrameTimeline::LatencyTo(Lane lane) const {
     return l;
 }
 
+FrameTimeline::Latency FrameTimeline::LatencyBetween(Lane from_lane, Lane to_lane, uint64_t offset) const {
+    Latency l;
+    const std::vector<Mark> from = Marks(from_lane);
+    const std::vector<Mark> to = Marks(to_lane);
+    std::unordered_map<uint64_t, uint64_t> at;
+    at.reserve(to.size());
+    for (const Mark& m : to)
+        if (m.frame != 0) at.emplace(m.frame, m.t_ns);   // the FIRST mark of a tag
+    std::vector<uint64_t> d;
+    d.reserve(from.size());
+    for (const Mark& b : from) {
+        if (b.frame == 0) continue;
+        const auto it = at.find(b.frame + offset);
+        if (it == at.end() || it->second < b.t_ns) { ++l.missing; continue; }
+        d.push_back(it->second - b.t_ns);
+    }
+    l.matched = d.size();
+    Percentiles(d, &l.p50_ms, &l.p99_ms, &l.max_ms);
+    return l;
+}
+
+std::string FrameTimeline::InputLatencyCensus() const {
+    uint64_t edges = 0;
+    for (const Mark& m : Marks(Lane::Input)) edges += m.frame != 0;
+    std::string out = "field_ms=16.67;edges=" + std::to_string(edges);
+    struct Stage { const char* name; Lane from; Lane to; uint64_t offset; };
+    const Stage stages[] = {
+        {"input_to_pad", Lane::Input, Lane::Pad, 0},         // the edge waits for the boundary's sample
+        {"pad_to_output", Lane::Pad, Lane::Output, 1},       // the game's tick + the chain behind the EE
+        {"output_to_shown", Lane::Output, Lane::Shown, 0},   // the presenter
+        {"input_to_shown", Lane::Input, Lane::Shown, 1},     // end to end (the judge adds the game's extra depth)
+        {"boundary_to_output", Lane::Boundary, Lane::Output, 0},
+        {"boundary_to_shown", Lane::Boundary, Lane::Shown, 0},
+    };
+    for (const Stage& st : stages) {
+        const Latency l = LatencyBetween(st.from, st.to, st.offset);
+        char row[160];
+        std::snprintf(row, sizeof(row), ";%s=%llu/%llu:%.2f/%.2f/%.2f", st.name, static_cast<unsigned long long>(l.matched),
+                      static_cast<unsigned long long>(l.missing), l.p50_ms, l.p99_ms, l.max_ms);
+        out += row;
+    }
+    return out;
+}
+
 std::string FrameTimeline::LatencyCensus() const {
     uint64_t tagged = 0;
     for (const Mark& b : Marks(Lane::Boundary)) tagged += b.frame != 0;
     std::string out = "frames=" + std::to_string(tagged);
     if (tagged == 0) return out;
-    for (int i = 1; i < kLanes; ++i) {
+    for (int i = 1; i <= static_cast<int>(Lane::Shown); ++i) {   // the chain lanes; input / pad are latency='s
         const Latency l = LatencyTo(static_cast<Lane>(i));
         char row[160];
         std::snprintf(row, sizeof(row), ";%s=%llu/%llu:%.2f/%.2f/%.2f", LaneName(static_cast<Lane>(i)),

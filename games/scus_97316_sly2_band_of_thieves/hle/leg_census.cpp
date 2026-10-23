@@ -228,6 +228,7 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
                                             ":readbacks=" + std::to_string(bc->readbacks) + ":readback_kb=" + std::to_string(bc->readback_bytes / 1024u) +
                                             ":readback_waits=" + std::to_string(bc->readback_waits) + ":capture_waits=" + std::to_string(bc->capture_waits) +
                                             ":gpu_waits=" + std::to_string(bc->gpu_waits) + "/" + std::to_string(bc->gpu_wait_ns / 1000000u) + "ms" +
+                                            ":prompt=" + std::to_string(bc->prompt_captures) + "/" + std::to_string(bc->prompt_timeouts) + "/" + std::to_string(bc->prompt_wait_ns / 1000000u) + "ms" +
                                             ":copies=" + std::to_string(bc->copies) + ":barriers=" + std::to_string(bc->barriers) +
                                             ":state_sets=" + std::to_string(bc->state_sets) + ":uniform_sets=" + std::to_string(bc->uniform_sets));
             }
@@ -342,6 +343,8 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
         meta->Set("present_hist", row);
         // The chain's per-frame latency behind the EE boundary (frame_timeline.h; matched by frame tag).
         meta->Set("present_latency", play.timeline.LatencyCensus());
+        // The input -> photon budget per stage (round 5; verify/judge_latency.py judges it in fields).
+        meta->Set("latency", play.timeline.InputLatencyCensus() + ";pulse=" + pad.PulseCensus());
         // The presented-frame cadence in force and the pacer's census (video.frame_cap; engine FramePacer).
         meta->Set("frame_cap", play.session->FrameCapCensus());
     }

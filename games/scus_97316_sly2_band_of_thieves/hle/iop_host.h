@@ -80,6 +80,7 @@ public:
     IopHost(const Config& cfg, MainMemory& ram, RpcRouter& router, sound::SpuCore& spu, cdvd::CdvdReader* reader,
                 ExpectedHashes hashes);
     ~IopHost();
+    MainMemoryEeRamSink& EeSink() { return ee_sink_; }
     IopHost(const IopHost&) = delete;
     IopHost& operator=(const IopHost&) = delete;
 

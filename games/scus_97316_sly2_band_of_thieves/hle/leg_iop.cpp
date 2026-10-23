@@ -13,6 +13,7 @@
 #include "engine/ee/hle/syscall_table.h"
 #include "engine/ee/hle/thread_manager.h"
 #include "engine/ee/sched/ee_event_queue.h"
+#include "engine/sif/hle/iop_rpc_server.h"
 #include "engine/sif/hle/sce_sif.h"
 #include "engine/vu/tiers/mtvu_sync.h"
 #include "games/scus_97316_sly2_band_of_thieves/iop/iop_modules.h"
@@ -65,6 +66,27 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
         }
         return f;
     });
+    if (knobs.rpc_trace) {
+        if (FILE* f = std::fopen(knobs.rpc_trace->c_str(), "w")) {
+            std::fprintf(f, "# rpc trace: iop_frame sid fno ssize send_hex -> reply rsize recv_hex (first 64 bytes each)\n");
+            IopRpcServer::SetTracer([this, f](const IopRpcServer::TraceEvent& ev) {
+                auto hex = [f](const uint8_t* p, uint32_t n) {
+                    if (!p) { std::fputs("-", f); return; }
+                    for (uint32_t i = 0; i < n && i < 64; ++i) std::fprintf(f, "%02x", p[i]);
+                };
+                std::fprintf(f, "%llu %08x %u %u ", (unsigned long long)iop_host.Table().Kernel().Clock().Frames(), ev.sid, ev.fno, ev.send_size);
+                hex(ev.send, ev.send_size);
+                std::fprintf(f, " -> %08x %u ", ev.reply, ev.recv_size);
+                hex(ev.recv, ev.recv_size);
+                std::fputc('\n', f);
+            });
+            iop_host.EeSink().SetTracer([this, f](uint32_t ee_addr, const uint8_t* src, size_t size) {
+                std::fprintf(f, "%llu DMA> %08x %zu ", (unsigned long long)iop_host.Table().Kernel().Clock().Frames(), ee_addr, size);
+                for (size_t i = 0; i < size && i < 64; ++i) std::fprintf(f, "%02x", src[i]);
+                std::fputc('\n', f);
+            });
+        }
+    }
     core.sequencer.SetStep(BoundarySequencer::Step::IopDispatch, [this](CpuContext& ctx) {
         PumpFieldQuantum(ctx);   // the boundary's own field; the Verify slot's field pump runs the catch-up fields' quanta
         return true;

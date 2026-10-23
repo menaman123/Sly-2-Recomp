@@ -33,6 +33,7 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
         MtvuSettings mtvu_settings;
         mtvu_settings.enabled = true;
         mtvu_settings.depth_frames = cfg.engine.mtvu_depth;
+        mtvu_settings.depth_hold = cfg.engine.mtvu_depth_hold;   // round 5: the hold cap on the frames arm
         mtvu = std::make_unique<MtvuStack>(devices.vif, devices.dmac.walker(), devices.gif_arbiter, devices.vu1.dispatch(),
                                            devices.vu1.dispatch().settings(), title.quirks.xgkick_defer, mtvu_settings, &core.running);
         mtvu->SetKickDrop(false);

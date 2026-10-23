@@ -70,6 +70,13 @@ LegCore::LegCore(const ps2r::Config& cfg, const LegKnobs& knobs)
 
     // --- kernel clocks + seams --------------------------------------------------------------------
     clocks.InstallKernelClocks(SyscallTable::Instance(), protocol.WaitHook());
+    // engine.cop0_count (round 5, cutscene track): the COP0 Count register advances with the emu tick.
+    // Sly 2 builds a 64-bit cycle clock from mfc0 Count (FUN_0014d240: wrap-counted 32-bit reads) for its
+    // frame dt (FUN_0014d0b8: clamp(dt, 1/60, 1/30) -- the floor hides a frozen register) and for lgAud's
+    // dialog timeline (FUN_001fd830): with the register frozen the binocucom typewriter / lip-sync never
+    // advance past the first glyph once a voice stream is playing.
+    if (cfg.engine.cop0_count)
+        SyscallTable::Instance().SetCop0CountClock([&clocks = clocks] { return clocks.Cop0Count(); });
     GsSync::Bind(&sequencer, &clocks);
     guest_call = [this](uint32_t addr, CpuContext& ctx) {
         if (DispatchTable::IdOf(addr) >= DispatchTable::FunctionCount()) {

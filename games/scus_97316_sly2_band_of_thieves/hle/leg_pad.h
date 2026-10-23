@@ -16,14 +16,21 @@
 //       through PlatformInput::HoldKey -- the engine's held-key overlay on the kbm backend, so the press
 //       goes through the REAL keyboard -> InputMapper (default_bindings.ini) -> DualShock sample path,
 //       not the pad script's direct stamp;
+//   NATIVEEE_LAT_PULSE=<sdl_scancode>:<period_ms>:<hold_ms>  (play mode, round 5) the latency census's edge
+//       source: a thread presses the key through PlatformInput::HoldKey every period_ms (+ a 0..16 ms sweep
+//       of the field phase) for hold_ms -- the same held-key route as NATIVEEE_KEY_SCRIPT, at WALL instants
+//       instead of boundaries, so every edge's wait for the next boundary's sample is a real one;
+//       run.meta latency= (frame_timeline.h) carries the stages, judge_latency.py the verdict;
 //   NATIVEEE_NAV=<items>  hle/nav_probe.h -- the position / camera probe read at every stamp BEFORE the script
 //       is applied, so PadScript's closed-loop steps (goto / face / wait_still / jump_when_near) steer from
 //       this stamp's sample; nav_trace.csv under the harness out dir.
 // run.meta pad_served=: stamps carrying a press or a deflected stick, and the last such sample.
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
@@ -40,8 +47,11 @@ class LegPad {
 public:
     // `title_dir` = the title directory (the default probe table lives under it, verify/nav/).
     LegPad(const ps2r::Config& cfg, const std::string& title_dir, const LegKnobs& knobs, LegCore& core, LegServices& services, LegPlay& play);
+    ~LegPad();
     LegPad(const LegPad&) = delete;
     LegPad& operator=(const LegPad&) = delete;
+    // "off" | "scancode=N:period_ms=N:hold_ms=N:pulses=N"
+    std::string PulseCensus() const;
 
     struct KeyScriptStep { uint64_t frame; int scancode; uint64_t hold; bool down = false; };
 
@@ -52,6 +62,14 @@ public:
     PadScript pad_script;
     PadRecorder pad_recorder;
     std::vector<KeyScriptStep> key_script;
+
+private:
+    // NATIVEEE_LAT_PULSE: the edge thread (play mode only; joined by the destructor).
+    struct Pulse { int scancode = 0; uint64_t period_ms = 0, hold_ms = 0; };
+    Pulse pulse_;
+    std::atomic<bool> pulse_run_{false};
+    std::atomic<uint64_t> pulses_{0};
+    std::thread pulse_thread_;
 };
 
 }  // namespace ps2r::title::sly2

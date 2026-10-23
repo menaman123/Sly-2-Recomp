@@ -81,10 +81,14 @@ struct LegKnobs {
     // NATIVEEE_SPU_TRACE=<file.txt>: the SPU voice model's event record (engine VoiceTrace: key-on/off with the
     // programmed registers, loop ends, transfers, unmodelled services, a per-second level census per voice).
     std::optional<std::string> spu_trace;
+    // NATIVEEE_RPC_TRACE=<file>: every EE -> IOP RPC round trip into a hosted module (IOP frame, sid, fno,
+    // request bytes, reply pointer + bytes) -- the cutscene track's view of what the EE asks 989snd/lgAud.
+    std::optional<std::string> rpc_trace;
     // NATIVEEE_PAD_SCRIPT=<script text | file> / NATIVEEE_PAD_RECORD=<file> / NATIVEEE_KEY_SCRIPT=<steps>.
     std::optional<std::string> pad_script;
     std::optional<std::string> pad_record;
     std::optional<std::string> key_script;
+    std::optional<std::string> lat_pulse;   // NATIVEEE_LAT_PULSE (leg_pad.h): the latency census's edge source
     // NATIVEEE_FN_TRACE=addr[,addr...]: entry / return prints around generated functions.
     std::optional<std::string> fn_trace;
     // NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>]: vu1_probe.h.

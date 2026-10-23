@@ -101,6 +101,10 @@ public:
     void SetPresentCaptureDeferred(bool deferred) { present_capture_deferred_ = deferred; if (be_) be_->SetPresentCaptureDeferred(deferred); }
     // The present capture is read one present late (the picture posted at a present is the previous present's).
     bool PresentCaptureDeferred() const { return present_capture_deferred_; }
+    // Round 5: the prompt capture's bounded wait (video.capture_wait_ms; backend.h) and the lag of the
+    // picture ReadPresented last handed over (0 = this present's, 1 = the previous present's).
+    void SetPresentCaptureWaitNs(uint64_t ns) { if (be_) be_->SetPresentCaptureWaitNs(ns); }
+    int PresentedLag() const { return be_ ? be_->PresentedLag() : 0; }
     // The hidden window's present: a swap (SDL_GL_SwapWindow -> CGLFlushDrawable of a drawable nobody
     // sees) or a plain command flush (the default; the captured image is what the session window shows).
     void SetSwapHiddenWindow(bool swap) { swap_hidden_ = swap; }

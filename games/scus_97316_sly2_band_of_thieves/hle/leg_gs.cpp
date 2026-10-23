@@ -46,6 +46,8 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         // instead of draining the GPU at every present (consumer_b B1); the headless dump keeps the
         // synchronous read (p<key>.ppm = that present).
         if (core.play_mode && knobs.gs_consumer_levers) video.SetPresentCaptureDeferred(true);
+        // Round 5: the prompt capture -- a bounded wait at the present for this present's own picture.
+        if (core.play_mode && cfg.video.capture_wait_ms > 0) video.SetPresentCaptureWaitNs(uint64_t(cfg.video.capture_wait_ms) * 1000000ull);
         video.SetSwapHiddenWindow(!knobs.gs_consumer_levers);   // levers on: the hidden window's swap is a flush
         if (knobs.gl_shader_blend) video.SetGlForceShaderBlend(true);
         video.Pipe()->Cache().Readback().SetOfferEnabled(knobs.gs_consumer_levers);

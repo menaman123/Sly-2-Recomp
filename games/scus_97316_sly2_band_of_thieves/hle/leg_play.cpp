@@ -77,7 +77,8 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         static_assert(static_cast<int>(ps2r::FrameCap::Off) == 0 && static_cast<int>(ps2r::FrameCap::Hz30) == 1 &&
                       static_cast<int>(ps2r::FrameCap::Hz60) == 2);
         session->ConfigureDisplayRows({cfg.video.scale, static_cast<int>(cfg.video.aspect), static_cast<int>(cfg.video.render_rate),
-                                       static_cast<int>(cfg.video.fullscreen), cfg.harness.display_hz, static_cast<int>(cfg.video.frame_cap)});
+                                       static_cast<int>(cfg.video.fullscreen), cfg.harness.display_hz, static_cast<int>(cfg.video.frame_cap),
+                                       cfg.video.present_relax});
         aspect = std::make_shared<ps2r::gs::AspectSelection>(ShapeOf(cfg.video.aspect));
         session->SetAspect(aspect);
         texture_filter = std::make_shared<ps2r::render::TextureFilterSelection>(FilterOf(cfg.video.texture_filter), cfg.video.anisotropy);
@@ -105,10 +106,11 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         // The consumer thread's presented image goes to the session window and, with --dump-frames,
         // every dump_every-th one is written as p<n>.ppm (n = the OUTPUT frame ordinal).
         // The picture's frame ordinal: the frame record the consumer is delivering, or the one before it
-        // when the present capture is read one present late (SetPresentCaptureDeferred, leg_gs.cpp).
-        const uint64_t capture_lag = gs.video.PresentCaptureDeferred() ? 1u : 0u;
-        gs.video.SetOutput([this, &gs, capture_lag](std::vector<uint8_t> rgba, int w, int h) {
+        // when the present capture was read one present late (SetPresentCaptureDeferred, leg_gs.cpp;
+        // the backend says which for each hand-over: PresentedLag, round 5's prompt capture reads its own).
+        gs.video.SetOutput([this, &gs](std::vector<uint8_t> rgba, int w, int h) {
             const uint64_t frame = gs.latency_tap.current_frame.load(std::memory_order_relaxed);
+            const uint64_t capture_lag = gs.video.PresentCaptureDeferred() ? static_cast<uint64_t>(gs.video.PresentedLag()) : 0u;
             const uint64_t tag = frame >= capture_lag ? frame - capture_lag : 0;
             timeline.Note(FrameTimeline::Lane::Output, tag);
             clock_census.NotePresent();
