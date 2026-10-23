@@ -228,7 +228,7 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
                                             ":readbacks=" + std::to_string(bc->readbacks) + ":readback_kb=" + std::to_string(bc->readback_bytes / 1024u) +
                                             ":readback_waits=" + std::to_string(bc->readback_waits) + ":capture_waits=" + std::to_string(bc->capture_waits) +
                                             ":gpu_waits=" + std::to_string(bc->gpu_waits) + "/" + std::to_string(bc->gpu_wait_ns / 1000000u) + "ms" +
-                                            ":prompt=" + std::to_string(bc->prompt_captures) + "/" + std::to_string(bc->prompt_timeouts) + "/" + std::to_string(bc->prompt_wait_ns / 1000000u) + "ms" +
+                                            ":prompt=" + std::to_string(bc->prompt_captures) + "/" + std::to_string(bc->prompt_timeouts) + "/" + std::to_string(bc->prompt_skipped) + "/" + std::to_string(bc->prompt_wait_ns / 1000000u) + "ms" +
                                             ":copies=" + std::to_string(bc->copies) + ":barriers=" + std::to_string(bc->barriers) +
                                             ":state_sets=" + std::to_string(bc->state_sets) + ":uniform_sets=" + std::to_string(bc->uniform_sets));
             }

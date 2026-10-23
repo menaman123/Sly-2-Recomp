@@ -98,6 +98,15 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
                 gs_queue_lockstep ? ps2r::gs::DrawIrThreadQueue::Policy::Lockstep : ps2r::gs::DrawIrThreadQueue::Policy::Pipelined,
                 4096, pipeline_vram.get());
             if (knobs.gs_queue_stage) gs_queue->SetStageDepth(knobs.gs_queue_stage);
+            // Round 5: the prompt capture waits only when no COMPLETE frame is queued behind this one
+            // -- a consumer with the next frame's record already in the ring is a frame behind, and
+            // the wait would cost it the CPU/GPU overlap it needs to catch up (that present is read
+            // at the next one, as before: lag 1; census gs_backend= prompt=captures/timeouts/skipped/ms).
+            // The next frame's PARTIAL records (the worker running ahead inside the field) do not
+            // gate: with Depth() == 0 as the rule hub_ep3 Metal skipped 241 of 894 presents while the
+            // consumer kept up, and the lag-0 / lag-1 alternation slipped the relaxed train.
+            if (core.play_mode && cfg.video.capture_wait_ms > 0)
+                video.SetPresentCaptureGate([q = gs_queue.get()] { return q->PendingFrames() == 0; });
             if (pipeline_vram) {
                 gs_state.Vram().SetMirror(gs_queue->ProducerMirror());
                 // A local->local copy's source under frame skip: never wait -- the EE image is

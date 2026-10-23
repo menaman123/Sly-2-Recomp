@@ -104,6 +104,7 @@ public:
     // Round 5: the prompt capture's bounded wait (video.capture_wait_ms; backend.h) and the lag of the
     // picture ReadPresented last handed over (0 = this present's, 1 = the previous present's).
     void SetPresentCaptureWaitNs(uint64_t ns) { if (be_) be_->SetPresentCaptureWaitNs(ns); }
+    void SetPresentCaptureGate(std::function<bool()> gate) { if (be_) be_->SetPresentCaptureGate(std::move(gate)); }
     int PresentedLag() const { return be_ ? be_->PresentedLag() : 0; }
     // The hidden window's present: a swap (SDL_GL_SwapWindow -> CGLFlushDrawable of a drawable nobody
     // sees) or a plain command flush (the default; the captured image is what the session window shows).
