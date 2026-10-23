@@ -38,6 +38,8 @@ public:
     uint64_t gs_irq_on_ee = 0, gs_irq_on_drain = 0;
     uint64_t syscall_entry_isrs = 0, syscall_entry_isrs_deferred = 0;              // census syscall_entry_isrs=
     uint64_t mtvu_idle_wait_entries = 0;                                           // census mtvu= idle_wait_entries
+    uint64_t mtvu_idle_wait_skipped = 0;   // E430: observation points whose wait would not have parked (the idle loop skipped)
+    uint64_t mtvu_idle_wait_vblank_skipped = 0;   // E430: ... whose block wakes a vblank sleeper (skipped)
 
 private:
     LegDevices& devices_;

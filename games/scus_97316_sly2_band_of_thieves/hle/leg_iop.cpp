@@ -14,6 +14,7 @@
 #include "engine/ee/hle/thread_manager.h"
 #include "engine/ee/sched/ee_event_queue.h"
 #include "engine/sif/hle/sce_sif.h"
+#include "engine/vu/tiers/mtvu_sync.h"
 #include "games/scus_97316_sly2_band_of_thieves/iop/iop_modules.h"
 
 #ifndef PS2R_SLY2_SHA_FILEIO
@@ -101,7 +102,7 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
         yd.inhibit = [&sequencer = core.sequencer] { return sequencer.InFlight() != 0; };
         // The idle runner never passes a field over GS deliveries in flight (the worker's spans,
         // the drain thread's parser): it parks on their progress as the pre-dispatch's idle wait does.
-        yd.pipeline_wait = [&mtvu_stack] { return mtvu_stack && !mtvu_stack->sync().WaitProgress(); };
+        yd.pipeline_wait = [&mtvu_stack] { return mtvu_stack && !mtvu_stack->sync().WaitProgress(WaitCause::IdleWaitField); };
         if (knobs.idle_trace) {
             yd.on_idle_field = [](uint64_t tick, int tid) {
                 std::fprintf(stderr, "idle-trace: field at tick %llu on tid %d:", (unsigned long long)tick, tid);
@@ -123,6 +124,12 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
             if (mtvu_stack) mtvu_stack->sync().TryDrainPending();
         };
         yd.budget = kYieldBudget;
+        // E432 (engine.ee_yield_spin_gate / NATIVEEE_EE_YIELD_SPIN_GATE): a trip passes a field of its
+        // own only when its thread spun (no token acquire, no boundary since the previous trip); the
+        // 2^18th back-edge of code that schedules fires only the wall fields the pacer already noted
+        // (BoundaryProtocol::FireDueFields, no park). Census ee_yield= spin_trips/sched_trips/due_fields.
+        yd.spin_gate = knobs.yield_spin_gate_set ? knobs.yield_spin_gate_on : cfg.engine.ee_yield_spin_gate;
+        yd.fire_due_fields = core.protocol.FireDueFieldsHook();
         EeYieldPoint::Instance().Bind(std::move(yd));
     }
 }

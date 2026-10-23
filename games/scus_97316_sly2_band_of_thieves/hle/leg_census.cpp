@@ -84,7 +84,8 @@ void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
                                    ":ring_drops=" + std::to_string(q.RingFullDrops()) +
                                    ":nonholder_drains=" + std::to_string(q.NonHolderDrainRequests()));
     }
-    meta->Set("ee_yield_budget", std::to_string(LegIop::kYieldBudget));
+    meta->Set("ee_yield_budget", std::to_string(LegIop::kYieldBudget) + ":spin_gate=" +
+                                     (EeYieldPoint::Instance().SpinGate() ? "on" : "off"));
     meta->Set("vblank_waits", std::to_string(EeRunToken::Instance().VblankWaits()) + ":idle=" +
                                   std::to_string(EeRunToken::Instance().VblankWaitsIdle()));
     meta->Set("syscall_entry_isrs", std::to_string(irq.syscall_entry_isrs) + ":deferred=" + std::to_string(irq.syscall_entry_isrs_deferred));
@@ -140,10 +141,16 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
     std::unique_ptr<MtvuStack>& mtvu = p_.mtvu.mtvu;
     GifArbiter& gif_arbiter = p_.devices.gif_arbiter;
     meta->Set("mtvu", mtvu ? mtvu->Census() + ",idle_wait_entries=" + std::to_string(p_.interrupts.mtvu_idle_wait_entries) +
+                                 ",idle_wait_skipped=" + std::to_string(p_.interrupts.mtvu_idle_wait_skipped) + "/" +
+                                 std::to_string(p_.interrupts.mtvu_idle_wait_vblank_skipped) +
+                                 ",wait_probe=" + (p_.mtvu.wait_probe ? "on" : "off") +
                                  ",arbiter_slots=" + std::to_string(gif_arbiter.PendingSlots()) +
                                  ",arbiter_sealed_ready=" + (gif_arbiter.hasSealedReady() ? "1" : "0") +
                                  ",worker_busy=" + (mtvu->worker().IsBusy() ? "1" : "0")
                            : "off");
+    // E430: every producer-side park on the pipeline by cause (count/ns), the VIF1 registers
+    // the EE wrote / read through the gate.
+    meta->Set("mtvu_waits", mtvu ? mtvu->WaitsCensus() : "off");
     WriteGsPages(meta);
     WriteShadowSplit(meta);
     meta->Set("gs_csr", Hex(gs.gs_state.Priv().Read(ps2r::gs::GsPrivRegs::kCsr)));
@@ -333,7 +340,7 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
     // TickProfile breakdown (Boundary / GifDrain / ... / other = recompiled code), the
     // per-site totals (ms/calls).
     meta->Set("pace", "parks=" + std::to_string(protocol.PaceParks()) + ":late=" + std::to_string(protocol.PaceLate()) +
-                          ":timeouts=" + std::to_string(protocol.PaceTimeouts()) + ":late_fields=" + std::to_string(p_.core.sequencer.PaceLateFields()) +
+                          ":timeouts=" + std::to_string(protocol.PaceTimeouts()) + ":wakes=" + std::to_string(protocol.PaceWakes()) + ":late_fields=" + std::to_string(p_.core.sequencer.PaceLateFields()) +
                           ":slept_ms=" + std::to_string(protocol.PaceSleptUs() / 1000) + ":work_max_ms=" + std::to_string(protocol.WorkMaxUs() / 1000) +
                           ":long=" + std::to_string(protocol.LongTraceCount()));
     meta->Set("pace_work_max_breakdown", protocol.WorkMaxBreakdown().empty() ? std::string("none") : protocol.WorkMaxBreakdown());

@@ -35,6 +35,11 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
         // the headless / unpaced lanes keep the terminal sync so their Verify grab reads the frame
         // the boundary closed (the fhash lane stays keyed by boundary: the oracle lanes are inert).
         early_finish = knobs.early_finish_set ? knobs.early_finish_on : cfg.engine.mtvu_early_finish;
+        // E430 (engine.mtvu_wait_probe / NATIVEEE_MTVU_WAIT_PROBE): the syscall entry's observation
+        // point (leg_interrupts) asks the kernel object whether the wait would park before idling on
+        // the worker -- the WaitSema after the kick, whose FINISH the early raise signalled in the
+        // same entry, no longer serialises the frame behind the worker's replay.
+        wait_probe = knobs.wait_probe_set ? knobs.wait_probe_on : cfg.engine.mtvu_wait_probe;
         const bool paced = core.play_mode && gs.video_live && !knobs.unpaced;
         deferred_boundary = early_finish && paced;
         mtvu->SetDeferBoundaries(deferred_boundary);
@@ -67,10 +72,11 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
             // Under the deferred boundary (E426) the fence goes: the frame's packets may still be
             // unparsed at the boundary by design; the wall-locked Verify grab reads LastFrameHeaderCopy.
             const bool fence = !deferred_boundary;
-            gs.ordered_submit = [&arbiter, fence](std::function<void()> work) {
+            MtvuStack* stack = mtvu.get();
+            gs.ordered_submit = [&arbiter, stack, fence](std::function<void()> work) {
                 arbiter.submitOrdered(std::move(work));
                 arbiter.drain();
-                if (fence) arbiter.DrainFence();
+                if (fence) stack->VsyncFence();   // = arbiter.DrainFence(), booked as vsync_fence
             };
             gs.gs_state.Priv().SetJobDeferrer([&arbiter](std::function<void()> push) {
                 arbiter.submitOrdered(std::move(push));
@@ -89,9 +95,9 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
             mtvu->EnableEarlyFinish(+[](void* user) { static_cast<ps2r::gs::GsPrivRegs*>(user)->FinishNow(); }, &priv);
             priv.SetFinishConsumer([&arbiter] { return arbiter.ConsumePreRaisedFinish(); });
         }
-        PS2R_LOG(HOST, Info, "MTVU: VU1 worker started (drain %s, %s boundary, depth_frames=%d, early_finish=%s)",
+        PS2R_LOG(HOST, Info, "MTVU: VU1 worker started (drain %s, %s boundary, depth_frames=%d, early_finish=%s, wait_probe=%s)",
                  mtvu->drain().Running() ? "thread" : "inline", deferred_boundary ? "deferred" : "terminal sync",
-                 cfg.engine.mtvu_depth, early_finish ? "on" : "off");
+                 cfg.engine.mtvu_depth, early_finish ? "on" : "off", wait_probe ? "on" : "off");
     }
     // The AOT tier's persistent side on the LIVE VU1 unit (the worker's under MTVU: its dispatch copied
     // the settings above). Only when the tier is selected. No compiler on the host = one notice, the

@@ -53,6 +53,7 @@ public:
 
     std::unique_ptr<MtvuStack> mtvu;   // null = the inline path
     bool early_finish = false;         // E425 (the early FINISH) is on (MTVU only)
+    bool wait_probe = false;           // E430 (the observation point probes the kernel object first) is on (MTVU only)
     bool deferred_boundary = false;    // E426 (deferred boundary, no VSync fence, composed GIF_STAT): paced play only
     std::unique_ptr<ps2r::app::Vu1AotBuilder> vu1_aot_builder;
     std::unique_ptr<ps2r::app::Vu1AotCache> vu1_aot_cache;

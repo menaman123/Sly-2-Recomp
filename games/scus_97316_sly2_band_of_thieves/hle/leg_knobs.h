@@ -49,6 +49,15 @@ struct LegKnobs {
     // engine.mtvu_early_finish (set = the env decides; "1" = on). MTVU only.
     bool early_finish_set = false;
     bool early_finish_on = false;
+    // NATIVEEE_MTVU_WAIT_PROBE=1|0: force the E430 lever (the kernel-wait observation point probes the
+    // kernel object before idling on the worker) on / off on top of Config engine.mtvu_wait_probe
+    // (set = the env decides; "1" = on). MTVU only.
+    bool wait_probe_set = false;
+    bool wait_probe_on = false;
+    // NATIVEEE_EE_YIELD_SPIN_GATE=1|0: E432 (the yield point's spin gate: a trip of scheduling code passes
+    // no field of its own) on / off on top of Config engine.ee_yield_spin_gate (unset = the Config value).
+    bool yield_spin_gate_set = false;
+    bool yield_spin_gate_on = false;
     // NATIVEEE_MEM_LANE=1|0: force the harness mem lane (VerifyHost's 34 MB guest-RAM FNV every 60 boundaries,
     // ~40 ms on the boundary thread) on / off (set = the env decides; the default: on in the headless /
     // deterministic lanes, OFF in play -- the clock contract's rule 5, run.meta mem_lane=).

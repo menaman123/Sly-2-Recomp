@@ -15,6 +15,7 @@
 #include "engine/gif/gif_arbiter.h"
 #include "engine/gs/hle/sce/gs_sync.h"
 #include "engine/gs/state/gs_priv_regs.h"
+#include "engine/vu/tiers/mtvu_sync.h"
 
 namespace ps2r::title::sly2 {
 
@@ -111,7 +112,12 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
     // BLOCKING wait that finds no other READY thread while the worker still runs idles on the
     // worker's progress (MtvuSync::WaitProgress: seal / idle, drain, re-check) instead of blocking
     // with nothing left to deliver the interrupt -- the console's idle loop taking the GS interrupt.
-    SyscallTable::Instance().SetPreDispatch([this, isr_trace, &dmac, &mtvu_stack, &intc](int num, CpuContext& ctx) {
+    // E430 (engine.mtvu_wait_probe): the observation point below asks the kernel object whether the
+    // wait would park before idling on the worker. Off = every blocking-class entry with nothing else
+    // READY idles until the worker is quiescent -- the WaitSema after the VIF1 kick, whose FINISH the
+    // early raise already signalled, then costs the whole replay (census mtvu_waits= idle_nonblocking).
+    const bool wait_probe = mtvu.wait_probe;
+    SyscallTable::Instance().SetPreDispatch([this, isr_trace, wait_probe, &dmac, &mtvu_stack, &intc](int num, CpuContext& ctx) {
         if (num == 4 || num == 35 || num == 37 || num == 38) {
             // Exit / ExitThread / TerminateThread / iTerminateThread: the site (a thread exit ends the leg when
             // it is tid 1's) -- one line each, shadow frames innermost first.
@@ -136,8 +142,31 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
         // in-place raise would have had pending there); the observation point alone first waits
         // for the pipeline to owe nothing, so that the thread the console's idle loop would have
         // taken the interrupt on takes it here, in-line and on the drain thread alike.
+        // E430: the idle loop is for a block that leaves the EE with NOTHING to run. A wait whose body
+        // returns at once is not a block: the thread runs on (and takes the next cause at its next
+        // scheduling point, as a running console thread would). A block while a thread sleeps in
+        // WaitVblank is not idle either: that sleeper wakes the instant this thread blocks (the vblank
+        // is "now" on an all-blocked EE) and runs the boundary -- itself a scheduling point.
         const auto observation_point = [&] {
-            return blocking && !EeRunToken::Instance().AnyReadyBesides(EeRunToken::Instance().CurrentTid());
+            if (!blocking || EeRunToken::Instance().AnyReadyBesides(EeRunToken::Instance().CurrentTid())) return false;
+            if (wait_probe && !SyscallTable::WouldBlockNow(num, ctx)) {
+                ++mtvu_idle_wait_skipped;
+                return false;
+            }
+            if (wait_probe && EeRunToken::Instance().VblankWaiters() != 0) {
+                ++mtvu_idle_wait_vblank_skipped;
+                return false;
+            }
+            return true;
+        };
+        // The idle wait's CAUSE (census mtvu_waits=): would this wait's body park the thread
+        // now (a FINISH handler dispatched at this very entry signalled the semaphore the
+        // thread is about to wait on: it would not), and would the park itself wake a
+        // vblank sleeper (WaitVblank's "every other thread blocked = the vblank is now").
+        const auto idle_cause = [&] {
+            if (!SyscallTable::WouldBlockNow(num, ctx)) return WaitCause::IdleWaitNonBlocking;
+            if (EeRunToken::Instance().VblankWaiters() != 0) return WaitCause::IdleWaitVblankWaiter;
+            return WaitCause::IdleWaitBlocking;
         };
         for (;;) {
             // The inline drain parses the sealed prefix here (its GS events latch deferred).
@@ -160,7 +189,7 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
                 // answers at once (after one drain) when nothing is outstanding.
                 if (mtvu_stack && observation_point()) {
                     ++mtvu_idle_wait_entries;
-                    if (!mtvu_stack->sync().WaitProgress()) continue;   // progress delivered, the pipeline still runs
+                    if (!mtvu_stack->sync().WaitProgress(idle_cause())) continue;   // progress delivered, the pipeline still runs
                     EeEventQueue::Instance().DrainIfPendingOnHolder();
                     intc.CollectDeferred();                             // a FINISH the pipeline latched meanwhile
                     if (intc.Pending()) continue;                       // the last drain raised a cause

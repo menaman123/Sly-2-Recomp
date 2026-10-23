@@ -43,6 +43,14 @@ LegKnobs LegKnobs::FromEnvironment() {
         k.early_finish_set = true;
         k.early_finish_on = std::string(env) == "1";
     }
+    if (const char* env = std::getenv("NATIVEEE_MTVU_WAIT_PROBE")) {
+        k.wait_probe_set = true;
+        k.wait_probe_on = std::string(env) == "1";
+    }
+    if (const char* env = std::getenv("NATIVEEE_EE_YIELD_SPIN_GATE")) {
+        k.yield_spin_gate_set = true;
+        k.yield_spin_gate_on = std::string(env) == "1";
+    }
     if (const char* env = std::getenv("NATIVEEE_MEM_LANE")) {
         k.mem_lane_set = true;
         k.mem_lane_on = std::string(env) == "1";
