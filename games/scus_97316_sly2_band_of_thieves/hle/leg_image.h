@@ -11,8 +11,11 @@
 // cdvd_rows, libmc_rows, title, functions, sdk_rows* are written here.
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "engine/core/config/config.h"
 #include "engine/core/verify/verify_host.h"
@@ -39,11 +42,18 @@ public:
     uint64_t iop_module_loads = 0;
     uint64_t boundary_site_hits = 0;  // run.meta boundary_site_hits=: WaitForVblank mirror entries
 
+    // NATIVEEE_FN_CENSUS: writes the per-function call counts (every exit path, from leg_census).
+    void WriteFnCensus();
+
 private:
     bool LoadElf(ps2r::verify::VerifyHost& host, const TitleProfile& title, const std::string& elf_path, LegCore& core);
     bool InstallDispatch(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, const TitleProfile& title, const std::string& title_dir,
                          const LegKnobs& knobs, LegCore& core, LegDisc& disc, LegServices& services, LegIop& iop);
     void InstallFnTrace(const std::string& list);
+    void InstallFnCensus();
+
+    std::string fn_census_path_;
+    std::vector<std::shared_ptr<std::atomic<uint64_t>>> fn_census_counts_;   // by dense id
 
     int error_ = 0;
 };

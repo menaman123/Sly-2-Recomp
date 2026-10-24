@@ -152,6 +152,10 @@ bool LegImage::InstallDispatch(const ps2r::Config& cfg, ps2r::verify::VerifyHost
     // NATIVEEE_FN_TRACE=addr[,addr...]: wrap generated functions with an entry/return print
     // (a0..a3 at entry, v0 at return) -- boot triage only, never a replacement.
     if (knobs.fn_trace) InstallFnTrace(*knobs.fn_trace);
+    if (knobs.fn_census) {
+        fn_census_path_ = *knobs.fn_census;
+        InstallFnCensus();
+    }
     std::string not_starts;
     for (const auto& r : resolved)
         if (DispatchTable::IdOf(r.title.address) >= DispatchTable::FunctionCount())
@@ -188,6 +192,35 @@ void LegImage::InstallFnTrace(const std::string& list) {
             std::fprintf(stderr, "fn-trace: 0x%08x -> v0=0x%08x\n", fn, ctx.cpuRegs.GPR.r[2].UL[0]);
         });
     }
+}
+
+// NATIVEEE_FN_CENSUS: every generated function counted (DispatchTable::CountCalls, EveryCall) -- the
+// diagnostic for "which functions run only while X happens" (two runs, diff the files).
+void LegImage::InstallFnCensus() {
+    const uint32_t n = DispatchTable::FunctionCount();
+    fn_census_counts_.resize(n);
+    uint32_t installed = 0;
+    for (uint32_t id = 0; id < n; id++) {
+        const uint32_t fn = DispatchTable::AddressOfId(id);
+        DispatchTable::Body original = DispatchTable::Capture(fn);
+        if (!original) continue;
+        fn_census_counts_[id] = std::make_shared<std::atomic<uint64_t>>(0);
+        if (DispatchTable::Install(fn, DispatchTable::CountCalls(fn, std::move(original), fn_census_counts_[id]))) ++installed;
+    }
+    PS2R_LOG(HOST, Info, "fn census: %u of %u functions counted -> %s", installed, n, fn_census_path_.c_str());
+}
+
+void LegImage::WriteFnCensus() {
+    if (fn_census_path_.empty()) return;
+    FILE* f = std::fopen(fn_census_path_.c_str(), "w");
+    if (!f) return;
+    for (uint32_t id = 0; id < fn_census_counts_.size(); id++) {
+        if (!fn_census_counts_[id]) continue;
+        const uint64_t c = fn_census_counts_[id]->load(std::memory_order_relaxed);
+        if (c) std::fprintf(f, "%08x %llu\n", DispatchTable::AddressOfId(id), static_cast<unsigned long long>(c));
+    }
+    std::fclose(f);
+    fn_census_path_.clear();
 }
 
 }  // namespace ps2r::title::sly2

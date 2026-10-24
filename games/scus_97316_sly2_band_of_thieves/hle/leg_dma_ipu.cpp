@@ -67,6 +67,23 @@ LegDmaIpu::LegDmaIpu(const LegKnobs& knobs, LegCore& core, LegDevices& devices, 
     });
     // COP2: the VU0 macro ops and CMSAR1 reach the units (unbound they park vu_micro_absent).
     VuMacroBridge::Bind(&devices.vu0, &devices.vu1, &devices.vu0_registry);
+    if (knobs.vu0_trace) {
+        const size_t colon = knobs.vu0_trace->find(':');
+        std::string err;
+        if (colon == std::string::npos || !vu0_trace.Parse(knobs.vu0_trace->substr(colon + 1), &err)) {
+            std::fprintf(stderr, "NATIVEEE_VU0_TRACE: bad spec (%s)\n", err.c_str());
+        } else {
+            vu0_trace_path = knobs.vu0_trace->substr(0, colon);
+            VuMacroBridge::SetTrace(&vu0_trace);
+        }
+    }
+}
+
+void LegDmaIpu::WriteVu0Trace() {
+    if (vu0_trace_path.empty()) return;
+    VuMacroBridge::SetTrace(nullptr);
+    vu0_trace.Flush(vu0_trace_path);
+    vu0_trace_path.clear();
 }
 
 }  // namespace ps2r::title::sly2

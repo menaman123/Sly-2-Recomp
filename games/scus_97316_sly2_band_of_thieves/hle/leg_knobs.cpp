@@ -68,6 +68,8 @@ LegKnobs LegKnobs::FromEnvironment() {
     k.key_script = Text(std::getenv("NATIVEEE_KEY_SCRIPT"));
     k.lat_pulse = Text(std::getenv("NATIVEEE_LAT_PULSE"));
     k.fn_trace = Text(std::getenv("NATIVEEE_FN_TRACE"));
+    k.fn_census = Text(std::getenv("NATIVEEE_FN_CENSUS"));
+    k.vu0_trace = Text(std::getenv("NATIVEEE_VU0_TRACE"));
     k.vu1_cap = Text(std::getenv("NATIVEEE_VU1_CAP"));
     k.gs_routes = Text(std::getenv("NATIVEEE_GS_ROUTES"));
     k.gs_rt_dump = Text(std::getenv("NATIVEEE_GS_RT_DUMP"));

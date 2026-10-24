@@ -97,6 +97,15 @@ add_test(NAME Sly2_JudgeSoliditySelftest
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/judge_solidity.py --selftest)
 set_tests_properties(Sly2_JudgeSoliditySelftest PROPERTIES TIMEOUT 120)
 
+# --- the CHARGED-CANE EFFECT gate (verify/judge_cane.py, round 6 track cane) -------------------------
+# The particle systems' presence: median orange / bright pixel counts inside the cane-head box over the
+# hold frames of the Paris SQUARE-hold dump (verify/cane/fixtures.json: numbers only) >= 100 / >= 100,
+# the pre-fix dump below, the PCSX2 twin above (the VU0 macro-mode MAC-flag commit of engine fix/cane).
+# Frames and twin are game-derived (never in the repository); the selftest runs everywhere.
+add_test(NAME Sly2_JudgeCaneSelftest
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/judge_cane.py --selftest)
+set_tests_properties(Sly2_JudgeCaneSelftest PROPERTIES TIMEOUT 60)
+
 # --- the METAL IDENTITY judge (verify/judge_metal_identity.py, round 3 track metal) ------------------
 # The Metal arm's picture per pixel inside the BAND the GL arm's two blend routes span (fixed-function
 # default vs `--force-shader-blend`, +-2/255): outside <= 0.3 % of the pixels and max excess <= 8 on every

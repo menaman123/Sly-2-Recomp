@@ -324,6 +324,8 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
     meta->Set("pad_stamps", std::to_string(pad.pad_stamps));
     meta->Set("pad_served", "active=" + std::to_string(pad.pad_served_active) + ":last=" + (pad.pad_served_last.empty() ? "none" : pad.pad_served_last));
     pad.pad_recorder.Close();   // every exit path: the open run + the header counts land before _Exit
+    p_.image.WriteFnCensus();   // NATIVEEE_FN_CENSUS: same contract
+    p_.dma_ipu.WriteVu0Trace();   // NATIVEEE_VU0_TRACE: same contract
     meta->Set("pad_record", pad.pad_recorder.Census());
     meta->Set("pad_script", pad.pad_script.Census());
     meta->Set("nav_probe", pad.nav_probe.Census());

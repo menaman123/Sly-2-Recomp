@@ -91,6 +91,12 @@ struct LegKnobs {
     std::optional<std::string> lat_pulse;   // NATIVEEE_LAT_PULSE (leg_pad.h): the latency census's edge source
     // NATIVEEE_FN_TRACE=addr[,addr...]: entry / return prints around generated functions.
     std::optional<std::string> fn_trace;
+    // NATIVEEE_FN_CENSUS=<file>: every generated function wrapped with a call counter (DispatchTable::CountCalls);
+    // the counts (one `addr calls` line per called function) land in <file> at exit (leg_census). Diagnostic only.
+    std::optional<std::string> fn_census;
+    // NATIVEEE_VU0_TRACE=<file>:<pc>[,<pc>...]: the engine Vu0Trace (COP2 block before / after every VCALLMS of those
+    // micro pcs, hex byte addresses) flushed to <file> at exit (leg_census). Diagnostic only.
+    std::optional<std::string> vu0_trace;
     // NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>]: vu1_probe.h.
     std::optional<std::string> vu1_cap;
     // NATIVEEE_GS_ROUTES=<key>[,<key>...]: the pipeline's per-draw route trace of those frames.

@@ -59,3 +59,14 @@ instead of `PS2_EE_RAWDISP`. Report unchanged (6575 bodies, 72351 exact entries,
 every shard changed (the indirect sites), recompiled.h / recompiled.cpp changed, continuations.h only in its header
 comment (the shard hash list; the table itself is identical). The common TU is now compiled at -O2 (recomp/CMakeLists.txt
 PS2R_RECOMP_COMMON_OPT). MANIFEST.sha256 re-recorded.
+
+## Regeneration 2026-10-24 (cane round 6, VU0 macro-mode MAC / STATUS flags)
+
+Generator change only (engine `tools/recompiler_v2/recompiler_tool/recompiler.cpp`, `emit_vu_masked_write` + the
+VOPMULA / VOPMSUB / VMULI hand-rolled cases): every FMAC-class COP2 macro op now ends with
+`VuMacroCommitFlags(ctx.vuRegs, <result>, <dest mask>)` (declared in `engine/ee/recomp_abi/host_app/vu.h`, defined in
+`engine/vu/macro/vu_macro_bridge.cpp`), so a guest `cfc2 $vi17` / `$vi16` after macro-mode arithmetic reads the flags of
+that arithmetic instead of the last VU0 microprogram's leftovers (Sly 2's particle-emitter frustum test FUN_0014f850
+read them: 0 for every emitter -> no kind-12 draw entries -> no particle effects anywhere). Same invocation, same
+inputs; 29 of 35 manifest rows changed (the shards with macro ops + continuations.h), recompiled.h / recompiled.cpp
+and the 4 macro-free shards byte-identical. MANIFEST.sha256 re-recorded.

@@ -1,0 +1,151 @@
+# .github/workflows/windows.yml -- the Windows build: configure, build, the unit tests and the staged zip, on every
+# push to main and every pull request.
+# [TwinsanityEvolved/.github/workflows/windows.yml (234718f), adapted to this repository's layout: the engine is the
+#  submodule engine/ (its CMakePresets.json carries the windows-clang-cl-* presets and cmake/windows-clang-cl.toolchain.cmake),
+#  the title module is games/ (PS2R_GAMES_DIR), there is no wasm32 toolchain to fetch (the title is a static recompilation,
+#  regenerated from the user's disc -- which a runner does not have, so this lane builds the engine, the tools, the title's
+#  HLE library and the component tests: the same no-disc shape as ci.yml's Windows lane, now as a REAL gate).]
+#
+#   SDL2 + FFmpeg + the GL headers  vcpkg in manifest mode (engine/vcpkg.json), checked out at the manifest's builtin-baseline
+#   configure + build               `cmake -S engine --preset windows-clang-cl-release` (clang-cl through the engine's shim)
+#   unit tests                      `ctest --test-dir ...`; the runner has no GPU, so the tests run
+#                                   on Mesa's llvmpipe (OpenGL 4.5 in software) placed beside the test executables
+#   staged zip                      engine/tools/ci/release_dist.ps1 -SkipBuild is the DISC build's stager; without a disc
+#                                   there is no nativeee.exe to stage, so the artefact here is the logs + gs_replay.exe
+#
+# The game itself is not run here: there is no disc image on a runner.
+name: Sly 2 Windows
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MESA_VERSION: 26.2.3
+  MESA_SHA256: 3f3613adb43cfd0f2e665ce2400b130c275f0b3317cb3a05566320a3a67589ed
+  BUILD_DIR: ${{ github.workspace }}\build-windows-clang-cl-release
+
+jobs:
+  windows-clang-cl:
+    name: windows-x64 (clang-cl, Ninja, vcpkg)
+    runs-on: windows-2022
+    timeout-minutes: 240
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Asset scan over games/ (the title module ships no game bytes)
+        shell: bash
+        run: python engine/tools/ci/asset_scan.py --tree games
+
+      - name: Python 3.12 (the clang-cl shim and the generators run under `python`)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: vcpkg at the manifest's builtin-baseline
+        shell: pwsh
+        run: |
+          $baseline = (Get-Content engine/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          git clone --quiet https://github.com/microsoft/vcpkg.git "${{ github.workspace }}\vcpkg"
+          git -C "${{ github.workspace }}\vcpkg" checkout --quiet $baseline
+          & "${{ github.workspace }}\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+      - name: vcpkg binary cache (restore)
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('engine/vcpkg.json') }}
+
+      - name: MSVC developer environment (clang-cl, lld-link, Ninja, the Windows SDK)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Tool versions
+        shell: pwsh
+        run: |
+          cmake --version | Select-Object -First 1
+          ninja --version
+          clang-cl --version | Select-Object -First 1
+          python --version
+
+      # VCPKG_ROOT is set on the step: the developer environment exports its own (Visual Studio's bundled vcpkg).
+      # No disc on a runner: NATIVEEE_DISC / NATIVEEE_TITLE_ELF empty -> the engine, the tools, the title's HLE library
+      # and the component tests (the title's recompiled code and nativeee.exe need the user's disc: WINDOWS.md).
+      - name: Configure (cmake -S engine --preset windows-clang-cl-release)
+        shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+        run: |
+          cmake -S engine --preset windows-clang-cl-release -B "$env:BUILD_DIR" -DPS2R_GAMES_DIR="${{ github.workspace }}\games" -DNATIVEEE_DISC= -DNATIVEEE_TITLE_ELF= -DPS2R_SIMD=ON 2>&1 | Tee-Object -FilePath configure.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: vcpkg binary cache (save)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('engine/vcpkg.json') }}
+
+      - name: Build (the whole tree; the targets in .github/ci/known_broken_targets.txt may fail, anything else is an error)
+        shell: bash
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+        run: |
+          set -o pipefail
+          cmake --build "$BUILD_DIR" -j 4 -- -k 0 2>&1 | tee build.log || true
+          echo "build: $(grep -c 'warning' build.log || true) warnings"
+          python .github/ci/ci_lists.py audit-build build.log
+          test -f "$BUILD_DIR/tools/gs_replay/gs_replay.exe"
+          test -f "$BUILD_DIR/tests/platform/test_host_platform.exe"
+
+      - name: Mesa llvmpipe for the tests (software OpenGL; the runner has no GPU)
+        shell: pwsh
+        run: |
+          $archive = "mesa3d-$env:MESA_VERSION-release-msvc.7z"
+          Invoke-WebRequest -UseBasicParsing "https://github.com/pal1000/mesa-dist-win/releases/download/$env:MESA_VERSION/$archive" -OutFile $archive
+          $sha = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          if ($sha -ne $env:MESA_SHA256) { throw "mesa: sha256 $sha, pinned $env:MESA_SHA256" }
+          7z x -y -omesa $archive x64/opengl32.dll x64/libgallium_wgl.dll | Out-Null
+          $dirs = Get-ChildItem $env:BUILD_DIR -Recurse -Filter *.exe | Where-Object { $_.Name -match '^(test_|gs_replay)' } | ForEach-Object { $_.DirectoryName } | Sort-Object -Unique
+          foreach ($d in $dirs) { Copy-Item mesa/x64/opengl32.dll, mesa/x64/libgallium_wgl.dll $d; Write-Host "mesa -> $d" }
+      - name: Unit tests (ctest -E .github/ci/ctest_exclusions.txt)
+        shell: bash
+        env:
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          set -o pipefail
+          EXCL=$(python .github/ci/ci_lists.py exclude-regex)
+          ctest --test-dir "$BUILD_DIR" -j 4 --output-on-failure -E "$EXCL" 2>&1 | tee ctest.log
+
+      - name: Collect (gs_replay.exe + the host test exe + the logs; nativeee.exe needs the user's disc)
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          # the zip carries the user's GPU driver path, not the test-only Mesa copy
+          Get-ChildItem $env:BUILD_DIR -Recurse -Include opengl32.dll, libgallium_wgl.dll | Remove-Item -ErrorAction SilentlyContinue
+          foreach ($f in @("tools\gs_replay\gs_replay.exe", "tests\platform\test_host_platform.exe")) {
+            $p = Join-Path $env:BUILD_DIR $f; if (Test-Path $p) { Copy-Item $p dist\ }
+          }
+          Get-ChildItem (Join-Path $env:BUILD_DIR "tools\gs_replay") -Filter *.dll | Copy-Item -Destination dist\
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sly2-windows-x64-nodisc
+          path: |
+            dist/
+            configure.log
+            build.log
+            ctest.log
+          if-no-files-found: warn

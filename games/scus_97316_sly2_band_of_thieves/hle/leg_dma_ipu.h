@@ -22,6 +22,7 @@
 #include "engine/ipu/ipu_fifo_port.h"
 #include "engine/vif/vif_mmio_gate.h"
 #include "engine/vu/macro/vu_macro_bridge.h"
+#include "engine/vu/vu0/vu0_trace.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_devices.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.h"
@@ -52,6 +53,10 @@ public:
     struct VuMacroUnbind {
         ~VuMacroUnbind() { VuMacroBridge::Unbind(); }
     } vu_macro_unbind;
+    // NATIVEEE_VU0_TRACE=<file>:<pc>[,<pc>...] (leg_knobs.h): the engine's VCALLMS operand census.
+    Vu0Trace vu0_trace;
+    std::string vu0_trace_path;
+    void WriteVu0Trace();   // every exit path (leg_census)
 };
 
 }  // namespace ps2r::title::sly2

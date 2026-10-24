@@ -292,7 +292,7 @@ def twin_draws(dump_dir, frame_id):
     return out
 
 
-OURS_DRAW_RE = re.compile(r"verts: seq=(\d+) prim=(\d+) tme=(\d) abe=(\d) .*? ztst=(\d) ate=(\d) atst=(\d) .*? tbp=0x([0-9a-f]+) .*? alpha=(\d)(\d)(\d)(\d)/(\d+) n=(\d+)")
+OURS_DRAW_RE = re.compile(r"verts: seq=(\d+) prim=(\d+) tme=(\d) abe=(\d) .*? ztst=(\d) ate=(\d) atst=(\d) aref=(\d+) .*? tbp=0x([0-9a-f]+) .*? alpha=(\d)(\d)(\d)(\d)/(\d+) n=(\d+)")
 OURS_VERT_RE = re.compile(r"verts:\s+v\d+ xyz=([-\d.]+),([-\d.]+),([-\d.]+) .*? rgba=([0-9a-f]{8})")
 
 
@@ -307,9 +307,9 @@ def ours_draws(log_path):
         m = OURS_DRAW_RE.match(line)
         if m:
             ctx = {"PRIM": {"PRIM": m.group(2), "TME": m.group(3), "ABE": m.group(4)},
-                   "TEST": {"ZTST": m.group(5), "ATE": m.group(6), "ATST": m.group(7)},
-                   "TEX0": {"TBP0": "0x%x" % (int(m.group(8), 16) // 256)},
-                   "ALPHA": {"A": m.group(9), "B": m.group(10), "C": m.group(11), "D": m.group(12), "FIX": m.group(13)}}
+                   "TEST": {"ZTST": m.group(5), "ATE": m.group(6), "ATST": m.group(7), "AREF": m.group(8)},
+                   "TEX0": {"TBP0": "0x%x" % (int(m.group(9), 16) // 256)},
+                   "ALPHA": {"A": m.group(10), "B": m.group(11), "C": m.group(12), "D": m.group(13), "FIX": m.group(14)}}
             cur = (int(m.group(1)), ctx, [])
             out.append(cur)
             continue
@@ -327,6 +327,10 @@ def is_body_pass(ctx, verts, box, zr):
     if (A.get("A"), A.get("B"), A.get("C"), A.get("D")) != ("0", "1", "0", "1"):
         return False
     if T.get("ATST") != "5":  # GEQUAL: the opaque body pass (the add pass is ATST NEVER)
+        return False
+    # The lerp pass tests GEQUAL 126 (the docstring's "ATST GEQUAL 126 FB_ONLY"); the particle sprites the
+    # round-6 macro-flag fix brought back are GEQUAL 128 with the same ALPHA 0101 and must not widen the body.
+    if num(T.get("AREF", "126")) != 126:
         return False
     for v in verts:
         if not (box[0] <= v[0] <= box[2] and box[1] <= v[1] <= box[3] and zr[0] <= v[2] <= zr[1]):
