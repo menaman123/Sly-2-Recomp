@@ -13,9 +13,9 @@ name: Sly 2 launcher
 on:
   push:
     branches: [main]
-    paths: ['engine/app/launcher/**', 'engine/tests/app/launcher/**', 'engine/tools/launcher_lint.py', 'launcher/**', 'tools/ci/release_launcher.*', '.github/workflows/launcher.yml']
+    paths: ['engine', 'engine/app/launcher/**', 'engine/tests/app/launcher/**', 'engine/tools/launcher_lint.py', 'launcher/**', 'tools/ci/release_launcher.*', '.github/workflows/launcher.yml']
   pull_request:
-    paths: ['engine/app/launcher/**', 'engine/tests/app/launcher/**', 'engine/tools/launcher_lint.py', 'launcher/**', 'tools/ci/release_launcher.*', '.github/workflows/launcher.yml']
+    paths: ['engine', 'engine/app/launcher/**', 'engine/tests/app/launcher/**', 'engine/tools/launcher_lint.py', 'launcher/**', 'tools/ci/release_launcher.*', '.github/workflows/launcher.yml']
   workflow_dispatch:
 
 env:
