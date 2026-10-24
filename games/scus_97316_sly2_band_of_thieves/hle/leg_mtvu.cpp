@@ -129,6 +129,7 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
             bs.root = aot_settings.root;
             bs.build_id = g_build_id;
             bs.compiler = cfg.engine.vu1_aot_compiler;
+            bs.sysroot = cfg.engine.vu1_aot_sysroot;
             bs.prelude_dir = cfg.engine.vu1_aot_prelude;
             bs.pack_dir = cfg.engine.vu1_aot_pack;   // "" = <executable dir>/vu1_aot_pack (the shipped pack)
             bs.opt_level = cfg.engine.vu1_aot_opt;

@@ -354,7 +354,8 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
     // section registry, the F5 capture census, the F8 route and the restore rows.
     meta->Set("settings_persisted", std::to_string(play.settings_persisted) + ":failed=" + std::to_string(play.settings_persist_failed) +
                                         ":bindings_saves=" + std::to_string(play.controls_page ? play.controls_page->Saves() : 0) +
-                                        ":bindings_reloads=" + std::to_string(play.live_input ? play.live_input->BindingsReloads() : 0));
+                                        ":bindings_reloads=" + std::to_string(play.live_input ? play.live_input->BindingsReloads() : 0) +
+                                        ":resyncs=" + std::to_string(play.session ? play.session->SettingsResyncs() : 0));
     p_.saves.WriteCensus(*meta);
     if (p_.verify_display_sequence && !p_.verify_display_sequence->Empty())
         meta->Set("display_sequence", p_.verify_display_sequence->Census(audio.audio_ring.padded(), protocol.WorkMaxUs()));

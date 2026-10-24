@@ -74,14 +74,22 @@ add_custom_command(
             --output-header "${_gen}/recompiled.h" --output-cpp "${_gen}/recompiled.cpp"
             --shards ${PS2R_SLY2_RECOMP_SHARDS} --init-parts ${PS2R_SLY2_RECOMP_SHARDS}
             --direct-calls --no-legacy-title-stubs --yield-backedges
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/tools/recompiler_v2/continuations.py" "${_gen}"
-    DEPENDS ps2r_recompiler_v2 "${PS2R_TITLE_ELF_READY}" ${_stub_inputs}
-            "${CMAKE_SOURCE_DIR}/tools/recompiler_v2/continuations.py"
+    # The continuation post-pass: the C++ tool (the port of continuations.py the prepared-game
+    # pipeline ships; the engine bundle has no Python). Same output byte for byte -- this manifest
+    # pins it -- and the ContinuationsToolMatchesPython test below diffs the two directly.
+    COMMAND ps2r_continuations "${_gen}" --audits "${CMAKE_SOURCE_DIR}/tools/recompiler_v2/continuation_audits.json"
+    DEPENDS ps2r_recompiler_v2 ps2r_continuations "${PS2R_TITLE_ELF_READY}" ${_stub_inputs}
+            "${CMAKE_SOURCE_DIR}/tools/recompiler_v2/continuation_audits.json"
     WORKING_DIRECTORY "${_cwd}"
     COMMENT "Recompiling ${PS2R_TITLE_ELF} -> ${_gen} (ps2r_recompiler_v2, ${PS2R_SLY2_RECOMP_SHARDS} shards)"
     VERBATIM)
 set_source_files_properties(${_generated} PROPERTIES GENERATED TRUE)
 add_custom_target(ps2r_title_recomp_generate DEPENDS ${_generated})
+# The Python reference, run with --check over the tool's output: the two post-passes agree on
+# this title's generation (the manifest gate says the same; this names the culprit directly).
+add_test(NAME ContinuationsToolMatchesPython
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/tools/recompiler_v2/continuations.py" "${_gen}" --check)
+set_tests_properties(ContinuationsToolMatchesPython PROPERTIES TIMEOUT 120 LABELS "recomp")
 
 # MANIFEST.sha256 (hashes of the GENERATED files, not game data): when present and
 # PS2R_RECOMP_CHECK_MANIFEST is ON, the regeneration must reproduce it byte for byte

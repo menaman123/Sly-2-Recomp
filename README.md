@@ -75,6 +75,39 @@ block 25.9 fps p50 / 20.7 ns per bundle, aot (specialised only) 25.5 / 18.8, aot
 Not done: no per-title HLE of any kind (VU1 program library, renderer profile); the 989snd
 handler-node corruption noted in the title README remains.
 
+## Downloads
+
+Releases are on the GitHub Releases page of this repository. **They contain no game data and nothing made from a
+game disc.** You need your own copy of Sly 2: Band of Thieves (NTSC-U, SCUS-97316) as a disc image.
+
+Download **the launcher** for your computer, open it, point it at your disc image and press Play:
+
+| Your computer | Download |
+|---|---|
+| macOS, Apple silicon | `sly2-launcher-<version>-macos-arm64.dmg` |
+| macOS, Intel | `sly2-launcher-<version>-macos-x86_64.dmg` |
+| Windows 10 / 11, 64-bit | `sly2-launcher-<version>-windows-x86_64.zip` (unzip anywhere, run the program inside) |
+| Linux, x86-64 | `sly2-launcher-<version>-linux-x86_64.AppImage` (`chmod +x`, run) |
+
+The first time you press Play, the launcher downloads the two other files for your computer from the same release
+page -- the engine (`engine-bundle-<platform>.tar.xz`, prebuilt; no game code in it) and a compiler
+(`compiler-<platform>.tar.xz`) -- checks them against `SHA256SUMS`, reads your disc image, and
+**prepares the game on your machine** ("Preparing your game", one progress bar with a time estimate; a few minutes
+once per disc and release). Nothing made from your disc is uploaded or shared; everything stays in the game folder
+the launcher shows you. macOS asks once to open an app from an unidentified developer (right-click > Open) unless
+the release was notarised; Windows SmartScreen may ask once (More info > Run anyway).
+
+What your machine needs besides the launcher: macOS -- Apple's Command Line Tools (`xcode-select --install`; the
+launcher tells you if they are missing); Linux -- the C library headers (`libc6-dev`) and a GL driver; Windows -- the
+Windows SDK (the launcher offers Microsoft's installer if it is missing). The launcher brings its own compiler;
+these are the system headers it is not allowed to redistribute.
+
+**PlayStation Vita: no.** The game's graphics processor work (the part of the PlayStation 2 that places every vertex
+on screen) is far heavier than the Vita can carry at full speed. There is no Vita version and none is planned.
+
+Every file on a release is checked by the asset scan (`engine/tools/ci/asset_scan.py`), which fails the release on any
+disc file or game asset; `release-index.json` lists the same files for the launcher. Maintainers: docs/RELEASING.md.
+
 ## Layout
 
 ```
@@ -122,10 +155,17 @@ build.sh / build.ps1                     configure + build wrappers (the engine 
                                          --dist stages the release folder -- "Platforms and releases")
 CMakePresets.json                        the cache variables build.sh passes, as documentation (CMake reads presets
                                          from the source dir = engine/; see "Building")
-.github/workflows/ci.yml                 CI: asset scan + guard, the no-disc build on macOS / Linux / Windows, the title lanes
-.github/workflows/release.yml            on a v* tag: the CI matrix, then the title lanes' folders as release archives + SHA256SUMS
+launcher/title.json                      the launcher's manifest for this title (the engine's launcher is title-neutral; this is
+                                         everything it knows about Sly 2: disc fingerprint, targets, settings, release names)
+docs/RELEASING.md                        what a release contains and does not, sizes, how the launcher consumes it, how to cut one
+.github/workflows/ci.yml                 CI: asset scan + guard, the no-disc build on macOS / Linux / Windows, the launcher
+                                         (build + tests headless + package on four runners), the title lanes (a test)
+.github/workflows/release.yml            on a v* tag: ci.yml, then the engine bundle + compiler kit per platform, the launcher
+                                         artefacts from ci.yml, asset scan over every file, SHA256SUMS + release-index.json, a DRAFT
+                                         release (docs/RELEASING.md); nothing game-derived
 .github/ci/                              ctest_exclusions.txt, known_broken_targets.txt (one reason per row), ci_lists.py,
-                                         stage_dist.sh (the release folder: binary + title tables + notices, linted and scanned)
+                                         stage_dist.sh (the title lanes' dist folder: binary + title tables + notices, linted and
+                                         scanned -- the lane's self-check since D-A, not a release)
 CONTRIBUTING.md, SECURITY.md, LICENSE    how to contribute (no game data, ever), how to report, Apache-2.0
 ```
 
@@ -392,27 +432,30 @@ rules and the grep are in CONTRIBUTING.md "Portability"); its one Windows-specif
 
 ### The release layout
 
-`release.yml` runs on a `v*` tag: the CI workflow (asset scan + guard, the three no-disc lanes), then --
-only where a self-hosted runner holds the disc (`NATIVEEE_TITLE_LANES`, as in the engine) -- the title lanes'
-`dist/` folders become `sly2-recomp-<tag>-macos-arm64.zip` and `sly2-recomp-<tag>-linux-x86_64.tar.gz` with
-`SHA256SUMS` and release notes. NativeEE is a static recompiler: the shipped binary IS the title's recompiled
-code plus the engine, generated from the disc at build time, so a public runner (no disc) cannot produce a
-playable artefact and the `release` job is skipped there instead of failing. Each folder:
+`release.yml` runs on a `v*` tag: the CI workflow (asset scan + guard, the no-disc lanes, the launcher lanes), then
+the engine bundle + the compiler kit per platform, the asset scan over every file, `SHA256SUMS` +
+`release-index.json`, and a DRAFT GitHub release a maintainer publishes. Three files per platform, none of them
+made from a disc (decision D-A: the player's machine makes the game program; the "Downloads" section above is the
+player's view, docs/RELEASING.md the maintainer's):
 
 ```
-nativeee                 the binary (recompiled EE/IOP code + engine; SDL2 compiled in; FFmpeg is NOT linked -- this
-                         title's FMVs go through the engine's IPU model, and stage_dist.sh proves the absence from the binary)
-title/hle/sdk_bindings.tsv, title/verify/nav/*.json   the title's text tables the binary reads beside itself
-BUILD-ID                 what `nativeee --version` prints
-README.md                this file's user half (Status, Playing, the AOT pack, Known issues, this section)
-LICENSE, LICENSE-NativeEE.txt, THIRD_PARTY_NOTICES.md, licenses/   Apache-2.0 (this repo), MIT (engine), SDL2 / Dear ImGui /
-                         gl3w texts (+ GCC runtime exception on Linux), each byte-equal to the engine's committed copies
+sly2-launcher-<tag>-<platform>.{dmg,AppImage,zip}   the Qt 6 launcher (engine/app/launcher) carrying launcher/title.json;
+                                                     built, tested headless and packaged by ci.yml's launcher job
+engine-bundle-<platform>.tar.xz                      the ENGINE BUNDLE (*-dist preset): lib/ (every
+                                                     engine library, static SDL2, the LGPL FFmpeg recipe), bin/ (the two
+                                                     recompilers, the disc extractor, the embedded-module extractor, the VU1
+                                                     pack tool), include/, games/<title>/ (this repository's title module),
+                                                     BUNDLE.json, BUILD-ID, the licences    (engine/tools/ci/stage_engine_bundle.sh)
+compiler-<platform>.tar.xz                           clang (+ lld / lld-link; Apple's ld on macOS) cut from the official LLVM
+                                                     release pinned in engine/tools/toolchain/COMPILER_PINS.sha256
+SHA256SUMS, release-index.json                       engine/tools/ci/release_index.py (the index has the GitHub Releases API shape)
 ```
 
-No game data (`engine/tools/ci/asset_scan.py` over the folder and the archive: names, format magic, byte windows
-of the title ELF -- the local staging passes `--elf <extracted ELF>` for the live windows) and no VU1 AOT pack
-("The VU1 AOT pack": game-derived, licence boundary). `stage_dist.sh` refuses to ship a `--no-disc` stub, a
-non-static binary, a GPL FFmpeg, or a licence text that differs from the committed set.
+The old model -- the self-hosted title lanes' recompiled `dist/` folders as release archives -- is gone: that binary IS
+the title's recompiled code, so it is never uploaded. The title lanes remain a test (`NATIVEEE_TITLE_LANES`); their
+`stage_dist.sh` staging is the lane's self-check and nothing of it leaves the runner but `run.meta` / `pack.txt`.
+No game data anywhere (`engine/tools/ci/asset_scan.py` over every artefact), no VU1 AOT pack ("The VU1 AOT pack":
+game-derived, licence boundary -- the launcher compiles it on the player's machine at first run with the same compiler).
 
 ### The first-run drill (a new player, measured)
 

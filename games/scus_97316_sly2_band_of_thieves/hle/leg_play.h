@@ -56,7 +56,7 @@ public:
     std::shared_ptr<ps2r::gs::AspectSelection> aspect;
     std::shared_ptr<ps2r::render::TextureFilterSelection> texture_filter;
     std::unique_ptr<ps2r::app::ControlsPageBinding> controls_page;
-    uint64_t settings_persisted = 0, settings_persist_failed = 0;   // census: ps2r.ini writes
+    uint64_t settings_persisted = 0, settings_persist_failed = 0;   // census: settings file (nativeee.ini) writes
     // The frame trains' wall record (frame_timeline.h): the output lane is noted in the consumer's
     // present hook below, the shown lane by the session's present observer, the boundary lane by
     // the Verify slot's boundary step; written by the census as present_times.csv / present_hist=.

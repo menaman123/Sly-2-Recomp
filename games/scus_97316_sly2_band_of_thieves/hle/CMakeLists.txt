@@ -44,7 +44,6 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         boot_leg.cpp
         frame_dump.cpp
         gif_trace_sink.cpp
-        iop_host.cpp
         leg_audio.cpp
         leg_census.cpp
         leg_core.cpp
@@ -109,6 +108,22 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
     # The generated dispatch table is referenced only through DispatchTable (ps2r_ee) -> the
     # generated TU's symbols: force the whole recomp archive in regardless of link order.
     add_dependencies(ps2r_title_play ps2r_title_recomp)
+
+    # iop_host.cpp -- the ONE composition TU that includes the generated iop_recompiled.h headers
+    # (the four modules' function names and load addresses, derived from the game's own modules).
+    # Its own target so the prepared-game pipeline (engine/tools/prepare, decision D-A) ships
+    # ps2r_title_play as a prebuilt archive and compiles only this TU, the shards and the IOP
+    # modules on the player's machine; the engine bundle lists it through PS2R_ON_MACHINE_TARGETS.
+    add_library(ps2r_title_iop_host STATIC iop_host.cpp)
+    target_include_directories(ps2r_title_iop_host PRIVATE ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/.. ${PS2R_IOP_GEN_ROOT})
+    target_compile_options(ps2r_title_iop_host PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(ps2r_title_iop_host PUBLIC ps2r_app_host ps2r_title_hle ps2r_title_iop ps2r_sif)
+    # The play composition reaches the hosted modules through it (iop_host.h); nativeee links
+    # ps2r_title_play, which carries this in its link interface.
+    target_link_libraries(ps2r_title_play PUBLIC ps2r_title_iop_host)
+    set_property(GLOBAL APPEND PROPERTY PS2R_ON_MACHINE_TARGETS ps2r_title_iop_host)
+    # The name of the prepared game binary (cmake/EngineBundle.cmake -> BUNDLE.json title.binary_name).
+    set_property(GLOBAL PROPERTY PS2R_TITLE_BINARY_NAME sly2)
 elseif(TARGET ps2r_title_recomp)
     message(STATUS "games/scus_97316_sly2_band_of_thieves: recompiled EE code but no hosted IOP modules -> no play composition")
 else()

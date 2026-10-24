@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "app/host/user_data.h"
-#include "engine/core/config/settings_file.h"
+#include "engine/core/config/config_store.h"
 #include "engine/core/log/log.h"
 #include "engine/platform/host/platform.h"
 
@@ -54,19 +54,20 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         session->ConfigurePresentation(cfg.video.vsync, cfg.video.fps_cap);
         session->SetWindowTitle(title.display_name.empty() ? title.serial : title.display_name);
         session->SetEventTrace(cfg.dev.log_level == ps2r::LogLevelSetting::Narrate);
-        // The player's settings: seeded from Config, persisted to <user data>/ps2r.ini by the one
-        // writer (SettingsFile), never to the memory card. A write failure is loud, never silent.
-        const std::string settings_file = ps2r::app::UserData::SettingsFile(cfg);
+        // The player's settings: seeded from Config, persisted to the ONE settings file (ConfigStore:
+        // the nativeee.ini the loader read, which the launcher's Settings page edits too), never to
+        // the memory card. A write failure is loud, never silent.
+        const std::string settings_file = ps2r::ConfigStore::ActivePath();
         session->ConfigureSettings(cfg.ui.perf_overlay, [this, settings_file](const std::string& key, const std::string& value) {
             std::string err;
-            if (ps2r::SettingsFile::Set(settings_file, key, value, &err)) {
+            if (ps2r::ConfigStore::Set(key, value, &err)) {
                 ++settings_persisted;
                 PS2R_LOG(HOST, Info, "settings: %s=%s -> %s", key.c_str(), value.c_str(), settings_file.c_str());
             } else {
                 ++settings_persist_failed;
                 std::fprintf(stderr, "nativeee: settings: %s=%s not saved: %s\n", key.c_str(), value.c_str(), err.c_str());
             }
-        });
+        }, [] { return ps2r::ConfigStore::ReadAll(); });
         // The Display page: the presenter's rows (mode, aspect, vsync, render rate, frame cap) seeded from
         // video.*; the aspect selection fits the picture in the session window; the texture
         // filter selection is the GL device's sampler choice (video.texture_filter / anisotropy).
@@ -84,7 +85,7 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         texture_filter = std::make_shared<ps2r::render::TextureFilterSelection>(FilterOf(cfg.video.texture_filter), cfg.video.anisotropy);
         gs.video.Device().SetTextureFilter(texture_filter);
         session->SetTextureFilter(texture_filter);
-        // The pause menu (Escape) and the Controls page (press-to-bind over <user data>/bindings.ini,
+        // The pause menu (Escape) and the Controls page (press-to-bind over bindings.ini beside the settings file,
         // applied to the live pad at once).
         session->ConfigurePauseMenu(true);
         // --dump-frames <dir> in play: the presented WINDOW image the session ends on (<dir>/w_final.ppm:
@@ -94,7 +95,7 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         if (gs.video_live)
             session->SetRenderer(std::string(gs.video.ActiveBackend()) + (gs.video.BackendAuto() ? " (auto): " : ": ") +
                                  gs.video.Renderer());
-        controls_page = std::make_unique<ps2r::app::ControlsPageBinding>(cfg.paths.user_data, settings_file, live_input.get());
+        controls_page = std::make_unique<ps2r::app::ControlsPageBinding>(ps2r::ConfigStore::ActiveDir(), live_input.get());
         session->ConfigureControlsPage(controls_page->Model());
         // The presenter's draws: the ones that showed a NEW picture are the shown lane of the record.
         session->SetPresentObserver([this](std::chrono::steady_clock::time_point at, bool new_picture, uint64_t tag, uint64_t) {

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# .github/ci/stage_dist.sh -- stage the release folder of THIS title from a finished disc build.
-# Called by build.sh --dist / --dist-only (the title lanes of ci.yml, hence release.yml). There is no Windows
-# twin yet: the engine's Windows arm does not build (README "Platforms"), so build.ps1 has no -Dist.
+# .github/ci/stage_dist.sh -- stage the dist folder of THIS title from a finished disc build: the title lanes'
+# SELF-CHECK (ci.yml, NATIVEEE_TITLE_LANES) and a developer's own local artefact. Called by build.sh --dist /
+# --dist-only. NOT A RELEASE since decision D-A (docs/RELEASING.md): the folder IS the recompiled title --
+# game-derived -- so release.yml no longer attaches it and the title lanes no longer upload it; releases carry
+# the launcher + the engine bundle + the compiler kit, and the player's machine makes this folder's equivalent.
+# There is no Windows twin: build.ps1 has no -Dist.
 #
 #   stage_dist.sh --repo <checkout> --build-dir <dir> --dist-root <dir> [--preset <name>]
 #

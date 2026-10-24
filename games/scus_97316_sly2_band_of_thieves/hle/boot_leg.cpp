@@ -301,6 +301,14 @@ int TitlePlayMain(int argc, char** argv) {
     ConfigLoader loader;
     loader.SetRetainedStartupAvailable(false);   // no IOP in this binary (PS2R_IOP_ORACLE=0)
     loader.SetUserDataRoot(ps2r::app::UserData::PlatformRoot());
+    {
+        // The settings store beside the executable (a game folder the launcher prepared) is found
+        // without flags: ConfigStore's rule 2.
+        std::string exe_err;
+        const std::string exe = ps2r::platform::host::ExecutablePath(&exe_err);
+        const size_t slash = exe.find_last_of("/\\");
+        if (slash != std::string::npos) loader.SetExecutableDir(exe.substr(0, slash));
+    }
     const ConfigLoader::Result r = loader.Load(argc, argv, cfg);
     if (r.show_version) {
         std::printf("%s\n", g_build_id);
@@ -366,7 +374,11 @@ int TitlePlayMain(int argc, char** argv) {
             std::fprintf(stderr, "nativeee: %s\n", err.c_str());
             return 2;
         }
-        if (auto* meta = host.Meta()) meta->Set("user_data_root", cfg.paths.user_data);
+        if (auto* meta = host.Meta()) {
+            meta->Set("user_data_root", cfg.paths.user_data);
+            // The ONE settings file this run read and the pages write (ConfigStore), and how it was chosen.
+            meta->Set("settings_file", r.settings_file + ":source=" + r.settings_source + (r.settings_migrated ? ":migrated=1" : ""));
+        }
     }
     ps2r::verify::FrameCap cap;
     cap.Arm(static_cast<uint64_t>(cfg.harness.frames > 0 ? cfg.harness.frames : 0));
