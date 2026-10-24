@@ -47,7 +47,8 @@
   "release": {
     "repo": "menaman123/sly2recomp",
     "asset_pattern": "${product}-${tag}-${platform}.zip",
-    "bundle_folder": "${product}-${platform}"
+    "bundle_folder": "${product}-${platform}",
+    "estimate": "about 1 to 2 minutes"
   },
   "targets": {
     "macos-arm64": { "label": "macOS (Apple silicon)", "os": "macos", "arch": "arm64", "binary": "sly2.app" },
@@ -71,6 +72,7 @@
   ],
   "game_folder": {
     "config": "nativeee.ini",
+    "default": "~/Documents/Sly 2",
     "subfolders": {
       "memcards": { "label": "Memory cards", "default": "memcards" },
       "saves": { "label": "Save states", "default": "saves" },
@@ -262,11 +264,6 @@
         ]
       }
     ]
-  },
-  "scan": {
-    "folders": ["~/Downloads", "~/Desktop", "~/Documents"],
-    "removable": true,
-    "max_depth": 2
   },
   "licences": [
     { "label": "Licence", "file": "LICENSE" },
