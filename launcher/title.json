@@ -74,9 +74,11 @@
     "config": "nativeee.ini",
     "default": "~/Documents/Sly 2",
     "subfolders": {
-      "memcards": { "label": "Memory cards", "default": "memcards" },
-      "saves": { "label": "Save states", "default": "saves" },
-      "cache": { "label": "Cache", "default": "cache" }
+      "memcards": { "label": "Memory cards", "default": "memcards", "key": "paths.mc_dir", "ask": true,
+                    "help": "Your game's saved progress. Inside the game folder unless you choose somewhere else." },
+      "saves": { "label": "Save states", "default": "saves", "key": "paths.save_dir", "ask": true,
+                 "help": "Snapshots you can resume from." },
+      "cache": { "label": "Cache", "default": "cache", "key": "paths.user_data", "ask": false }
     },
     "portable_note": "Everything the game needs is in this one folder. Move or copy the folder and the game moves with it."
   },

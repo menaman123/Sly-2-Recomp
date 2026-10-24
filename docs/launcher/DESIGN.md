@@ -91,9 +91,20 @@ bottom. Top to bottom:
    reason in Warn; a file that is not a disc image or is another game shows the reason in Error below the field. The
    Build button is enabled ONLY for a supported disc; while it is disabled a Caption beside it says why ("Choose your
    disc image first.", the region reason, "The disc image is no longer where it was.").
-2. **Where the game lives** -- one FolderRow (the manifest's `game_folder.default`, for Sly 2 `~/Documents/Sly 2`,
-   else `~/Documents/<safe name>`; Change…; Open in Finder / Explorer) and the manifest's `portable_note`. The folder is
-   only created when Build is pressed (or when Change… picks one).
+2. **Where the game lives** -- the **Game folder** row (the manifest's `game_folder.default`, for Sly 2
+   `~/Documents/Sly 2`, else `~/Documents/<safe name>`; Change…; Open in Finder / Explorer), then one FolderRow per
+   `game_folder.subfolders` entry with `ask` (for Sly 2 **Memory cards** and **Save states**; the cache is the
+   pipeline's and is not asked -- it stays on the Settings page's Folders group), each with its plain caption
+   (`help`: "Your game's saved progress. Inside the game folder unless you choose somewhere else." / "Snapshots you
+   can resume from."), then the note. A sub-folder shows its RELATIVE form while it is inside the game folder
+   (`memcards`, `saves`) and follows the game folder when that changes; one chosen elsewhere shows the absolute path
+   and the note changes from the manifest's `portable_note` to "The memory cards live outside the game folder;
+   moving the folder leaves them where they are." (one sentence per folder outside) -- D-L15. Each sub-folder is the
+   options file's own key the GAME reads (`subfolders.<id>.key`: `paths.mc_dir`, `paths.save_dir`,
+   `paths.user_data`), written as an absolute path into `<folder>/nativeee.ini` when the folder is chosen, when Build
+   is pressed and again after the pipeline rewrote the file (D-L13); the Settings page's Folders group reads the same
+   keys, so the setup window, Settings and the game share ONE store. The folder is only created when Build is pressed
+   (or when Change… picks one); a sub-folder chosen before that waits in the model.
 3. **Settings** -- the manifest's groups and rows (section 10), the same rows as the Settings page, filtered for this
    machine (`choices[].platforms`), with the `locked_by` rule. Before the game is built the values are kept in the
    window and written to `<folder>/nativeee.ini` when Build is pressed, and again when the pipeline finishes (it writes
@@ -118,7 +129,7 @@ as they are), from a card whose game is not built yet, and from the game folder'
 current disc).
 
 Headless, for CI and the cold-start judge: `ps2r_launcher --prepare --index URL --iso IMAGE --folder DIR --jobs N
---json REPORT` runs the same BundledPrepareRunner without a window, prints progress on stderr and the game's path on
+--json REPORT [--subfolder memcards=DIR] [--subfolder saves=DIR]` runs the same BundledPrepareRunner without a window, prints progress on stderr and the game's path on
 stdout, writes the same report the command-line tool does, exits 0 when the game is ready. `--index URL` (and
 `--release TAG`) also override the manifest's `release.index_url` in the window, so an offline release can be judged.
 
@@ -165,14 +176,17 @@ NotTheGame / NotAnIso / Unreadable. `ps2r_launcher --identify IMAGE` prints the 
 ## 10. Files
 
 - `launcher/title.json` (schema 2) -- the only Sly-shaped input: `release.index_url` (default the GitHub Releases API
-  of `release.repo`), `release.estimate`, `game_folder.default`; no `scan` section any more.
+  of `release.repo`), `release.estimate`, `game_folder.default`, `game_folder.subfolders.<id>` = `{label, default,
+  key, help, ask}` (the key the game reads for that folder; `ask` = asked on the setup window, default true except
+  for `cache`); no `scan` section any more.
   `tests/app/launcher/test_launcher_screens.cpp` uses a neutral "Example Game" manifest so the lint applies to engine
   strings.
 - `<game folder>/prepared.json` -- disc checksum, platform, launcher version, when; decides Play vs Build the game. The
   pipeline's own stamp is `<game folder>/cache/prepared.json` (release tag, bundle, binary) and its log
   `<game folder>/cache/logs/prepare.log` (what Details opens).
 - `~/Library/Application Support/<app_data_folder>/launcher.json` (Windows %LOCALAPPDATA%, Linux ~/.local/share) --
-  the launcher's own state: the discs, the game folder, sub-folder overrides, the window. `Logs/` beside it.
+  the launcher's own state: the discs, the game folder, the window. `Logs/` beside it. The sub-folders are NOT here:
+  they are `<game folder>/nativeee.ini`'s `paths.mc_dir` / `paths.save_dir` / `paths.user_data` (D-L15).
 - `docs/launcher/screenshots/*.png` -- every screen, written by the screens test at 1024 x 640.
 
 ## 11. Decisions recorded for the setup window
@@ -187,3 +201,19 @@ NotTheGame / NotAnIso / Unreadable. `ps2r_launcher --identify IMAGE` prints the 
   again after `finished()` (and once before, when Build is pressed), so nothing chosen on the setup window is lost.
 - **D-L14**: the headless `--prepare` mode is the launcher's own BundledPrepareRunner on a QCoreApplication, not a
   shell-out to nativeee-prepare: the judge's launcher driver runs the code path the Build button runs.
+- **D-L15** (the user's request, 2026-10-24: "put a setting to ask the user where the memory card and save states
+  should be"): the setup window asks, under the Game folder row, with the manifest's `subfolders` that carry `ask`.
+  The store is the options file the game reads -- `paths.mc_dir` for the memory cards, `paths.save_dir` for the save
+  states (`SavestateSlots::Root`: `<save_dir>/savestates/slot<N>.ps2st`; the launcher's Save States page lists
+  `${saves}/savestates`, the same place), `paths.user_data` for the cache -- written as absolute paths (the engine
+  resolves no relative path), so a game started from the folder without the launcher reads the same places. The
+  launcher keeps the relative/absolute distinction by position: a path inside the game folder is shown relative and
+  follows the game folder when it changes; one outside stays where it is and the note says so. Before this the
+  pipeline's fresh `nativeee.ini` carried no `paths.save_dir`, so a game started from the folder put its slots under
+  `<folder>/cache/logs/savestates` while the launcher listed `<folder>/saves/savestates`; the re-apply after Build
+  (D-L13) now closes that gap. The `--set paths.*=` run arguments stay (the same values; harmless).
+- **D-L16**: the frozen `launcher_settings_judge.py` keeps `paths.mc_dir` / `paths.save_dir` "not judged" (its leg
+  pins the memory card itself) and is not edited; the two rows are judged through the launcher's own path by the
+  engine's `tests/app/launcher/launcher_folders_judge.py` (headless Build with `--subfolder memcards=DIR --subfolder
+  saves=DIR`, the file read back by `nativeee_settings`, the game started FROM the folder with
+  `harness.save_at_frame` writing its slot under the chosen save states folder).
