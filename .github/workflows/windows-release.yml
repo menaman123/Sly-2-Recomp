@@ -20,12 +20,13 @@
 #   SLY2_GAME_FILES_TOKEN   a fine-grained token with read access to that repository's contents
 #
 #   push a tag v*            build + publish the release under that tag (a prerelease when the tag has a '-')
+#   push a tag win-*         the same, Windows only (release.yml also runs on v* tags; win-* starts this workflow alone)
 #   workflow_dispatch        build + publish a prerelease tagged windows-test-<run number>
 name: Sly 2 Windows release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', 'win-*']
   workflow_dispatch:
 
 permissions:
