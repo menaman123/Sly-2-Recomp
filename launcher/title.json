@@ -45,7 +45,7 @@
     "modified_reason": "This disc image carries the right game but its code differs from the original disc. A modified or damaged image cannot be prepared; make a fresh image of your own disc."
   },
   "release": {
-    "repo": "menaman123/sly2recomp",
+    "repo": "menaman123/Sly-2-Recomp",
     "asset_pattern": "${product}-${tag}-${platform}.zip",
     "bundle_folder": "${product}-${platform}",
     "estimate": "about 1 to 2 minutes"
