@@ -32,7 +32,7 @@ jobs:
             qt_host: mac
             qt_arch: clang_64
           - platform: macos-x86_64
-            runner: macos-13
+            runner: macos-15-intel
             qt_host: mac
             qt_arch: clang_64
           - platform: linux-x86_64
