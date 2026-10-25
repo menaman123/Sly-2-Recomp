@@ -126,7 +126,8 @@ jobs:
       - name: Stage the game (release_dist.ps1 -SkipBuild -NoZip; asset scan)
         shell: pwsh
         run: |
-          ./engine/tools/ci/release_dist.ps1 -SkipBuild -BuildDir "$env:GAME_BUILD" -DistDir "$env:RUNNER_TEMP\gamedist" -NoZip
+          # -GamesDir: else the stager finds the engine's own games\example_title first and ships ITS tables
+          ./engine/tools/ci/release_dist.ps1 -SkipBuild -BuildDir "$env:GAME_BUILD" -GamesDir "${{ github.workspace }}\games" -DistDir "$env:RUNNER_TEMP\gamedist" -NoZip
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Get-ChildItem "$env:RUNNER_TEMP\gamedist\windows-x64" | Select-Object Name, Length | Format-Table -AutoSize
 

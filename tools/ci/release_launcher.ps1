@@ -82,6 +82,13 @@ if (-not (Test-Path "$Res\licenses\Qt-LICENSE.LGPL3") -and (Test-Path "$Engine\t
 Step "windeployqt (the Qt DLLs and plugins beside the executable, dynamic)"
 & "$Qt\bin\windeployqt.exe" --release --no-translations --no-opengl-sw "$Res\$Product-launcher.exe"
 if ($LASTEXITCODE) { throw "windeployqt failed" }
+# The MSVC C++ runtime beside the launcher (app-local, as Microsoft supports): windeployqt only drops vc_redist.x64.exe,
+# and a machine without the Visual C++ Redistributable would not start the launcher.
+$crtDir = if ($env:VCToolsRedistDir) { Get-ChildItem -Path (Join-Path $env:VCToolsRedistDir "x64") -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue | Select-Object -First 1 }
+if ($crtDir) {
+  Get-ChildItem -Path $crtDir.FullName -File | Where-Object { $_.Name -match '^(msvcp140.*|vcruntime140.*)\.dll$' } | Copy-Item -Destination $Res
+  Write-Host "C++ runtime from $($crtDir.FullName)"
+} else { Write-Host "warning: no VCToolsRedistDir CRT folder -- the launcher relies on an installed Visual C++ Redistributable" }
 
 if ($Game) {
   Step "game\ (the ready-made game from $Game)"
