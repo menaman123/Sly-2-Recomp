@@ -277,7 +277,8 @@ jobs:
         run: |
           missing=""
           for p in macos-arm64 macos-x86_64 linux-x86_64 windows-x86_64; do
-            n=$(ls release | grep -cE -- "-$p\." || true)   # launcher: -<p>.dmg|.AppImage|.zip; engine-bundle-<p>.tar.xz; compiler-<p>.tar.xz
+            n=0   # launcher: -<p>.dmg|.AppImage|.zip; engine-bundle-<p>.tar.xz; compiler-<p>.tar.xz
+            for f in release/*-"$p".*; do [ -e "$f" ] && n=$((n + 1)); done
             [ "$n" -ge 3 ] || missing="$missing,$p"
           done
           missing="${missing#,}"
