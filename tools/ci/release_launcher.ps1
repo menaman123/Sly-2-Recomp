@@ -42,6 +42,11 @@ if (-not $SkipBuild) {
   if ($LASTEXITCODE) { throw "build failed" }
   Step "the launcher's tests"
   Push-Location $BuildDir; $env:QT_QPA_PLATFORM = "offscreen"; ctest --output-on-failure; $rc = $LASTEXITCODE; Pop-Location
+  if ($rc) {
+    Step "LauncherScreens direct output"
+    Push-Location $BuildDir; $env:QT_QPA_PLATFORM = "offscreen"; .\test_launcher_screens.exe -platform offscreen -o -,txt; $directRc = $LASTEXITCODE; Pop-Location
+    Write-Host "LauncherScreens direct exit: $directRc"
+  }
   if ($rc) { throw "tests failed" }
 }
 $Dist = Join-Path $DistDir $Bundle
