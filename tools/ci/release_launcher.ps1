@@ -44,7 +44,7 @@ if (-not $SkipBuild) {
   Push-Location $BuildDir; $env:QT_QPA_PLATFORM = "offscreen"; ctest --output-on-failure; $rc = $LASTEXITCODE; Pop-Location
   if ($rc) {
     Step "LauncherScreens direct output"
-    $directLog = Join-Path $BuildDir "launcher-screens-direct.txt"
+    $directLog = Join-Path (Resolve-Path $BuildDir).Path "launcher-screens-direct.txt"
     Remove-Item -LiteralPath $directLog -Force -ErrorAction SilentlyContinue
     Push-Location $BuildDir; $env:QT_QPA_PLATFORM = "offscreen"; .\test_launcher_screens.exe -platform offscreen -o "$directLog,txt"; $directRc = $LASTEXITCODE; Pop-Location
     if (Test-Path -LiteralPath $directLog) { Get-Content -LiteralPath $directLog } else { Write-Host "LauncherScreens did not create $directLog" }
