@@ -1,0 +1,173 @@
+# .github/workflows/windows-release.yml -- the Windows release a player downloads: ONE zip with the launcher AND the game
+# ready-made, published as a GitHub release (the UnleashedRecomp model).
+#
+#   <product>-<tag>-windows-x64.zip
+#   └── <product>-windows-x64/
+#       ├── launcher/   the launcher (Qt, windeployqt) -- the player opens this
+#       └── game/       sly2.exe (the recompiled game + the engine), its DLLs, the title tables
+#
+# The player downloads the zip, opens the launcher, chooses their own disc image (checked by its content) and presses
+# Play: "Preparing your game" copies game/ into their game folder. No download, no compiler, nothing else to install.
+# The game's data (textures, sound, movies, levels) is read from the player's disc at run time; the zip carries no
+# disc bytes (the asset scan in release_dist.ps1 and release_launcher.ps1 is the gate).
+#
+# The game's code is regenerated at build time from two disc files a runner does not have: they are checked out from a
+# PRIVATE repository holding exactly SCUS_973.16 (the ELF; most IOP modules are embedded in it) and IOPRP300.IMG (the
+# IOP reboot image the stock fileio module comes from) at its root, beside each other (cmake/TitleInputs.cmake takes
+# the container beside a loose ELF). Never committed here.
+# Secrets (Settings -> Secrets and variables -> Actions):
+#   SLY2_GAME_FILES_REPO    owner/name of the private repository holding SCUS_973.16 + IOPRP300.IMG
+#   SLY2_GAME_FILES_TOKEN   a fine-grained token with read access to that repository's contents
+#
+#   push a tag v*            build + publish the release under that tag (a prerelease when the tag has a '-')
+#   workflow_dispatch        build + publish a prerelease tagged windows-test-<run number>
+name: Sly 2 Windows release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  QT_VERSION: 6.8.3
+  RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('windows-test-{0}', github.run_number) }}
+
+jobs:
+  windows:
+    name: game + launcher, windows-x64
+    runs-on: windows-2022
+    timeout-minutes: 330
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: The game-files secrets are set
+        shell: pwsh
+        env:
+          REPO: ${{ secrets.SLY2_GAME_FILES_REPO }}
+          TOKEN: ${{ secrets.SLY2_GAME_FILES_TOKEN }}
+        run: |
+          if (-not $env:REPO -or -not $env:TOKEN) {
+            Write-Host "::error::Set the SLY2_GAME_FILES_REPO and SLY2_GAME_FILES_TOKEN secrets (see the top of .github/workflows/windows-release.yml)"
+            exit 1
+          }
+      - name: The title's two disc files (private repository)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SLY2_GAME_FILES_REPO }}
+          token: ${{ secrets.SLY2_GAME_FILES_TOKEN }}
+          path: game-files
+      - name: Both files are there; the ELF is the one TITLE_INPUTS.sha256 pins
+        shell: pwsh
+        run: |
+          $elf = Join-Path $env:GITHUB_WORKSPACE "game-files\SCUS_973.16"
+          foreach ($f in @("SCUS_973.16", "IOPRP300.IMG")) {
+            if (-not (Test-Path (Join-Path $env:GITHUB_WORKSPACE "game-files\$f"))) { Write-Host "::error::the private repository has no $f at its root"; exit 1 }
+          }
+          $row = Get-Content games\scus_97316_sly2_band_of_thieves\TITLE_INPUTS.sha256 | Where-Object { $_ -match '^[0-9a-f]{64}\s+\*?SCUS_973\.16$' } | Select-Object -First 1
+          $want = $row.Split(' ')[0]
+          $got = (Get-FileHash $elf -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $want) { Write-Host "::error::SCUS_973.16 sha256 $got, pinned $want (a different region or a modified copy)"; exit 1 }
+          "ELF=$elf" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "GAME_BUILD=$env:RUNNER_TEMP\build-game" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Write-Host "SCUS_973.16 ok ($got)"
+
+      - name: Python 3.12 (the clang-cl shim and the generators run under `python`)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: vcpkg at the manifest's builtin-baseline
+        shell: pwsh
+        run: |
+          $baseline = (Get-Content engine/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          git clone --quiet https://github.com/microsoft/vcpkg.git "${{ github.workspace }}\vcpkg"
+          git -C "${{ github.workspace }}\vcpkg" checkout --quiet $baseline
+          & "${{ github.workspace }}\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+      - name: vcpkg binary cache (restore)
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('engine/vcpkg.json') }}
+      - name: MSVC developer environment (clang-cl, lld-link, Ninja, the Windows SDK)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # The build dir is outside the checkout: it receives the extracted ELF and the recompiled code.
+      - name: Configure the game (windows-clang-cl-release, the ELF from the private repository)
+        shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+        run: |
+          cmake -S engine --preset windows-clang-cl-release -B "$env:GAME_BUILD" -DPS2R_GAMES_DIR="${{ github.workspace }}\games" -DNATIVEEE_DISC= "-DNATIVEEE_TITLE_ELF=$env:ELF" -DPS2R_SIMD=ON 2>&1 | Tee-Object -FilePath configure.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: vcpkg binary cache (save)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('engine/vcpkg.json') }}
+      - name: Build the game (nativeee)
+        shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+        run: |
+          cmake --build "$env:GAME_BUILD" --target nativeee -j 4 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage the game (release_dist.ps1 -SkipBuild -NoZip; asset scan)
+        shell: pwsh
+        run: |
+          ./engine/tools/ci/release_dist.ps1 -SkipBuild -BuildDir "$env:GAME_BUILD" -DistDir "$env:RUNNER_TEMP\gamedist" -NoZip
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem "$env:RUNNER_TEMP\gamedist\windows-x64" | Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Qt ${{ env.QT_VERSION }} (msvc2022_64)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+      - name: The launcher + the game in one zip (release_launcher.ps1 -Game; tests, windeployqt, asset scan)
+        shell: pwsh
+        run: ./tools/ci/release_launcher.ps1 -Qt "$env:QT_ROOT_DIR" -Game "$env:RUNNER_TEMP\gamedist\windows-x64" -Tag "$env:RELEASE_TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sly2-windows-x64
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-release-logs
+          path: |
+            configure.log
+            build.log
+          if-no-files-found: ignore
+      - name: Publish the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: "Sly 2: Band of Thieves ${{ env.RELEASE_TAG }} (Windows)"
+          body: |
+            Download `sly2-${{ env.RELEASE_TAG }}-windows-x64.zip`, unzip it, and open `sly2-windows-x64\launcher\sly2-launcher.exe`.
+            Choose your own disc image of Sly 2: Band of Thieves (North America, SCUS-97316), choose where the game should live, and press Play.
+            Nothing else to install. No game data is in this download: the game reads your disc.
+          files: |
+            dist/*.zip
+            dist/*.zip.sha256
+          draft: false
+          prerelease: ${{ github.ref_type != 'tag' || contains(github.ref_name, '-') }}
