@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/nav_json.cpp -- NavJson (nav_json.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/nav_json.h"
 
 #include <cstdlib>

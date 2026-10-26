@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/pad_recorder.cpp -- PadRecorder (see pad_recorder.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/pad_recorder.h"
 
 namespace ps2r::title::sly2 {

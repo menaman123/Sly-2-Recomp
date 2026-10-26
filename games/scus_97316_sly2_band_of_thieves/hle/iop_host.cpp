@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/iop_host.cpp -- IopHost.
 #include "games/scus_97316_sly2_band_of_thieves/hle/iop_host.h"
 
 #include <cstdio>

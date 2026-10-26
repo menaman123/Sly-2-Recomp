@@ -1,27 +1,20 @@
-# tools/ci/release_launcher.ps1 -- the Windows (x64) release a player downloads: the same layout as release_launcher.sh
+# Builds, tests and packages the Windows (x64) release:
 #
 #   <product>-<tag>-windows-x64.zip
 #   └── <product>-windows-x64/
-#       ├── launcher/<product>-launcher.exe + the Qt DLLs (windeployqt, dynamic, LGPL) + titles/title.json, BUILD-ID,
-#       │   LICENSE, THIRD_PARTY_NOTICES.md, licenses/
-#       └── game/     the game, ready-made (-Game DIR: engine\tools\ci\release_dist.ps1's staged windows-x64 folder --
-#                     nativeee.exe renamed to the manifest's binary, its DLLs, title\ tables, BUILD-ID, licences). The
-#                     launcher's "Preparing your game" copies it into the player's game folder; the player's disc is
-#                     checked by its content when they choose it and read by the game at run time. No download, no
-#                     compiler on the player's machine.
+#       ├── launcher/   <product>-launcher.exe, the Qt DLLs (windeployqt, dynamic, LGPL), the C++ runtime,
+#       │               titles/title.json, BUILD-ID, LICENSE, THIRD_PARTY_NOTICES.md, licenses/
+#       └── game/       with -Game DIR: the game staged by engine\tools\ci\release_dist.ps1, nativeee.exe renamed to
+#                       the manifest's binary. The launcher copies it into the player's game folder; the game reads
+#                       its data from the player's own disc.
 #
-# No disc bytes are in it (the asset scan below): the game folder is the recompiled code + the engine, the game's own
-# data stays on the player's disc. -LauncherOnly stages the launcher alone (the launcher's own CI): that zip cannot
-# prepare a game.
+# Without -Game the zip carries the launcher only. The asset scan below keeps disc bytes out of the zip.
 param(
   [string]$Qt = $env:QT_ROOT_DIR,
   [string]$BuildDir = "build-launcher",
   [string]$DistDir = "dist",
   [string]$Engine = "engine",
-  [string]$EngineBundle = "",
-  [string]$CompilerBundle = "",
   [string]$Game = "",
-  [switch]$LauncherOnly,
   [switch]$SkipBuild,
   [string]$Tag = ""
 )
@@ -49,14 +42,6 @@ if (-not $SkipBuild) {
   if ($LASTEXITCODE) { throw "build failed" }
   Step "the launcher's tests"
   Push-Location $BuildDir; $env:QT_QPA_PLATFORM = "offscreen"; ctest --output-on-failure; $rc = $LASTEXITCODE; Pop-Location
-  if ($rc) {
-    Step "LauncherScreens direct output"
-    $directLog = Join-Path (Resolve-Path $BuildDir).Path "launcher-screens-direct.txt"
-    Remove-Item -LiteralPath $directLog -Force -ErrorAction SilentlyContinue
-    Push-Location $BuildDir; $env:QT_QPA_PLATFORM = "offscreen"; .\test_launcher_screens.exe -platform offscreen -o "$directLog,txt"; $directRc = $LASTEXITCODE; Pop-Location
-    if (Test-Path -LiteralPath $directLog) { Get-Content -LiteralPath $directLog } else { Write-Host "LauncherScreens did not create $directLog" }
-    Write-Host "LauncherScreens direct exit: $directRc"
-  }
   if ($rc) { throw "tests failed" }
 }
 $Dist = Join-Path $DistDir $Bundle
@@ -73,17 +58,15 @@ if (Test-Path "LICENSE") { Copy-Item "LICENSE" "$Res\LICENSE" }
 foreach ($f in @("LICENSE.LGPL3", "LICENSE.GPL3-EXCEPT", "LICENSE.GPL3", "LICENSE.FDL")) { if (Test-Path "$Qt\..\..\Licenses\$f") { Copy-Item "$Qt\..\..\Licenses\$f" "$Res\licenses\Qt-$f" } }
 if (-not (Test-Path "$Res\licenses\Qt-LICENSE.LGPL3") -and (Test-Path "$Engine\tools\dist\licenses\Qt-LICENSE.LGPL3.txt")) { Copy-Item "$Engine\tools\dist\licenses\Qt-LICENSE.LGPL3.txt" "$Res\licenses\Qt-LICENSE.LGPL3" }
 @("# $Name -- third-party notices -- $Product launcher $Tag ($Platform)", "",
-  "This application is the NativeEE engine's launcher (engine/app/launcher, MIT) carrying this title's description. It",
-  "contains NO game data and no code derived from the game: it reads your own disc image and prepares the game on your",
-  "machine with the tools in tools/. Qt $QtVersion is linked dynamically under the LGPL v3 (licenses/Qt-LICENSE.LGPL3)",
-  "and may be replaced by another build of the same major version. The engine bundle in engine/ and the tools in",
-  "tools/ carry their own notices.") | Set-Content "$Res\THIRD_PARTY_NOTICES.md"
+  "This application is the NativeEE engine's launcher (engine/app/launcher, MIT) with this title's description. It",
+  "contains no game data. Qt $QtVersion is linked dynamically under the LGPL v3 (licenses/Qt-LICENSE.LGPL3) and may be",
+  "replaced by another build of the same major version. The game in game/ carries its own notices.") | Set-Content "$Res\THIRD_PARTY_NOTICES.md"
 
 Step "windeployqt (the Qt DLLs and plugins beside the executable, dynamic)"
 & "$Qt\bin\windeployqt.exe" --release --no-translations --no-opengl-sw "$Res\$Product-launcher.exe"
 if ($LASTEXITCODE) { throw "windeployqt failed" }
-# The MSVC C++ runtime beside the launcher (app-local, as Microsoft supports): windeployqt only drops vc_redist.x64.exe,
-# and a machine without the Visual C++ Redistributable would not start the launcher.
+# The MSVC C++ runtime beside the launcher (app-local deployment, which Microsoft supports): windeployqt only adds
+# vc_redist.x64.exe, and without the runtime installed the launcher would not start.
 $crtDir = if ($env:VCToolsRedistDir) { Get-ChildItem -Path (Join-Path $env:VCToolsRedistDir "x64") -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue | Select-Object -First 1 }
 if ($crtDir) {
   Get-ChildItem -Path $crtDir.FullName -File | Where-Object { $_.Name -match '^(msvcp140.*|vcruntime140.*)\.dll$' } | Copy-Item -Destination $Res
@@ -91,18 +74,12 @@ if ($crtDir) {
 } else { Write-Host "warning: no VCToolsRedistDir CRT folder -- the launcher relies on an installed Visual C++ Redistributable" }
 
 if ($Game) {
-  Step "game\ (the ready-made game from $Game)"
+  Step "game\ (from $Game)"
   $GameDst = Join-Path $Dist "game"
   Copy-Item -Recurse -LiteralPath $Game -Destination $GameDst
   $Binary = $Manifest.targets.$Platform.binary
   Rename-Item -LiteralPath (Join-Path $GameDst "nativeee.exe") -NewName $Binary
   Get-ChildItem $GameDst | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Host
-} elseif (-not $LauncherOnly) {
-  Step "the engine bundle and the compiler (from the prepare track's packaging)"
-  if (-not $EngineBundle -or -not (Test-Path $EngineBundle)) { throw "release_launcher: -EngineBundle DIR is required (-LauncherOnly stages the launcher alone)" }
-  if (-not $CompilerBundle -or -not (Test-Path $CompilerBundle)) { throw "release_launcher: -CompilerBundle DIR is required" }
-  Copy-Item -Recurse $EngineBundle (Join-Path $Dist "engine")
-  Copy-Item -Recurse $CompilerBundle (Join-Path $Dist "tools")
 }
 
 Step "no game-derived file in the staged folder"

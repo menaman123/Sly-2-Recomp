@@ -1,25 +1,19 @@
-// games/scus_97316_sly2_band_of_thieves/hle/shadow_counter_split.h -- ShadowCounterSplit: the DrawIR
-// sink that rewrites the title's stencil-shadow COUNTER draws into two clamped fixed-function draws.
+// ShadowCounterSplit: rewrites Sly 2's stencil-shadow counter draws into two clamped fixed-function draws.
 //
-// Sly 2 counts shadow-volume faces in the frame buffer's G byte (shadow_notes.md, round H): untextured,
-// flat-shaded (IIP = 0) triangle meshes with COLCLAMP = 0, FBMSK = ffff00ff and ALPHA (0 - Cs) * FIX + Cd
-// (or (Cs - 0) * FIX + Cd), the kicking vertex's G = 2 for one orientation and 0xfe for the other, so
-// the GS computes Cd - 2 or Cd + 2 (mod 256) per face that passes the Z test and a receiver inside a
-// closed volume ends two counts away from the start value. The engine's COLCLAMP = 0 route blends in the
-// fragment program against ONE copy of the destination per draw: the faces of the SAME draw that overlap
-// on screen all read the pre-draw value and the last rasterised face wins (+-2 instead of the sum) -- the
-// hall's walls end at "-2" and the floor inside the shaft volumes at 0 (sh_py/sh_raster.py: coverage 2 /
-// 4 / 6 / 8 faces per pixel, signed sum 0). This sink detects the class (ABE, TME off, IIP off, COLCLAMP
-// off, PABE off, C = FIX, (A, B, D) = (0, Cs, Cd) or (Cs, 0, Cd), triangle class, >= 2 triangles whose
-// bounding boxes overlap) and forwards it as up to two draws with COLCLAMP = 1 and FIX = 0x80 -- the
-// triangles whose per-channel count k = (Cs * FIX) >> 7 subtracts (k <= 128, colour := k, ALPHA 2021) and
-// the ones that add (k > 128 under 2021 = wrap: colour := 256 - k, ALPHA 0221; the mirror for a 0221 draw)
-// -- which the backend blends in GL fixed function (REVERSE_SUBTRACT / ADD with the constant FIX), serialised
-// per fragment by the GPU, so overlapping faces sum exactly. The only difference from the GS: saturation
-// instead of wrap at 0 / 255 -- unreachable for a counter that starts at 0x7e or 0x3e and moves by 2 per
-// face. A triangle whose unmasked channels disagree in direction, a non-flat triangle, a draw of more than
-// kMaxTriangles or without overlap is forwarded unchanged (the existing route). NATIVEEE_SHADOW_SPLIT=0
-// disables the rewrite (RED/GREEN comparisons). Census: shadow_split= draws / sub / add triangles / declined.
+// Sly 2 counts shadow-volume faces in the frame buffer's G byte: untextured, flat-shaded triangles with
+// COLCLAMP = 0, FBMSK = ffff00ff and ALPHA (0 - Cs) * FIX + Cd (or (Cs - 0) * FIX + Cd), with G = 2 for one
+// face orientation and 0xfe for the other. Each face passing the Z test adds or subtracts 2 (mod 256), so a
+// receiver inside a closed volume ends two counts from the start value.
+//
+// The engine's COLCLAMP = 0 path blends in the fragment program against one copy of the destination per
+// draw, so overlapping faces of the same draw all read the pre-draw value and the last face wins (+-2
+// instead of the sum). This sink detects the class (ABE on, TME/IIP/COLCLAMP/PABE off, C = FIX, (A, B, D) =
+// (0, Cs, Cd) or (Cs, 0, Cd), at least two triangles with overlapping bounds) and forwards it as up to two
+// draws with COLCLAMP = 1 and FIX = 0x80: the subtracting triangles (k = (Cs * FIX) >> 7 <= 128, colour k,
+// ALPHA 2021) and the adding ones (k > 128 wraps: colour 256 - k, ALPHA 0221). GL fixed function blends
+// those per fragment, so overlapping faces sum exactly. Saturating instead of wrapping at 0 / 255 cannot be
+// reached by a counter starting at 0x7e or 0x3e. Anything else is forwarded unchanged.
+// NATIVEEE_SHADOW_SPLIT=0 disables the rewrite. Census: shadow_split=.
 #pragma once
 
 #include <atomic>

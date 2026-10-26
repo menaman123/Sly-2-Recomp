@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_park_sink.cpp -- LegParkSink (leg_park_sink.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park_sink.h"
 
 #include <cstdio>
@@ -24,8 +23,7 @@ LegParkSink::LegParkSink(ps2r::verify::VerifyHost& host, LegCensus& census, LegP
         TriageBundle::NoteThrowSite(r.detail ? r.detail : r.reason);
         census.Write();
         closer.Close(r.reason, r.pc, ThreadManager::Instance().CurrentTid(), r.detail);
-        // Play: the session closes cleanly around the park (the window goes, the workers are
-        // joined); a headless leg's park is its result -- leave at once, census written.
+        // Play closes the session cleanly; headless, the park ends the run.
         if (play.session) {
             play.session->RequestClose();
             throw ThreadExitUnwind{};
@@ -33,8 +31,7 @@ LegParkSink::LegParkSink(ps2r::verify::VerifyHost& host, LegCensus& census, LegP
         std::_Exit(0);
     });
 
-    // The IOP reboot image (booted here, after the park sink exists, so an unresolved import of a
-    // hosted module parks visibly).
+    // After the park sink exists, so an unresolved import parks visibly.
     {
         IsoFs::Entry rp;
         std::vector<uint8_t> rp_bytes;

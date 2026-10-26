@@ -1,6 +1,6 @@
 {
   "title": "SCUS_973.16 Sly 2: Band of Thieves (NTSC-U)",
-  "note": "Reverse-engineered EE RAM facts for the navigator (hle/nav_probe.h). Found by RAM diffs of the Paris hub (nav_hunt.py; nav_notes.md). World: x,y horizontal, z UP (Sucker Punch engine units; Sly ~190 tall, ground of the spawn roof z=532). chain = [static address, offset after deref, ...]; a one-element chain is a static variable.",
+  "note": "Reverse-engineered EE RAM facts for the navigator (hle/nav_probe.h). Found by RAM diffs of the Paris hub (nav_hunt.py). World: x,y horizontal, z UP (Sucker Punch engine units; Sly ~190 tall, ground of the spawn roof z=532). chain = [static address, offset after deref, ...]; a one-element chain is a static variable.",
   "nav": {
     "up_axis": "z",
     "forward_offset_deg": 0,
@@ -37,7 +37,7 @@
     {"name": "cam_tan_v", "chain": ["0x2ddf84"], "type": "f32", "note": "frustum half-tangent, vertical"}
   ],
   "save": {
-    "note": "The memory-card save image (hle/warp_tool.h). The game serialises its state through a schema (RAM 0x3e0ea8: N 10-byte entries {name_id, type, count, offset, first_child, next_sibling} + a 53-bucket name table) into a fixed-offset 0x5400-byte struct; the file is 0x5408 bytes: the struct + trailer {+0x5400 layout size 0x5098, +0x5404 schema checksum 0x2767b4} (FUN_001d7d30 validates only the trailer). Offsets below were read from the schema in a RAM dump of this ELF (warp_notes.md). Types: 0/1/2/9/10 = u32, 3 = f32, 4 = bool (one u32 unless counted = bit array).",
+    "note": "The memory-card save image (hle/warp_tool.h). The game serialises its state through a schema (RAM 0x3e0ea8: N 10-byte entries {name_id, type, count, offset, first_child, next_sibling} + a 53-bucket name table) into a fixed-offset 0x5400-byte struct; the file is 0x5408 bytes: the struct + trailer {+0x5400 layout size 0x5098, +0x5404 schema checksum 0x2767b4} (FUN_001d7d30 validates only the trailer). Offsets below were read from the schema in a RAM dump of this ELF. Types: 0/1/2/9/10 = u32, 3 = f32, 4 = bool (one u32 unless counted = bit array).",
     "file": "mc0/BASCUS-97316YAOTWTD!/save1", "file_bytes": 21512, "trailer_size_off": "0x5400", "trailer_size": "0x5098", "trailer_checksum_off": "0x5404", "trailer_checksum": "0x2767b4",
     "fields": {"episodeCurrent": "0x0", "episodeBest": "0x4", "widCurrent": "0x8", "oidPoCurrent": "0xc", "dt": "0x10", "flags/fAutosaveWarned": "0x2c", "sly/hpCur": "0x50", "bentley/hpCur": "0x68", "murray/hpCur": "0x80", "loot/ccoin": "0xa0"},
     "episode_dt_pct": {"note": "per episode: dt (f32) at off, percent_complete (u32) at off+4", "offsets": ["0x1a4", "0x234", "0x3d4", "0x4ec", "0x57c", "0x650", "0x900", "0xa5c", "0xbfc"]},

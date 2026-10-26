@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/gif_trace_sink.cpp -- GifTraceSink (gif_trace_sink.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/gif_trace_sink.h"
 
 #include <cstdio>
@@ -20,7 +19,7 @@ void GifTraceSink::BeginTag(const GifTag& tag, GifPath path) {
 }
 
 void GifTraceSink::WriteRegister(uint8_t reg, uint64_t value) {
-    // TEX0_1 / TEX0_2 (0x06 / 0x07): TBP0 = bits 0..13 (GS User's Manual).
+    // TEX0_1 / TEX0_2: TBP0 is bits 0..13.
     if (filter_tbp >= 0 && (reg == 0x06 || reg == 0x07)) active = static_cast<long>(value & 0x3fffu) == filter_tbp;
     if (!Printing()) return;
     std::fprintf(stderr, "gif:   reg 0x%02x = 0x%016llx\n", reg, (unsigned long long)value);

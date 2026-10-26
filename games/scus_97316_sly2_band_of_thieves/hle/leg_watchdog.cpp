@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_watchdog.cpp -- LegWatchdog (leg_watchdog.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_watchdog.h"
 
 #include <chrono>
@@ -48,7 +47,6 @@ void LegWatchdog::Run(ps2r::verify::VerifyHost& host, const LegKnobs& knobs, Leg
             meta->Set("token_tid", std::to_string(EeRunToken::Instance().OwnerForTest()));
         }
         park.closer.Close("watchdog", pc, 1, detail.c_str());
-        // NATIVEEE_RAM_DUMP=<file>: the 32 MB guest RAM image at the park.
         if (knobs.ram_dump) {
             if (std::FILE* f = std::fopen(knobs.ram_dump->c_str(), "wb")) {
                 std::fwrite(core.ram.Data(), 1, core.ram.Size(), f);

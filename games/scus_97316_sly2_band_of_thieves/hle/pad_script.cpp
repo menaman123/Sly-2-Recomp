@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/pad_script.cpp -- PadScript (see pad_script.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/pad_script.h"
 
 #include <cctype>
@@ -33,10 +32,9 @@ constexpr unsigned kPhases = 1 + sizeof(kDetours) / sizeof(kDetours[0]);
 constexpr double kClimbNear = 70, kRailNear = 50, kFaceTol = 12;
 constexpr uint64_t kFaceMax = 90, kLeapStamps = 40, kGrabFrom = 3, kClimbStall = 45, kApproachMax = 600;
 constexpr double kClimbGoalSlack = 15, kRailEndRadius = 40;
-// warp: the player's authoritative position = the local position (+0x30) of the position-only transform block
-// (0xfb36e0 in Paris = level object + 0x2160; nav_notes.md: root bone 0xfb5ae0 -> 0xfb37e0 facing -> 0xfb36e0
-// position -> 0xfb35e0 identity), the probe table's pos_x object being [0x2de1a0]. Chosen by the poke survey
-// (firstjob_notes.md).
+// warp: the player's authoritative position is the local position (+0x30) of the position-only transform
+// block (0xfb36e0 in Paris, level object + 0x2160; the chain is root bone 0xfb5ae0 -> facing 0xfb37e0 ->
+// position 0xfb36e0 -> identity 0xfb35e0). The probe table's pos_x object is [0x2de1a0].
 constexpr uint32_t kWarpOffset = 0x2190;
 
 // Splits `s` on `sep`.

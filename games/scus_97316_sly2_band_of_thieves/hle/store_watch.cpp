@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/store_watch.cpp -- StoreWatch (see store_watch.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/store_watch.h"
 
 #include <algorithm>

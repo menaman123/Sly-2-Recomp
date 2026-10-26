@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/vu1_probe.cpp -- Vu1Probe (see vu1_probe.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/vu1_probe.h"
 
 #include <cstdio>
@@ -88,7 +87,6 @@ void Vu1Probe::OnKick(VuUnit& unit, uint32_t start_pc) {
     }
     std::fprintf(stderr, "vu1_probe: captured kick %llu (frame %llu, pc 0x%04x) -> %s%s\n", static_cast<unsigned long long>(kicks_after_),
                  static_cast<unsigned long long>(*frame_), start_pc, path.c_str(), ok ? "" : " (WRITE FAILED)");
-    ++captured_;
     open_index_ = idx;
     packets_.clear();
     armed_ = true;

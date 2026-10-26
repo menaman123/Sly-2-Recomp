@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""judge_pictures.py -- the PICTURES PER SECOND judge of a play run (round P: 60 pictures per second, steady).
+"""judge_pictures.py -- the pictures-per-second judge of a play run (a steady 60).
 
 A "picture" is a unique game-produced frame: the GS consumer's present of a NEW picture (the `output`
 lane of the FrameTimeline record a play leg writes with --harness-out: <out>/present_times.csv,

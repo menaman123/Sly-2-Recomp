@@ -1,10 +1,6 @@
-# .github/workflows/launcher.yml -- the launcher players download, one zip per platform (decision D-B: macOS arm64 and
-# x86_64, Windows x64, Linux x86_64; no Vita), built by tools/ci/release_launcher.sh / .ps1 with the official Qt 6 kit.
-#
-# The launcher carries no game code (decision D-A): it reads the player's own disc image and prepares the game on
-# their machine with the compiler bundled beside it. This workflow stages the LAUNCHER half of each zip and runs its
-# tests (LauncherModels, LauncherScreens, LauncherLint, LauncherOneClass); the engine bundle and the pinned compiler
-# are added by release.yml, which calls the same scripts with --engine-bundle / --compiler-bundle.
+# Builds, tests (LauncherModels, LauncherScreens, LauncherLint, LauncherOneClass) and packages the launcher on
+# macOS arm64 / x86_64, Windows x64 and Linux x86_64 with the official Qt 6 kit (tools/ci/release_launcher.{sh,ps1}).
+# The zips here carry the launcher only; windows-release.yml builds the Windows release with the game.
 #
 #   push to main / pull request    build + test + stage the launcher for every platform, uploaded as workflow artifacts
 #   workflow_dispatch              by hand
@@ -58,8 +54,8 @@ jobs:
           target: desktop
           arch: ${{ matrix.qt_arch }}
           cache: true
-      - name: tools/ci/release_launcher.sh --launcher-only (build, tests, stage, deploy Qt, asset scan, zip)
-        run: tools/ci/release_launcher.sh --qt "$QT_ROOT_DIR" --launcher-only --tag "launcher-${GITHUB_SHA::7}"
+      - name: tools/ci/release_launcher.sh (build, tests, stage, deploy Qt, asset scan, zip)
+        run: tools/ci/release_launcher.sh --qt "$QT_ROOT_DIR" --tag "launcher-${GITHUB_SHA::7}"
       - name: the screens, as documentation
         run: mkdir -p screens && cp build-launcher/launcher_screens/*.png screens/ || true
       - uses: actions/upload-artifact@v4
@@ -92,9 +88,9 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-      - name: tools/ci/release_launcher.ps1 -LauncherOnly (build, tests, stage, windeployqt, asset scan, zip)
+      - name: tools/ci/release_launcher.ps1 (build, tests, stage, windeployqt, asset scan, zip)
         shell: pwsh
-        run: ./tools/ci/release_launcher.ps1 -Qt "$env:QT_ROOT_DIR" -LauncherOnly -Tag "launcher-$($env:GITHUB_SHA.Substring(0,7))"
+        run: ./tools/ci/release_launcher.ps1 -Qt "$env:QT_ROOT_DIR" -Tag "launcher-$($env:GITHUB_SHA.Substring(0,7))"
       - uses: actions/upload-artifact@v4
         with:
           name: sly2-launcher-windows-x64

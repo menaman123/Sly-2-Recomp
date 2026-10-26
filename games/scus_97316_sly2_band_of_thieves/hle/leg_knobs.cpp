@@ -1,6 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.cpp -- LegKnobs::FromEnvironment, the title's one
-// getenv site. The parse of each knob is exactly the one the composition applied at its use before the
-// split: a bare presence test, strtoul base 10, strtoull, or the raw string handed on.
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.h"
 
 #include <algorithm>

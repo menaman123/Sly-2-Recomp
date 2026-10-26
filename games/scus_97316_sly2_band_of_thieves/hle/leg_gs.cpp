@@ -1,5 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_gs.cpp -- LegGs (leg_gs.h): GsState, the video stack, the
-// DrawIR queue / consumer chain, the trace / counting sinks, the frame dump and the slot-0 step.
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_gs.h"
 
 #include <cstdio>
@@ -21,10 +19,8 @@ namespace ps2r::title::sly2 {
 
 LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs& knobs, LegCore& core)
     : gs_queue_stop{gs_queue} {
-    // The GS privileged page (CSR / IMR / DISPFB ...) is the real register file, so the game's FINISH
-    // handshake (CSR |= 2 W1C, GsPutIMR, GIF chain, WaitSema signalled by the GS INTC handler) is driven
-    // by the modelled transfer: Dmac::StartChannel(GIF) -> ChainWalker -> GifParser ->
-    // GsState::WriteRegister(FINISH) -> GsPrivRegs::Finish() -> the observer (leg_interrupts.cpp) -> Intc kGs.
+    // The GS privileged registers are real, so the game's FINISH handshake runs through the modelled
+    // transfer: DMAC GIF channel -> GifParser -> FINISH -> GsPrivRegs -> the interrupt observer -> INTC.
     gs_state.SetQuirks(ps2r::gs::VertexKickQuirks{title.quirks.round_sprite_mode});
     gs_queue_split_image = core.play_mode && cfg.video.backend != ps2r::VideoBackend::Soft &&
                            cfg.gs.queue == ps2r::GsQueue::Pipelined;
@@ -32,29 +28,22 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
     video_live = core.want_video && cfg.video.backend != ps2r::VideoBackend::Soft &&
                  video.Create(cfg.video, "Sly 2 -- NativeEE (GS)", pipeline_vram ? *pipeline_vram : gs_state.Vram(), core.play_mode);
     if (core.want_video && !video_live) std::fprintf(stderr, "nativeee: no video stack (video=stub; see the log)\n");
-    // gs.queue=inline: the consumer runs on the pushing EE thread (the context re-bound per
-    // thread); otherwise the DrawIR ring carries the stream to the consumer on its own host
-    // thread, which owns the GL context. Headless (dump): LOCKSTEP -- every push returns once
-    // consumed, the shared VramImage interleaving is the inline one. Play: PIPELINED over the
-    // split image with FRAME SKIP (the clock contract, rule 2: the renderer never blocks the
-    // game -- one pending frame, the older dropped; pushes never wait for ring room; the
-    // boundary does not WaitFrame).
+    // gs.queue=inline runs the consumer on the pushing EE thread. Otherwise the consumer has its own
+    // thread, which owns the GL context: lockstep headless (each push returns once consumed), pipelined
+    // with frame skip in play (the renderer never blocks the game: one pending frame, older ones dropped).
     gs_queue_thread = video_live && cfg.gs.queue != ps2r::GsQueue::Inline;
     gs_queue_lockstep = !gs_queue_split_image;
     if (video_live) {
-        // Play: the present capture (the session window's image) is read one present late behind a fence
-        // instead of draining the GPU at every present (consumer_b B1); the headless dump keeps the
-        // synchronous read (p<key>.ppm = that present).
+        // Play reads the window capture one present late behind a fence rather than draining the GPU each
+        // present; the headless dump keeps the synchronous read.
         if (core.play_mode && knobs.gs_consumer_levers) video.SetPresentCaptureDeferred(true);
-        // Round 5: the prompt capture -- a bounded wait at the present for this present's own picture.
+        // Prompt capture: a bounded wait at the present for this present's own picture.
         if (core.play_mode && cfg.video.capture_wait_ms > 0) video.SetPresentCaptureWaitNs(uint64_t(cfg.video.capture_wait_ms) * 1000000ull);
-        video.SetSwapHiddenWindow(!knobs.gs_consumer_levers);   // levers on: the hidden window's swap is a flush
+        video.SetSwapHiddenWindow(!knobs.gs_consumer_levers);
         if (knobs.gl_shader_blend) video.SetGlForceShaderBlend(true);
         video.Pipe()->Cache().Readback().SetOfferEnabled(knobs.gs_consumer_levers);
-        // The display grab when no target sits at the scanout base: the CRTC's own read --
-        // decode the DISPFB tuple out of local memory (an uploaded movie frame the title points
-        // DISPFB at without drawing shows); the most-recently-drawn target only when the tuple
-        // is unknown.
+        // When no render target sits at the scanout base, grab like the CRTC: decode DISPFB from local
+        // memory (movie frames are uploaded and shown without drawing). Fall back to the last drawn target.
         video.Pipe()->Scanout().SetGrabPolicy(ps2r::gs::ScanoutComposer::GrabPolicy::LocalMemory);
         auto crtc_now = [this] {
             using P = ps2r::gs::GsPrivRegs;
@@ -75,16 +64,10 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         hooks.grab_wanted = [this] { return grab_wanted.load(std::memory_order_relaxed); };
         consumer = std::make_unique<ps2r::gs::DrawIrQueueConsumer>(*video.Pipe(), std::move(hooks));
         latency_tap.next = consumer.get();
-        // Play: the frames-lane hash is taken where the grab is made (the consumer thread, at
-        // the present scale); the wall-locked boundary reads the header + hash, never the pixels.
+        // Play hashes the grab on the consumer thread; the boundary reads only the header and hash.
         if (!gs_queue_lockstep) consumer->SetFrameHashScale(video.Scale());
-        // Play, pipelined (the split image: the pipeline image is read on the consumer thread
-        // alone): the frame-end grab is QUEUED on the GPU and published one boundary late, and
-        // the scanout deposit takes its own deferred read -- the consumer no longer drains the
-        // GPU pipeline at every frame end (perf2: 11 % of the consumer thread sat in
-        // glReadPixels). The lane hash is still HashNativeScale over the picture's bytes; the
-        // boundary's LastFrame lags the stream by one picture (it already lagged by the
-        // consumer's backlog under frame skip). Lockstep / headless keep the synchronous grab.
+        // Pipelined play queues the frame-end grab on the GPU and publishes it one boundary late, so the
+        // consumer never stalls on glReadPixels. Lockstep and headless keep the synchronous grab.
         if (core.play_mode && knobs.gs_consumer_levers && !gs_queue_lockstep && gs_queue_split_image) {
             consumer->SetGrabDeferred(true);
             video.Pipe()->Cache().SetDeferredDeposit(true);
@@ -98,34 +81,21 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
                 gs_queue_lockstep ? ps2r::gs::DrawIrThreadQueue::Policy::Lockstep : ps2r::gs::DrawIrThreadQueue::Policy::Pipelined,
                 4096, pipeline_vram.get());
             if (knobs.gs_queue_stage) gs_queue->SetStageDepth(knobs.gs_queue_stage);
-            // Round 5: the prompt capture waits only when no COMPLETE frame is queued behind this one
-            // -- a consumer with the next frame's record already in the ring is a frame behind, and
-            // the wait would cost it the CPU/GPU overlap it needs to catch up (that present is read
-            // at the next one, as before: lag 1; census gs_backend= prompt=captures/timeouts/skipped/ms).
-            // The next frame's PARTIAL records (the worker running ahead inside the field) do not
-            // gate: with Depth() == 0 as the rule hub_ep3 Metal skipped 241 of 894 presents while the
-            // consumer kept up, and the lag-0 / lag-1 alternation slipped the relaxed train.
+            // Wait for the prompt capture only when no complete frame is queued behind this one: a consumer
+            // already a frame behind needs the CPU/GPU overlap to catch up. Partial records of the next
+            // frame do not count.
             if (core.play_mode && cfg.video.capture_wait_ms > 0)
                 video.SetPresentCaptureGate([q = gs_queue.get()] { return q->PendingFrames() == 0; });
             if (pipeline_vram) {
                 gs_state.Vram().SetMirror(gs_queue->ProducerMirror());
-                // A local->local copy's source under frame skip: never wait -- the EE image is
-                // authoritative for what the EE wrote; a GPU target's pixels come from the
-                // consumer's last completed frame, staleness counted (gs_queue l2l_*=).
+                // A local->local copy under frame skip never waits: GPU target pixels come from the last
+                // completed frame, and the staleness is counted (gs_queue l2l_*=).
                 gs_state.Xfer().SetLocalToLocalPrepare(
                     [this](ps2r::gs::VramImage::Span source, ps2r::gs::VramImage& image) {
                         return gs_queue->ServeLocalToLocalSource(source, image);
                     });
-                // Frame skip depth (perf2, measured): depth 2 (the ring may hold two complete pending
-                // frames; the consumer may lag a whole field) does not buy a picture -- the frame the
-                // one-frame rule drops costs no consumer time, while at depth 2 it is rendered and the
-                // 60 Hz pacer supersedes it anyway (two pictures inside one field edge: superseded
-                // 1 -> 13 / 1200 in the same-minute pair, frames_dropped 3 -> 2). Depth 1 stays the
-                // default; NATIVEEE_GS_SKIP_DEPTH=2 is the A/B for when the EE chain reaches 60.
-                // Round 3 (pacing, slip presenter + FIFO, judge_pacing same-minute pair, load 19-21):
-                // depth 2 frame_hz 43.3 / shown 2f=268 / doubled 59.9 % vs depth 1 45.7 / 209 /
-                // 54.7 %; consumer 20.1 vs 19.6 ms/frame -- the second pending frame is rendered
-                // for nothing while the consumer is the bound. Depth 1 confirmed.
+                // Frame skip depth 1: a second pending frame would be rendered only for the 60 Hz pacer to
+                // supersede it. NATIVEEE_GS_SKIP_DEPTH=2 overrides.
                 gs_queue->SetFrameSkip(true, knobs.gs_skip_depth ? knobs.gs_skip_depth : 1u);
             }
             video.ReleaseCurrent();
@@ -139,9 +109,8 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
     }
     ps2r::gs::DrawIrSink* gs_sink_head =
         gs_queue ? static_cast<ps2r::gs::DrawIrSink*>(gs_queue.get()) : (consumer ? static_cast<ps2r::gs::DrawIrSink*>(&latency_tap) : nullptr);
-    // NATIVEEE_GS_CAPTURE=<file.gsstream> (leg_knobs.h): the consumer-stream capture sits right in front of the
-    // queue / consumer -- the file holds exactly the stream the consumer receives (after the shadow split) -- and
-    // takes over the EE image's mirror, forwarding to the queue's producer mirror (the split image) or to none.
+    // NATIVEEE_GS_CAPTURE=<file.gsstream>: records exactly the stream the consumer receives (after the
+    // shadow split), in front of the queue.
     if (knobs.gs_capture && gs_sink_head) {
         ps2r::gs::GsStreamRecorder::Hooks ch;
         ch.upload_pixels = [this] { return &gs_state.Xfer().LastUploadPixels(); };
@@ -151,7 +120,7 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
             return ps2r::gs::CrtcClassifier::Classify(p.Read(P::kPmode), p.Read(P::kDispfb1), p.Read(P::kDispfb2),
                                                       p.Read(P::kDisplay1), p.Read(P::kDisplay2));
         };
-        // <file>[,from=<frame>][,count=<frames>]: open at that frame boundary (the image then), close after count.
+        // <file>[,from=<frame>][,count=<frames>]
         std::string rest = *knobs.gs_capture, path;
         uint64_t from = 0, count = 0;
         for (int field = 0; !rest.empty(); ++field) {
@@ -169,9 +138,8 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         PS2R_LOG(HOST, Info, "GS capture: %s from frame %llu, %llu frames (0 = all)", path.c_str(),
                  static_cast<unsigned long long>(from), static_cast<unsigned long long>(count));
     }
-    // NATIVEEE_GS_VERTS / NATIVEEE_GS_VERTS_CAP / NATIVEEE_GS_SKIP_FROM / NATIVEEE_GS_SKIP_TO / NATIVEEE_GS_SKIP_CLASS: vert_trace_sink.h.
-    if (gs_sink_head) {   // always in the chain: the gs_pages= census counts every draw / transfer
-        // The stencil-shadow counter rewrite sits between the trace (which sees the game's draws) and the renderer.
+    if (gs_sink_head) {   // always in the chain: gs_pages= counts every draw and transfer
+        // The shadow rewrite goes after the trace, so the trace sees the game's own draws.
         shadow_split.next = gs_sink_head;
         shadow_split.enabled = knobs.shadow_split;
         gs_sink_head = &shadow_split;
@@ -183,14 +151,12 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         gs_sink_head = &vert_trace;
     }
     draw_sink.SetNext(gs_sink_head);
-    // The title reads only Draws()/Frames() of the counting sink (gs_draws= / gs_frames=): its
-    // DrawRec FNV chain is off. The DrawIr snapshot extras (vertex_hash, bbox) exist for the
-    // .gsstream recorder and its reader's hash oracle; they are computed only while a capture
-    // is armed. Both run on the GIF drain thread (~1 ms/frame of byte-wise FNV in Paris).
+    // Only Draws()/Frames() of the counting sink are read, so its FNV chain is off; the DrawIr snapshot
+    // extras are computed only while a .gsstream capture is armed. Both would cost ~1 ms per frame.
     draw_sink.SetHashing(false);
     gs_state.Flush().SetRecordSnapshot(knobs.gs_capture.has_value());
     gs_state.SetSink(&draw_sink);
-    // NATIVEEE_GS_RT_DUMP=<key>,<fbp hex>[,cap=<n>][,at=<i>[+<i>...]][,noclass][,nofbmsk][,nopost] (leg_gs.h).
+    // NATIVEEE_GS_RT_DUMP=<key>,<fbp hex>[,cap=<n>][,at=<i>[+<i>...]][,noclass][,nofbmsk][,nopost]
     if (knobs.gs_rt_dump) {
         std::string rest = *knobs.gs_rt_dump;
         for (int field = 0; !rest.empty(); ++field) {
@@ -212,11 +178,10 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
                 }
         }
     }
-    // NATIVEEE_GS_TEXRES=<tbp hex>[,<cbp hex>] (leg_gs.h).
     if (knobs.gs_texres) {
         char* end = nullptr;
         texres_filter.enabled = true;
-        if (knobs.gs_texres->rfind("*", 0) == 0) {   // every read (no bytes kept: the census only)
+        if (knobs.gs_texres->rfind("*", 0) == 0) {   // every read, counts only
             texres_filter.keep_bytes = false;
         } else {
             texres_filter.keep_bytes = true;
@@ -224,45 +189,32 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
             if (end && *end == ',') texres_filter.cbp = static_cast<uint32_t>(std::strtoul(end + 1, nullptr, 16));
         }
     }
-    // --dump-frames <dir>: the Verify slot writes f<key>.ppm / p<key>.ppm there (hle/frame_dump.h).
     if (video_live && !frame_dump.Open(core.dump_frames_dir))
         std::fprintf(stderr, "nativeee: --dump-frames %s: cannot create the directory (no dumps)\n", core.dump_frames_dir.c_str());
-    // NATIVEEE_DUMP_EVERY=N (boot triage): write only every Nth present key (1 = all; long runs).
-    // NATIVEEE_DUMP_FROM=M (boot triage): no dumps before present key M (a dense window late in a
-    // long run without the hundreds of frames before it).
+    // NATIVEEE_DUMP_EVERY=N: only every Nth present key. NATIVEEE_DUMP_FROM=M: none before key M.
     dump_every = knobs.dump_every;
     dump_from = knobs.dump_from;
-    // Slot 0 (PresentRendezvous): the Phase-3 ticket, then the GS frame boundary -- the VSync
-    // job the engine does not push itself (nobody else marks the EE game frame): the counting
-    // sink hands it down the chain to the consumer (DrawPipeline::OnFrameEnd: the grab, the
-    // display quad, the present). Lockstep / inline: the push returns once the frame was
-    // consumed, so the Verify slot reads a complete grab. Then CSR.VSINT. The GS SIGNAL /
-    // FINISH causes are raised in-line by the interrupt observer (leg_interrupts.cpp) -- not
-    // re-raised here.
-    // Under the GIF drain thread the push travels as an ordered arbiter slot (ordered_submit) so it lands
-    // behind the frame's packets on the chain's one producer; the seq / epoch stamps are read there.
+    // Slot 0 (PresentRendezvous): the rendezvous ticket, then the frame's VSync job, which nothing else
+    // pushes. It travels the chain to DrawPipeline::OnFrameEnd (grab, display quad, present); in lockstep the
+    // push returns once consumed. Then CSR.VSINT. Under the GIF drain thread the job goes through
+    // ordered_submit so it lands behind the frame's packets.
     core.sequencer.SetStep(BoundarySequencer::Step::PresentRendezvous, [this, &core](CpuContext&) {
         const uint32_t ticket = core.rendezvous.Issue();
         if (!core.rendezvous.WaitFor(ticket, core.running)) return false;
-        // The game-rate lane of present_times.csv and the latency census's origin: the EE frame boundary,
-        // tagged with the frame it closes (the VSync job's src_frame), BEFORE the push (the drain thread may
-        // deliver the record before this step returns).
+        // Mark the boundary lane before the push: the drain thread may deliver the record before this returns.
         if (latency_tap.timeline) latency_tap.timeline->Note(FrameTimeline::Lane::Boundary, gs_frame_boundaries);
-        // The frame ordinal is captured HERE, on the EE: under the deferred boundary ordered_submit returns
-        // before the work runs, and the EE increments gs_frame_boundaries right after -- read inside the work
-        // on the drain thread it was N or N+1 by the race (the seq / epoch stamps are the drain thread's by
-        // design: they are the stream position).
+        // Capture the frame ordinal here: ordered_submit may return before the work runs, and the EE
+        // increments gs_frame_boundaries right after, so reading it inside the work would race.
         const uint64_t frame = gs_frame_boundaries;
         const auto push = [this, frame] {
             ps2r::gs::JobRec vs{};
             vs.type = static_cast<uint32_t>(ps2r::gs::JobKind::VSync);
             vs.seq = gs_state.Seq();
             vs.src_frame = static_cast<uint32_t>(frame);
-            vs.arg1 = 1;   // the EE game-frame boundary
+            vs.arg1 = 1;   // EE game-frame boundary
             vs.vram_epoch = gs_state.Vram().UploadEpoch();
             draw_sink.OnFrame(vs);
-            // The drain stage is done with this frame: its packets are parsed and the frame record
-            // is in the queue (on the drain thread under ordered_submit, else on the EE itself).
+            // The frame's packets are parsed and its record is queued.
             if (latency_tap.timeline) latency_tap.timeline->Note(FrameTimeline::Lane::Drained, vs.src_frame);
         };
         if (ordered_submit) ordered_submit(push);

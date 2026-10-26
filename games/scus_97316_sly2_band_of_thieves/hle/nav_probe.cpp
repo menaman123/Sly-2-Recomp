@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/nav_probe.cpp -- NavProbe (nav_probe.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/nav_probe.h"
 
 #include <algorithm>

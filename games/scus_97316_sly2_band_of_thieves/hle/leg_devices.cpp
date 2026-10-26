@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_devices.cpp -- LegDevices (leg_devices.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_devices.h"
 
 #include <filesystem>
@@ -20,17 +19,15 @@ LegDevices::LegDevices(const ps2r::Config& cfg, const TitleProfile& title, const
       vif(vu0, vu1, gif_arbiter, gif_regs),
       dmac(core.ram, core.spad, vif, gif_arbiter) {
     core.mmio.Register(MmioRouter::kGsPrivBase, MmioRouter::kGsPrivEnd - MmioRouter::kGsPrivBase, gs_mmio, "GS_PRIV");
-    // NATIVEEE_GIF_TRACE=1: every GIF tag / register write to stderr (boot triage only).
     if (knobs.gif_trace) {
         gif_trace.SetFilter(knobs.gif_trace_value ? knobs.gif_trace_value->c_str() : nullptr);
         gif_sink.Add(&gif_trace);
     }
-    // The VU1 fallback tier from Config engine.vu1_mode (hle = the library ladder, which this title
-    // has none of: cached; cached; interp; block = the pre-resolved straight-line block tier;
-    // aot = the generic run-time recompiler: a verified image on its specialised block table,
-    // the rest on engine.vu1_aot_fallback), then NATIVEEE_VU1_MODE=interp|cached|block|aot (boot
-    // triage) on top. Applied here, before the MTVU stack copies the inline dispatch's settings
-    // for the worker's unit (the AOT tier's status map and cache attach to the LIVE unit, leg_mtvu.cpp).
+    // VU1 tier: engine.vu1_mode, overridden by NATIVEEE_VU1_MODE=interp|cached|block|aot.
+    //   hle     (no VU1 library in this title: behaves as cached)
+    //   block   pre-resolved straight-line blocks
+    //   aot     run-time recompilation of verified microprograms; the rest on engine.vu1_aot_fallback
+    // Must be set before LegMtvu copies these settings for its worker.
     {
         auto tier_of = [](const std::string& name, VuTierMode fallback) {
             return name == "interp" ? VuTierMode::Interp
@@ -45,8 +42,7 @@ LegDevices::LegDevices(const ps2r::Config& cfg, const TitleProfile& title, const
                                                                        : VuTierMode::Cached;
         if (knobs.vu1_mode) mode = tier_of(*knobs.vu1_mode, mode);
         vu1.dispatch().settings().vu1_mode = mode;
-        // diag.vu1_lockstep: the tier A/B against the interpreter at every kick (engine/vu/tiers/
-        // vu_lockstep.h); copied to the worker's unit with the rest of the settings.
+        // diag.vu1_lockstep: compare the tier against the interpreter at every kick.
         vu1.dispatch().settings().lockstep = cfg.diag.vu1_lockstep;
         if (cfg.diag.vu1_lockstep && !cfg.paths.user_data.empty()) {
             const std::string dir = cfg.paths.user_data + "/vu1_lockstep";

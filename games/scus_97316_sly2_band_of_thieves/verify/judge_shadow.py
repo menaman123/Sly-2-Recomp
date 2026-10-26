@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""judge_shadow.py -- the Sly 2 SHADOW gate (D8): the title's stencil shadows judged against PCSX2.
+"""judge_shadow.py -- the shadow gate: Sly 2's stencil shadows judged against PCSX2.
 
-How this title draws shadows (shadow_notes.md, round H): after the scene it runs one stencil block per
+How Sly 2 draws shadows: after the scene it runs one stencil block per
 frame on the 32-bit frame buffer F -- (1) the G byte of every pixel is saved into the alpha byte of the
 other display buffer S through a 16-bit "texture shuffle" sprite pass, (2) G := 0x7e, (3) the shadow
 volumes are drawn untextured with COLCLAMP off, FBMSK = ffff00ff (G only) and ALPHA (0 - Cs) * FIX(0x80)

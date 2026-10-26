@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_pad.cpp -- LegPad (leg_pad.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_pad.h"
 
 #include <chrono>
@@ -45,7 +44,7 @@ LegPad::LegPad(const ps2r::Config& cfg, const std::string& title_dir, const LegK
         }
     }
     if (knobs.lat_pulse && play.live_input) {
-        // "<scancode>:<period_ms>:<hold_ms>": the latency census's edge source (leg_pad.h).
+        // "<scancode>:<period_ms>:<hold_ms>"
         char* e = nullptr;
         const char* p = knobs.lat_pulse->c_str();
         pulse_.scancode = static_cast<int>(std::strtol(p, &e, 10));
@@ -58,14 +57,13 @@ LegPad::LegPad(const ps2r::Config& cfg, const std::string& title_dir, const LegK
             pulse_run_.store(true);
             PlatformInput* input = play.live_input.get();
             pulse_thread_ = std::thread([this, input] {
-                // A 0..16 ms sweep on top of the period so the edges land at every phase of the field
-                // (a fixed period is a fixed phase at 60 Hz: one sample of the 0..1 field wait).
+                // Sweep 0..16 ms on top of the period so edges land at every phase of the field.
                 uint32_t lcg = 12345u;
                 auto sleep_ms = [this](uint64_t ms) {
                     for (uint64_t slept = 0; slept < ms && pulse_run_.load(std::memory_order_relaxed); slept += 2)
                         std::this_thread::sleep_for(std::chrono::milliseconds(2));
                 };
-                sleep_ms(1500);   // the leg settles (the restored state's first frames) before the first edge
+                sleep_ms(1500);   // let the first frames settle
                 while (pulse_run_.load(std::memory_order_relaxed)) {
                     lcg = lcg * 1664525u + 1013904223u;
                     const uint64_t jitter_ms = (lcg >> 24) % 17u;
@@ -92,8 +90,7 @@ LegPad::LegPad(const ps2r::Config& cfg, const std::string& title_dir, const LegK
             }
         PadProtocol::Input in = play.live_input ? play.live_input->Sample() : PadProtocol::Input{};
         if (play.live_input) {
-            // The latency census (frame_timeline.h): a FRESH sample's instant and the input edge it carried,
-            // tagged with this boundary (the Boundary lane's last mark, noted in slot 0 of this sequence).
+            // Latency census: a fresh sample's instant and the input edge it carried, tagged with this boundary.
             uint64_t sampled_ns = 0, edge_ns = 0;
             if (play.live_input->TakeSampleStamps(&sampled_ns, &edge_ns)) {
                 const uint64_t tag = play.timeline.LastFrame(FrameTimeline::Lane::Boundary);

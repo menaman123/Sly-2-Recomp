@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""judge_latency.py -- the INPUT -> PHOTON latency judge of a play run (round 5: "super laggy, heavy to move").
+"""judge_latency.py -- the input -> photon latency judge of a play run.
 
 Reads the FrameTimeline record a play leg writes with --harness-out (<out>/present_times.csv,
 `lane,ordinal,t_ns,frame`; lanes input / pad / boundary / output / shown, every instant tagged with its EE
@@ -15,7 +15,7 @@ frame ordinal) and rebuilds the latency budget of a button press, stage by stage
                                               game tick to its boundary, the chain behind the EE, the presenter
   total            input_to_shown + GAME_DEPTH_EXTRA_FIELDS: plus the game's own display depth beyond that
                    first picture (the title reacts to pad sample N in the picture tagged N+5: START's pause menu;
-                   N+6 for the stick / CROSS -- the lockstep hash-divergence experiment of the latency REPORT,
+                   N+6 for the stick / CROSS -- measured by lockstep hash divergence,
                    a property of the title the console pays too) -- the fields a player waits from the press to
                    the window swap.
 
@@ -37,11 +37,9 @@ import sys
 FIELD_MS = 1000.0 / 60.0
 GATE_TOTAL_P50_FIELDS = 3.0
 GATE_TOTAL_P99_FIELDS = 4.0
-# The game's extra display depth beyond "the first picture whose boundary followed the sample" (tag N+1).
-# Pinned by the lockstep hash-divergence experiment of the latency REPORT (Paris hub_ep1_fix, UNPACED +
-# vu1_lockstep, frame dumps byte-equal up to the divergence): START at pad stamp S first changes the picture
-# tagged S+5 (the pause menu fades in), the left stick / CROSS the picture tagged S+6 -> 4 extra fields (5 for
-# movement). Informational (the total row); --extra-fields overrides for another title state.
+# The game's own display depth beyond the first picture after the sample (tag N+1), measured by where
+# lockstep frame hashes first diverge: START at pad stamp S first changes picture S+5 (the pause menu), the
+# left stick / CROSS picture S+6, so 4 extra fields (5 for movement). Informational; --extra-fields overrides.
 GAME_DEPTH_EXTRA_FIELDS = 4
 
 LANES = ("input", "pad", "boundary", "output", "shown")

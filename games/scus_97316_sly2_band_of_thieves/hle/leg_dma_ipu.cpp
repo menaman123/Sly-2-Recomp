@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_dma_ipu.cpp -- LegDmaIpu (leg_dma_ipu.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_dma_ipu.h"
 
 #include "engine/dmac/dmac_channel.h"
@@ -15,8 +14,8 @@ LegDmaIpu::LegDmaIpu(const LegKnobs& knobs, LegCore& core, LegDevices& devices, 
       ipu_dump_close{ipu_dump},
       ipu_out_dump_close{ipu_out_dump} {
     Dmac& dmac = devices.dmac;
-    // The GIF register block: under the drain thread every access fences the parser first (the STAT /
-    // TAG registers are composed from the transfer state the parser owns).
+    // Under the drain thread every GIF register access fences the parser first: STAT and TAG are built
+    // from transfer state the parser owns.
     core.mmio.Register(GifRegs::kBase, GifRegs::kSize,
                        mtvu.mtvu ? mtvu.mtvu->GifWindow(static_cast<GifRegs&>(devices.gif_regs)) : static_cast<MmioHandler&>(devices.gif_regs), "GIF");
     core.mmio.Register(Vif::kVif0Base, Vif::kRegsSize, vif_gate, "VIF0");
@@ -24,9 +23,8 @@ LegDmaIpu::LegDmaIpu(const LegKnobs& knobs, LegCore& core, LegDevices& devices, 
     core.mmio.Register(Vif::kVif1FifoBase, Vif::kFifoSize, vif1_window, "VIF1_FIFO");
     core.map.RegisterHwWindow(0x11000000u, 0x1000u, devices.vu0.state().micro, "VU0_MICRO");
     core.map.RegisterHwWindow(0x11004000u, 0x1000u, devices.vu0.state().data, "VU0_DATA");
-    // The VU1 windows map the LIVE unit (the worker's under MTVU): the title's VIF1 interrupt handler
-    // reads the lit vertex colours its VU1 lighting routine left at 0x1100c320+ (leg_vif_irq.h) while
-    // the worker is parked on the i-bit stall -- the inline unit never sees the worker's stream.
+    // The VU1 windows map the live unit (the worker's under MTVU): the game's VIF1 interrupt handler reads
+    // the lit vertex colours its VU1 lighting left at 0x1100c320+ while the worker is parked on the i-bit.
     core.map.RegisterHwWindow(0x11008000u, 0x4000u, mtvu.LiveVu1().state().micro, "VU1_MICRO");
     core.map.RegisterHwWindow(0x1100C000u, 0x4000u, mtvu.LiveVu1().state().data, "VU1_DATA");
     core.mmio.Register(0x10008000u, 0x6064u, dmac, "DMAC");
@@ -34,20 +32,18 @@ LegDmaIpu::LegDmaIpu(const LegKnobs& knobs, LegCore& core, LegDevices& devices, 
     core.mmio.Register(0x1000F590u, 0x10u, dmac, "D_ENABLEW");
     dmac.SetGuestCall(core.guest_call);
     dmac.SetInterruptRaise([this] { ++dmac_int1_raises; });
-    // _EnableDmac / _DisableDmac are D_STAT.CIM on the hardware: the kernel word and the
-    // register are one state (libmpeg enables channel 3 for its fromIPU completion handler).
+    // _EnableDmac / _DisableDmac are D_STAT.CIM on hardware: kernel word and register are one state.
     SyscallTable::Instance().SetDmacMaskSink([&dmac](int ch, bool enable) { dmac.SetChannelInterruptMask(ch, enable); });
-    // The IPU register window + its two DMAC channels.
     core.mmio.Register(0x10002000u, ps2r::ipu::IpuDevice::kWindowBytes, ipu, "IPU");
     // The FIFO ports: libipu pushes the quantiser matrices (sceIpuSetIQ/SetVQ) through the write port, not the DMAC.
     core.mmio.Register(0x10007000u, ps2r::ipu::IpuFifoPort::kWindowBytes, ipu_fifo, "IPU_FIFO");
-    // NATIVEEE_IPU_DUMP=<file>: every byte the toIPU channel feeds, appended (boot triage only).
+    // NATIVEEE_IPU_DUMP=<file>: every byte the toIPU channel feeds.
     if (knobs.ipu_dump) ipu_dump = std::fopen(knobs.ipu_dump->c_str(), "wb");
     dmac.SetIpuFeedInput([this](uint8_t* host, size_t bytes) {
         if (ipu_dump) std::fwrite(host, 1, bytes, ipu_dump);
         ipu.FeedInputFifo(host, bytes);
     });
-    // NATIVEEE_IPU_OUT_DUMP=<file>: every byte the fromIPU channel drains (BDEC RAW16 / CSC RGB32), appended.
+    // NATIVEEE_IPU_OUT_DUMP=<file>: every byte the fromIPU channel drains (BDEC RAW16 / CSC RGB32).
     if (knobs.ipu_out_dump) ipu_out_dump = std::fopen(knobs.ipu_out_dump->c_str(), "wb");
     dmac.SetIpuDrainOutput([this](uint8_t* host, size_t bytes) {
         const size_t got = ipu.DrainOutputFifo(host, bytes);
@@ -58,14 +54,14 @@ LegDmaIpu::LegDmaIpu(const LegKnobs& knobs, LegCore& core, LegDevices& devices, 
         if (dmac.channel(static_cast<int>(DmacChannelId::IpuFrom)).chcr & DmacChcr::kStr)
             dmac.StartChannel(static_cast<int>(DmacChannelId::IpuFrom));
     });
-    // The eight-quadword input FIFO: the toIPU channel moves what fits and resumes as the
-    // IPU consumes (libmpeg reads D4_QWC and IPU_CTRL.IFC to find where the stream is).
+    // The input FIFO holds eight quadwords: toIPU moves what fits and resumes as the IPU consumes
+    // (libmpeg reads D4_QWC and IPU_CTRL.IFC to find its place in the stream).
     dmac.SetIpuInputRoom([this] { return ipu.InputRoomBytes(); });
     ipu.SetInputRoomReady([&dmac] {
         auto& to = dmac.channel(static_cast<int>(DmacChannelId::IpuTo));
         if ((to.chcr & DmacChcr::kStr) && to.qwc != 0) dmac.StartChannel(static_cast<int>(DmacChannelId::IpuTo));
     });
-    // COP2: the VU0 macro ops and CMSAR1 reach the units (unbound they park vu_micro_absent).
+    // COP2: VU0 macro ops and CMSAR1 reach the units.
     VuMacroBridge::Bind(&devices.vu0, &devices.vu1, &devices.vu0_registry);
     if (knobs.vu0_trace) {
         const size_t colon = knobs.vu0_trace->find(':');

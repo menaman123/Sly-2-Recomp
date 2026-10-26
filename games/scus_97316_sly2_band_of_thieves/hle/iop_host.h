@@ -1,24 +1,17 @@
-// games/scus_97316_sly2_band_of_thieves/hle/iop_host.h -- IopHost: the title's IOP
-// composition. Hosts the three recompiled embedded modules (lgAud, 989snd, spiop; iop/) on the
-// engine's cooperative IOP kernel with the stock Sony modules served by the engine's HLE:
+// IopHost: Sly 2's IOP. Runs the three recompiled embedded modules (lgAud, 989snd, spiop) on the
+// engine's cooperative IOP kernel; the stock Sony modules are the engine's HLE.
 //
-//   * the EE's sceSifSetDma pushes land in IOP RAM (SifDmaCopy); sceSifAllocIopHeap is the
-//     sysmem heap (HeapAlloc / HeapFree);
-//   * sceSifLoadModuleBuffer("buffer@<iop addr> <args>") reads the pushed image's .iopmod name:
-//     a hosted module is SHA-256 checked against the build's input, relocated to its base
-//     (IopLoader + iop_relocator -- the same relocation the recompiler applied), its entry run
-//     with argc/argv, its threads dispatched to their first block, and registered (module id);
-//     libsd / usbd / sio2man / padman / mcman / mcserv are rows (their libraries are the
-//     engine's; usbd's image is loaded so a probe of its text finds it);
-//   * every library import of a hosted module resolves through the IopLibraryTable (stock HLE
-//     bodies + the RegisterLibraryEntries tables of the other hosted modules); an import no
-//     library serves is a PARK (iop_import_unresolved), never a silent answer;
-//   * every sceSifRegisterRpc a hosted module makes becomes an IopRpcServer on the EE's
-//     RpcRouter, so the EE's sceSifBindRpc/sceSifCallRpc into it run the module's own handler.
+//   * sceSifSetDma lands in IOP RAM (SifDmaCopy); sceSifAllocIopHeap is the sysmem heap.
+//   * sceSifLoadModuleBuffer reads the pushed image's .iopmod name. A hosted module is SHA-256 checked,
+//     relocated to its base, its entry run and its threads dispatched; libsd, usbd, sio2man, padman, mcman
+//     and mcserv are table rows backed by engine libraries.
+//   * Every library import resolves through the IopLibraryTable; an unresolved import parks the run
+//     (iop_import_unresolved) rather than answering silently.
+//   * Every sceSifRegisterRpc becomes an IopRpcServer on the EE's RpcRouter, so EE calls run the module's
+//     own handler. No reply is faked.
 //
-// No reply is faked anywhere: what the modules do is what their recompiled code does.
-// The save states: Section() is the IOPH section (the engine's IopHostSection over this host's kernel-
-// facing modules); registered by LegSaves before the SPU sections so a restored SPU image wins.
+// Section() is the IOPH save-state section; LegSaves registers it before the SPU sections so a restored
+// SPU image wins.
 #pragma once
 
 #include <cstdint>
@@ -71,8 +64,7 @@ namespace ps2r::title::sly2 {
 
 class IopHost {
 public:
-    // The expected SHA-256 (hex) of each hosted module's image, as the build's TITLE_INPUTS
-    // row has it (compile definitions from hle/CMakeLists.txt); "" = not checked.
+    // Expected SHA-256 (hex) of each hosted module's image, from TITLE_INPUTS.sha256; "" = not checked.
     struct ExpectedHashes {
         std::string fileio, lgaud, snd989, spiop;
     };
@@ -84,29 +76,24 @@ public:
     IopHost(const IopHost&) = delete;
     IopHost& operator=(const IopHost&) = delete;
 
-    // The EE's sceSifSetDma (SyscallTable::SetSifDmaCopy): EE RAM -> IOP RAM.
+    // sceSifSetDma: EE RAM -> IOP RAM.
     void SifDmaCopy(uint32_t ee_src, uint32_t iop_dst, uint32_t size);
-    // The EE's sceSifAllocIopHeap / sceSifFreeIopHeap (SceSif::IopHeap).
+    // sceSifAllocIopHeap / sceSifFreeIopHeap.
     uint32_t HeapAlloc(uint32_t size);
     void HeapFree(uint32_t addr);
-    // The EE's sceSifLoadModuleBuffer (SceSif::SetModuleLoader): the module id, or a negative error.
+    // sceSifLoadModuleBuffer: the module id, or a negative error.
     int32_t LoadModuleBuffer(const std::string& path);
-    // The IOP reboot (sceSifRebootIop(IOPRP300.IMG)): the reboot image's stock modules the engine
-    // does not model natively are hosted from the image's own bytes -- FILEIO_service today. The
-    // container is the disc file's bytes; false when the module is not found or refused.
+    // sceSifRebootIop(IOPRP300.IMG): hosts the reboot image's stock modules the engine has no native
+    // model for (FILEIO_service) from the image's own bytes. False if a module is missing or refused.
     bool BootRebootImageModules(const uint8_t* image, size_t size);
 
     iop::IopModuleTable& Table() { return table_; }
     iop::IopMemory& Memory() { return mem_; }
-    // The IOPH savestate section of this hosted IOP (engine/iop/savestate/iop_host_section.h): RAM, the
-    // kernel tables, the module rows past the 22 stock rows, the hosted modules' libraries, RPC servers
-    // and timers. Its restore re-arms every hosted thread from its record (entry -> first park on the
-    // restored RAM) and hands the server records back through OnServerRegistered (the IopRpcServer per
-    // id is REPLACED, the RpcRouter row re-pointed), then this host re-derives its hosted-module rows.
+    // The IOPH save-state section: IOP RAM, kernel tables, hosted module rows, libraries, RPC servers
+    // and timers. Restoring re-arms each hosted thread and re-registers each RPC server.
     iop::IopHostSection& Section() { return *section_; }
-    // The run.meta census rows (iop_hosted=, iop_libraries=, iop_rpc_servers=, ...).
+    // run.meta rows: iop_hosted=, iop_libraries=, iop_rpc_servers=, ...
     void WriteCensus(verify::RunMeta* meta);
-    const std::string& LoadLog() const { return load_log_; }
 
 private:
     struct Hosted {
@@ -121,7 +108,7 @@ private:
     struct Push { uint32_t ee_src, size; };
 
     static const std::function<void(iop::IopContext&)>* ResolveGuest(uint32_t addr);
-    static std::function<void(iop::IopContext&)> ResolveGuestFn(uint32_t addr);   // the by-value form the HLE modules take
+    static std::function<void(iop::IopContext&)> ResolveGuestFn(uint32_t addr);   // by value, for the HLE modules
     int32_t BootHosted(Hosted& h, const uint8_t* image, uint32_t size, const std::vector<std::string>& argv);
     int32_t LoadImageOnly(const std::string& name, uint32_t iop_addr, uint32_t size, uint16_t version);
     void OnServerRegistered(const iop::hle::SifcmdModule::ServerRecord& r);

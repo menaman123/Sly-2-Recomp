@@ -1,5 +1,4 @@
-// games/scus_97316_sly2_band_of_thieves/hle/text_watch.h -- TextWatch: the 'text-range' mode of the
-// NATIVEEE_WATCH knob (the overlay question: does the game put CODE anywhere the recompiled image is not?).
+// TextWatch: NATIVEEE_WATCH's text mode. Detects the game writing code anywhere outside the recompiled image.
 //
 //   NATIVEEE_WATCH=text[;<hexaddr>,<bytes>...][;every=<n>][;max=<n>][;ramdump=<file>]
 //
@@ -15,8 +14,7 @@
 // loaded image, so a patch applied before the first boundary (crt0 / init) is still seen at boundary 1.
 // Cost: one 1.5 MB memcmp per boundary (~0.1 ms); nothing else until a difference.
 // Report() (the census) prints the histogram and writes run.meta text_watch= / text_watch_pages=; with
-// ramdump=<file> it also writes the 32 MB guest RAM once, for the offline MIPS opcode-density census
-// ($WORK/code_census.py) of everything the game put in RAM outside the image.
+// ramdump=<file> it also writes the 32 MB guest RAM once, for offline analysis.
 #pragma once
 
 #include <cstdint>
@@ -31,7 +29,7 @@ namespace ps2r::title::sly2 {
 
 class TextWatch {
 public:
-    // The ELF's code ranges (recon_disc_notes.md section 2.3; the recompiler's input): .text + .vutext.
+    // The ELF's code ranges (the recompiler's input): .text + .vutext.
     static constexpr uint32_t kTextLo = 0x00100000u;
     static constexpr uint32_t kTextHi = 0x00262380u;
 

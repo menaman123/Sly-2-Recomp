@@ -1,27 +1,21 @@
-# .github/workflows/windows-release.yml -- the Windows release a player downloads: ONE zip with the launcher AND the game
-# ready-made, published as a GitHub release (the UnleashedRecomp model).
+# The Windows release: one zip with the launcher and the game, published as a GitHub release.
 #
 #   <product>-<tag>-windows-x64.zip
 #   └── <product>-windows-x64/
-#       ├── launcher/   the launcher (Qt, windeployqt) -- the player opens this
-#       └── game/       sly2.exe (the recompiled game + the engine), its DLLs, the title tables
+#       ├── launcher/   the launcher (Qt, windeployqt); the player opens this
+#       └── game/       sly2.exe (recompiled game + engine), its DLLs, the title tables
 #
-# The player downloads the zip, opens the launcher, chooses their own disc image (checked by its content) and presses
-# Play: "Preparing your game" copies game/ into their game folder. No download, no compiler, nothing else to install.
-# The game's data (textures, sound, movies, levels) is read from the player's disc at run time; the zip carries no
-# disc bytes (the asset scan in release_dist.ps1 and release_launcher.ps1 is the gate).
+# The player opens the launcher, chooses their own disc image and presses Play; the launcher copies game/ into
+# their game folder. The game reads its data from the player's disc, and the asset scans keep disc bytes out of
+# the zip.
 #
-# The game's code is regenerated at build time from two disc files a runner does not have: they are checked out from a
-# PRIVATE repository holding exactly SCUS_973.16 (the ELF; most IOP modules are embedded in it) and IOPRP300.IMG (the
-# IOP reboot image the stock fileio module comes from) at its root, beside each other (cmake/TitleInputs.cmake takes
-# the container beside a loose ELF). Never committed here.
-# Secrets (Settings -> Secrets and variables -> Actions):
-#   SLY2_GAME_FILES_REPO    owner/name of the private repository holding SCUS_973.16 + IOPRP300.IMG
-#   SLY2_GAME_FILES_TOKEN   a fine-grained token with read access to that repository's contents
+# The code is regenerated at build time from two disc files, checked out from a private repository holding
+# SCUS_973.16 and IOPRP300.IMG side by side at its root. Secrets (Settings -> Secrets and variables -> Actions):
+#   SLY2_GAME_FILES_REPO    owner/name of that repository
+#   SLY2_GAME_FILES_TOKEN   a fine-grained token with read access to its contents
 #
-#   push a tag v*            build + publish the release under that tag (a prerelease when the tag has a '-')
-#   push a tag win-*         the same, Windows only (release.yml also runs on v* tags; win-* starts this workflow alone)
-#   workflow_dispatch        build + publish a prerelease tagged windows-test-<run number>
+#   push a tag v* or win-*   build and publish a release under that tag (a prerelease when the tag has a '-')
+#   workflow_dispatch        build and publish a prerelease tagged windows-test-<run number>
 name: Sly 2 Windows release
 
 on:
@@ -126,7 +120,7 @@ jobs:
       - name: Stage the game (release_dist.ps1 -SkipBuild -NoZip; asset scan)
         shell: pwsh
         run: |
-          # -GamesDir: else the stager finds the engine's own games\example_title first and ships ITS tables
+          # -GamesDir, or the stager would pick the engine's own games\example_title
           ./engine/tools/ci/release_dist.ps1 -SkipBuild -BuildDir "$env:GAME_BUILD" -GamesDir "${{ github.workspace }}\games" -DistDir "$env:RUNNER_TEMP\gamedist" -NoZip
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Get-ChildItem "$env:RUNNER_TEMP\gamedist\windows-x64" | Select-Object Name, Length | Format-Table -AutoSize

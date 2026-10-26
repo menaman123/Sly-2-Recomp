@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/vert_trace_sink.cpp -- VertTraceSink (vert_trace_sink.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/vert_trace_sink.h"
 
 #include <algorithm>

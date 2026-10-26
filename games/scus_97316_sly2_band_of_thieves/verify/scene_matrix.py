@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scene_matrix.py -- the SCENE MATRIX of a build (round 4: 'a consistent 60 fps EVERYWHERE').
+"""scene_matrix.py -- the scene matrix of a build: a steady 60 fps in every scene.
 
 One hub is not 'everywhere'. This tool turns a set of play runs (one per scene x video backend, each
 written with --harness-out) into a matrix with a RED / GREEN verdict per cell, so a build's frame rate

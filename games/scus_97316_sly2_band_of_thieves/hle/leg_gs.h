@@ -1,17 +1,14 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_gs.h -- LegGs: the GS phase of the title's play composition
-// (after LegCore, before the GIF / VU / VIF / DMAC devices). Owns GsState and its DrawIR chain: GsState's
-// DrawIR goes to a counting sink (run.meta gs_draws=) which, when a video stack is wanted (play mode /
-// --dump-frames), chains to the DrawIR thread queue -> the queue consumer -> the generic DrawPipeline
-// over GL (hle/video_stack.h: no class renderers, an empty VramLayout); VertTraceSink sits at the head
-// of the chain for the gs_pages= census and the GS_VERTS / GS_SKIP_* knobs. Play mode with
-// gs.queue=pipelined (the Config default): the SPLIT image -- the pipeline runs on ITS OWN VramImage on
-// the consumer thread; the EE keeps GsState's image for its writes, marks and upload epoch, and every
-// EE-side call on it is logged (VramMirror) and replayed on the pipeline's image in stream order by the
-// queue (draw_ir_thread_queue.h). The headless dump / harness legs keep the LOCKSTEP shared image: their
-// frames lane is byte-identical to the inline path by construction, and the Verify slot reads a complete
-// grab. Also the --dump-frames writer (frame_dump.h) with the DUMP_EVERY / DUMP_FROM policy, the grab
-// source counters (census gs_grab_sources=) and the slot-0 PresentRendezvous step (the GS frame
-// boundary: the VSync job the engine does not push itself).
+// LegGs: GsState and its DrawIR chain. Draws go to a counting sink and, when there is a video stack
+// (play or --dump-frames), on through the DrawIR thread queue to the generic GL DrawPipeline.
+// VertTraceSink heads the chain for the gs_pages= census and the GS_VERTS / GS_SKIP_* knobs.
+//
+// Play mode with gs.queue=pipelined (the default) splits the VRAM image: the pipeline renders from its
+// own copy on the consumer thread, and EE-side writes to GsState's image are logged and replayed onto it
+// in stream order. Headless runs share one image in lockstep, so their frames lane matches the inline
+// path exactly and the Verify slot always reads a complete grab.
+//
+// Also owns the --dump-frames writer and the slot-0 PresentRendezvous step, which pushes the per-frame
+// VSync job the engine does not push itself.
 #pragma once
 
 #include <atomic>
@@ -50,17 +47,15 @@ public:
     ps2r::gs::GsState gs_state;
     VideoStack video;
     bool gs_queue_split_image = false;
-    std::unique_ptr<ps2r::gs::VramImage> pipeline_vram;   // the pipeline's own image (split); null = shared
+    std::unique_ptr<ps2r::gs::VramImage> pipeline_vram;   // split mode's pipeline image; null when shared
     bool video_live = false;
     std::unique_ptr<ps2r::gs::DrawIrQueueConsumer> consumer;
-    // The latency tap (frame_timeline.h): the sink right in front of the consumer, on the consumer's
-    // thread. Notes the `consumed` lane when a frame record's delivery returns (the frame's draws
-    // rendered, its grab queued) and publishes the frame ordinal the consumer is on, which the
-    // output callback (leg_play.cpp) tags its posted picture with. Transparent otherwise.
+    // Just in front of the consumer, on its thread: marks the `consumed` lane when a frame record is
+    // delivered, and publishes the frame the consumer is on so the output callback can tag its picture.
     struct LatencyTap : ps2r::gs::DrawIrSink {
         ps2r::gs::DrawIrSink* next = nullptr;
         FrameTimeline* timeline = nullptr;           // set by LegPlay; read on the consumer thread
-        std::atomic<uint64_t> current_frame{0};     // JobRec::src_frame of the frame record in delivery
+        std::atomic<uint64_t> current_frame{0};     // JobRec::src_frame of the record being delivered
         void OnDraw(const ps2r::gs::DrawIr& d) override { next->OnDraw(d); }
         void OnDrawOwned(ps2r::gs::DrawIr&& d) override { next->OnDrawOwned(std::move(d)); }
         void OnJob(const ps2r::gs::JobRec& j) override { next->OnJob(j); }
@@ -74,44 +69,35 @@ public:
     bool gs_queue_thread = false;
     bool gs_queue_lockstep = true;
     VertTraceSink vert_trace;
-    ShadowCounterSplit shadow_split;   // between the trace and the renderer: the counter-draw rewrite (D8)
-    // NATIVEEE_GS_CAPTURE: the .gsstream recorder between the shadow split and the queue (null = off); it is the EE
-    // image's mirror while open (forwarding to the queue's). Declared before the queue stop guard so it closes after
-    // the queue drained.
+    ShadowCounterSplit shadow_split;   // between the trace and the renderer
+    // NATIVEEE_GS_CAPTURE: the .gsstream recorder between the shadow split and the queue (null = off).
+    // Declared before the queue stop guard so it closes after the queue drained.
     std::unique_ptr<ps2r::gs::GsStreamRecorder> gs_capture;
     ps2r::gs::CountingDrawIrSink draw_sink;
-    // The queue stops (drains, joins) before the consumer and the video stack it draws into go (the
-    // members unwind in reverse order; this guard runs first).
+    // Stops the queue before the consumer and video stack are destroyed (members unwind in reverse).
     struct GsQueueStop {
         std::unique_ptr<ps2r::gs::DrawIrThreadQueue>& q;
         ~GsQueueStop() { if (q) q->Stop(); }
     } gs_queue_stop;
     FrameDump frame_dump;
-    // Whether anyone reads the boundary's display grab (the consumer's grab_wanted hook, read on the
-    // consumer thread): the harness lanes (VerifyHost armed: frames.fhash, F5, the dumps) or a frame
-    // dump. A player's session has neither -- the grab and its hash are then skipped (perf2). Set by
-    // the Verify slot's constructor, before the first frame.
+    // Whether anything reads the display grab (harness lanes, F5, frame dumps). A player's session
+    // needs none, so the grab and its hash are skipped. Set before the first frame.
     std::atomic<bool> grab_wanted{true};
     uint64_t grab_local_memory = 0, grab_fallback = 0, grabs = 0;   // census gs_grab_sources=
     uint32_t dump_every = 1, dump_from = 0;
-    // NATIVEEE_GS_RT_DUMP (boot triage, headless lockstep): the colour image INCLUDING the stored alpha
-    // byte of the target at <fbp> before (and after) the qualifying draws of the frame that ENDS at
-    // present key <key> -- the frame-local ordinals `at` and/or the class rule (an indexed-high read
-    // of it, a 16-bit FRAME or a partial FBMSK into it; engine target_dump.h) -- as rt_*.pam +
-    // rt_dump_index.txt in the dump / harness-out directory. Parsed here; armed / disarmed by the
-    // Verify slot (leg_verify_slot.cpp) at the frame's boundaries. rt_dump_key 0 = off.
+    // NATIVEEE_GS_RT_DUMP (headless lockstep): the target at <fbp>, alpha included, before and after the
+    // qualifying draws of the frame ending at present key <key>, as rt_*.pam. Armed by the Verify slot.
+    // rt_dump_key 0 = off.
     ps2r::gs::TargetDump::Request rt_dump_req;
     uint32_t rt_dump_key = 0;
-    // NATIVEEE_GS_TEXRES=<tbp hex>[,<cbp hex>] (boot triage): the resolver's TexresTrace filter (bytes kept) --
-    // parsed here, set on the pipeline's resolver by the Verify slot once the video stack is live, written
-    // with every NATIVEEE_GS_ROUTES frame. texres_filter.enabled false = off.
+    // NATIVEEE_GS_TEXRES=<tbp hex>[,<cbp hex>]: the texture resolver trace filter, applied by the Verify
+    // slot once the video stack is live.
     ps2r::gs::TexresTrace::Filter texres_filter;
     bool texres_armed = false;
-    uint64_t gs_frame_boundaries = 0;   // the slot-0 VSync jobs pushed (JobRec::src_frame)
-    // The DrawIR chain's producer-side crossing while the GIF drain thread runs (LegMtvu installs it):
-    // runs `work` on the drain owner in STREAM ORDER behind every packet submitted so far and returns
-    // once it ran (the boundary's VSync job must follow the frame's packets and complete before the
-    // Verify slot reads the grab). Null = the drain is inline on this thread: the work runs in place.
+    uint64_t gs_frame_boundaries = 0;   // VSync jobs pushed by slot 0
+    // With the GIF drain thread running (installed by LegMtvu): runs `work` on the drain thread after
+    // every packet submitted so far, then returns. The VSync job must follow the frame's packets. Null when
+    // the drain is inline: the work runs in place.
     std::function<void(std::function<void()>)> ordered_submit;
 };
 

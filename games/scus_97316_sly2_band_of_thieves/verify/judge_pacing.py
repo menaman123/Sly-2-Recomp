@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""judge_pacing.py -- the PRESENTATION PACING judge of a play run (round 3: a locked 60, zero doubled frames).
+"""judge_pacing.py -- the presentation pacing judge of a play run (a locked 60, no doubled frames).
 
 Reads the FrameTimeline record a play leg writes with --harness-out (<out>/present_times.csv,
 `lane,ordinal,t_ns`; lanes boundary / output / shown) and judges the SHOWN lane: the presenter's

@@ -1,10 +1,6 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_services.h -- LegServices: the RPC servers the stock IOP
-// modules would answer (padman, mcserv, sdrdrv) in the title's play composition. Title-neutral and
-// cheap; they matter once hle/sdk_bindings.tsv binds the sceSif rows (a sceSifBindRpc to one of these
-// ids then routes here instead of parking sif_server_unbound). The memory card host store + command
-// model behind the MCSERV face (and the libmc rows), the pad protocol + the padman face (the SDK-3
-// command table; its module facts follow the padman the title loads, leg_iop.cpp), the SPU2 core, the
-// mixer, the sceSdRemote block-transfer model and the SDRDRV face.
+// LegServices: the RPC servers the stock IOP modules answer (padman, mcserv, sdrdrv), with the memory
+// card store, the pad protocol, the SPU2 core, the mixer and the sceSdRemote block-transfer model behind
+// them. A sceSifBindRpc to one of their ids routes here instead of parking sif_server_unbound.
 #pragma once
 
 #include "engine/core/config/config.h"

@@ -1,6 +1,6 @@
 {
   "title": "SCUS_973.16 Sly 2: Band of Thieves (NTSC-U)",
-  "note": "Waypoint lists for PadScript's path:<name> steps (hle/pad_script.h). Each entry is a closed-loop token in the pad-script grammar with from=0 (queued in order). Coordinates are world units (x,y horizontal, z UP) read from nav_trace.csv runs of the Paris hub (ep1jobs_notes.md); facts about the level, no game bytes. All paths start from the checkpoint ep1_postcall_ledge (Sly free on the high ledge at (-2322,-3495,1268) after the Satellite Sabotage briefing).",
+  "note": "Waypoint lists for PadScript's path:<name> steps (hle/pad_script.h). Each entry is a closed-loop token in the pad-script grammar with from=0 (queued in order). Coordinates are world units (x,y horizontal, z UP) read from nav_trace.csv runs of the Paris hub; facts about the level, no game bytes. All paths start from the checkpoint ep1_postcall_ledge (Sly free on the high ledge at (-2322,-3495,1268) after the Satellite Sabotage briefing).",
   "landmarks": {
     "high_ledge_post_briefing": [-2322, -3495, 1268],
     "safehouse_roof_landing": [-1828, -4327, 558],

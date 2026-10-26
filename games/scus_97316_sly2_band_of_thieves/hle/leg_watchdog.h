@@ -1,11 +1,7 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_watchdog.h -- LegWatchdog: a guest that never reaches a
-// boundary (a raw SIF poll with no IOP, an unmodelled wait) would otherwise only end at the bounded
-// runner's wall timeout with no run.meta park row. After NATIVEEE_WATCHDOG_S seconds (default 60; 0 =
-// off) without a boundary the leg closes as park=watchdog with the main thread's pc -- the FINDING of a
-// boot stage is exactly where the fallbacks stop carrying the title -- plus watchdog_ra / _sp / _a0, the
-// thread census and the run token's owner; NATIVEEE_RAM_DUMP=<file> writes the 32 MB guest RAM image at
-// the park (boot triage only; racy against still-running guest threads, which is fine for a parked
-// title). The thread polls every 200 ms while the leg runs; Join() after the cold boot returned.
+// LegWatchdog: after NATIVEEE_WATCHDOG_S seconds (default 60; 0 = off) with no boundary (e.g. an unmodelled
+// wait), closes the run as park=watchdog with the main thread's pc, ra, sp, a0, the thread table and the
+// run token's owner, so a hang still leaves a park row. NATIVEEE_RAM_DUMP=<file> also writes the 32 MB guest
+// RAM (racy against still-running threads). Polls every 200 ms.
 #pragma once
 
 #include <thread>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""judge_render_throughput.py -- the RENDERER THROUGHPUT judge (round P phase B): the GS consumer ALONE.
+"""judge_render_throughput.py -- the renderer throughput judge: the GS consumer alone.
 
 The input is the per-frame CSV `tools/gs_replay stream` writes while replaying a captured consumer stream
 (engine/gs/hle/capture `.gsstream`: a Paris play run's draws + vertices, jobs with upload pixels, frames with

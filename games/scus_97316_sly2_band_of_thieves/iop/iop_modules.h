@@ -1,7 +1,5 @@
-// games/scus_97316_sly2_band_of_thieves/iop/iop_modules.h -- the title data of Sly 2's hosted
-// IOP modules: which embedded images are recompiled, under which namespace, at which load base,
-// and how IOP RAM is laid out around them. Every number here is a fact of this title's images
-// (irx_inventory: .iopmod sizes) or this composition's layout choice, never engine policy.
+// Sly 2's hosted IOP modules: which embedded images are recompiled, their namespaces and load bases, and
+// the IOP RAM layout around them. Every number is a fact of this disc's images or a layout choice here.
 //
 //   IOP RAM (2 MiB):
 //     [0x00000, 0x20000)   the IOPRP300 kernel + stock modules (served natively; nothing hosted here)

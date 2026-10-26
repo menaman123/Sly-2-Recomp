@@ -1,5 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/warp_tool.cpp -- WarpTool implementation; the knob grammar and
-// the rewrite rules are described in the header, the save facts live in verify/nav/sly2_probe.json "save".
 #include "games/scus_97316_sly2_band_of_thieves/hle/warp_tool.h"
 
 #include <cstdio>

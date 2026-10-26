@@ -1,18 +1,13 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_verify_slot.h -- LegVerifySlot: slot 7 (Verify) of the
-// boundary and the clean leg end, in the title's play composition. The lanes: the play-mode FIELD PUMP
-// (the SPU2 mixes 48000 frames a second whether or not the EE passes a boundary -- a late boundary
-// delivered the elapsed fields, so the mixer is caught up to one quantum per domain tick, each pushed to
-// the DEVICE ring only; the boundary's own pump is the hashed one), the memory + audio lanes
-// (VerifyHost::OnBoundary), the present / frame dump (the consumer's reference grab in lockstep / inline;
-// under the wall lock the published HEADER + hash -- no pixel copy crosses the threads), NATIVEEE_GS_ROUTES
-// (the pipeline's per-draw route trace of a frame + the CRTC registers + the VRAM image), the harness
-// verbs (--set harness.close_at_frame=N [harness.close_after_ms=M]: the window's close as a real SDL_QUIT
-// from main; --set harness.inject_key=<KEY>@N[-M][,...]: a synthetic press through the REAL key route),
-// the frames cap and the session's boundary (pause / step / the close). The clean leg end: every guest
-// worker is cancelled (SessionWorkers) and the thread at the boundary unwinds through ThreadExitUnwind;
-// the join ladder (guest workers, the pacer, the MTVU worker, the AOT tier, the GS consumer's backlog,
-// the audio device; each step's wall offset in run.meta shutdown=) runs on the cold-boot thread
-// (headless) or in the session's `stopped` hook (play). The play-mode field ticker lives here too.
+// LegVerifySlot: boundary slot 7 and the clean shutdown.
+//
+// Per boundary: the play-mode field pump (the SPU2 mixes 48000 frames/s whether or not the EE reaches a
+// boundary, so a late boundary catches the mixer up on the device ring only; the boundary's own quantum
+// is the hashed one), the memory and audio lanes, the frame grab and dumps, NATIVEEE_GS_ROUTES, the
+// harness verbs (harness.close_at_frame, harness.inject_key through the real key route) and the frames cap.
+//
+// Shutdown: every guest worker is cancelled and unwinds; then the join ladder (workers, pacer, MTVU, AOT
+// tier, GS backlog, audio device; each step timed in run.meta shutdown=) runs on the boot thread when
+// headless, or in the session's `stopped` hook in play.
 #pragma once
 
 #include <cstdint>
@@ -47,9 +42,8 @@ public:
     LegVerifySlot(const LegVerifySlot&) = delete;
     LegVerifySlot& operator=(const LegVerifySlot&) = delete;
 
-    // True when harness.inject_key named an unknown key: the leg ends with exit 2.
+    // True if harness.inject_key named an unknown key; RunLeg then exits with 2.
     bool Failed() const { return failed_; }
-    // The join ladder, in dependency order (see the file comment); also the cold boot's (headless).
     void JoinLadder();
 
     struct HarnessKeyPress { int scancode; uint64_t frame, until; bool pressed = false, released = false; std::string name; };
@@ -58,8 +52,7 @@ public:
     TickThread tick_thread;
     ps2r::app::SessionWorkers session_workers;
     std::vector<HarnessKeyPress> harness_keys;
-    // --set harness.display_sequence=<frame>:<mode>[,...]: the Display page's requests through the
-    // same SessionControls route the menu widget takes (run.meta display_sequence=).
+    // harness.display_sequence=<frame>:<mode>[,...]: Display page requests through the same route the menu uses.
     ps2r::app::DisplaySequence display_sequence;
     bool close_pushed = false;
     uint64_t pauses = 0;   // census: pause hook calls (pause + resume)
@@ -84,7 +77,7 @@ private:
     LegCensus& census_;
     TextWatch& text_watch_;
     bool failed_ = false;
-    bool tex_dump_done_ = false;   // NATIVEEE_TEX_DUMP armed once and disarmed
+    bool tex_dump_done_ = false;
 };
 
 }  // namespace ps2r::title::sly2

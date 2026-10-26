@@ -1,22 +1,6 @@
-# MANIFEST.sha256 -- shasum -a 256 of the files ps2r_recompiler_v2 + continuations.py GENERATE into
-# ${PS2R_RECOMP_GEN_DIR} from SCUS_973.16 (a511a94b...6a73). Hashes of derived output, not game data;
-# the files themselves are never committed. Recorded from the generation WITH --yield-backedges
-# (the sched stage; the previous, flag-off generation's hashes are the ones the engine's Crash
-# regeneration still reproduces -- see INVOCATION.md); cmake/ps2r_verify_manifest.cmake checks a
-# regeneration against it.
-# Re-recorded (pad_mc stage) after the generator gated the first title's address-keyed emission
-# overrides behind --legacy-title-stubs (legacy_title_addr): recompiled.cpp, continuations.h and
-# recompiled_shard_031.cpp changed; the 32 other shards are byte-identical to the previous manifest.
-# Re-recorded (overlays stage, E210) after the discovery walk learned the kernel's no-return
-# syscalls (rv2_decode.h is_noreturn_syscall_imm: `addiu v1,zero,{0x04,0x23,0x24}; syscall` is a
-# hard stop): crt0's InitMainThread root 0x100220 no longer absorbs the address-taken function
-# 0x100228 (a Splice native pointed to from .data 0x2ac8e0) -- 6575 functions (was 6574).
-# Re-recorded 2026-10-22 (eecode round 4): generator change -- recomp_call's un-hooked check first, the JR/JALR sites
-# cache the containing dense id (s_id_<pc>) and dispatch raw through it, the raw-path gate reads the engine seam
-# recomp_fast_dispatch_enabled (engine.ee_fast_dispatch) instead of PS2_EE_RAWDISP. Every shard changed (the sites).
-# Re-recorded 2026-10-24 (cane round 6): generator change -- every VU0 macro-mode FMAC op commits the MAC /
-# STATUS flags (VuMacroCommitFlags, host_app/vu.h); every shard with COP2 arithmetic changed (the flag commits),
-# recompiled.h / recompiled.cpp / 5 shards without macro ops byte-identical.
+# SHA-256 of the files ps2r_recompiler_v2 and continuations.py generate into ${PS2R_RECOMP_GEN_DIR}
+# from SCUS_973.16 (a511a94b...6a73); see INVOCATION.md. The generated files are never committed.
+# cmake/ps2r_verify_manifest.cmake checks each build against these rows.
 5db7effef2da37c6f8e72f77b6c99bc7e28c5c187ff345053c378f3f7014147c  recompiled.h
 e493eb87fe359193c87e3168b3ea578e55555c0c553b299c2fd01d85c3a44306  recompiled.cpp
 73bfcdd61ad82a739152004c4f17b571532c5e626b51afae2f49e2770eeeaa40  continuations.h

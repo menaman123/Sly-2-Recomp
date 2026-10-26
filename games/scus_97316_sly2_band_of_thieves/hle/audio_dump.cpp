@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/audio_dump.cpp -- AudioDump (audio_dump.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/audio_dump.h"
 
 #include <algorithm>

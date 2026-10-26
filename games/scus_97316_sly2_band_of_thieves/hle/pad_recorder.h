@@ -1,4 +1,4 @@
-// games/scus_97316_sly2_band_of_thieves/hle/pad_recorder.h -- PadRecorder: the NATIVEEE_PAD_RECORD writer
+// PadRecorder: the NATIVEEE_PAD_RECORD writer
 // of the title composition. Every boundary's SERVED pad sample (what PadProtocol::Stamp got: the live
 // keyboard / gamepad with any NATIVEEE_PAD_SCRIPT overlay applied) is run-length encoded into a file in
 // PadScript's grammar, so NATIVEEE_PAD_SCRIPT=<that file> replays the session stamp for stamp:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """judge_cel.py -- the Sly 2 CEL-SHADING gate: ink outlines and toon shading judged against PCSX2.
 
-How this title cel-shades (docs/CEL_SHADING.md, stage CEL):
+How Sly 2 cel-shades:
   INK   -- after the scene and the stencil-shadow block, the VU1 silhouette pass emits one GS LINE
            primitive per visible silhouette edge of each character (474 lines on Sly in the Paris twin),
            every line as a draw PAIR over the same two vertices: PRIM 0xc1 (LINE, ABE, AA1) + TEST ATE
@@ -27,7 +27,7 @@ NATIVEEE_GS_VERTS=<key-1> trace (`verts: seq=...` rows) -- so the masks follow e
   a. OUTLINES (own masks, compared as statistics)
      contrast  = (mean L over (dilate(I, 2) minus dilate(I, 1)) - mean L over I) / that surround mean --
                  how dark the ink is relative to its 2-px surroundings (relative, so the few levels of
-                 global tone the colour stage still owes do not count);  ours / twin in [contrast_lo,
+                 global tone do not count);  ours / twin in [contrast_lo,
                  contrast_hi] (0.85, 1.25)
      visible   = |near-black & I| / |I| (the part of the line list the Z test lets through);
                  ours >= visible_min (0.90) * twin
@@ -338,7 +338,7 @@ def is_body_pass(ctx, verts, box, zr):
     return True
 
 
-def strip_triangles(prim, verts):
+def strip_triangles(verts):
     """PCSX2's vertex.txt lists the kicked primitives already assembled: a '# TRIANGLE' list of 3n."""
     tris = []
     n = len(verts) // 3
@@ -358,7 +358,7 @@ def character_masks(draws, box, zr):
         n += 1
         tbp = num(ctx["TEX0"]["TBP0"]) * 256
         mm = mats.setdefault(tbp, Mask())
-        for a, b, c in strip_triangles(ctx["PRIM"]["PRIM"], verts):
+        for a, b, c in strip_triangles(verts):
             raster_triangle(M, a[0], a[1], b[0], b[1], c[0], c[1])
             raster_triangle(mm, a[0], a[1], b[0], b[1], c[0], c[1])
     return M, mats, n

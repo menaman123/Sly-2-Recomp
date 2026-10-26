@@ -1,5 +1,5 @@
 {
-  "_doc": "judge_solidity.py fixtures (round H item 1). Boxes are [x0, y0, x1, y1) in the 512x224 frame. `state` names a private cold checkpoint ($WORK/states/<state>.ps2st, never in the repository), `frames` the --frames count, `present_key` the judged present (the title displays the buffer a frame finished one vsync later: present K shows frame K-1). `twin` names the PCSX2 2.7.329 SaveFrame (unattended warp + PINE recipe, warp_notes.md / solidity_notes.md) by its f<frame> ordinal in the private run directory.",
+  "_doc": "judge_solidity.py fixtures. Boxes are [x0, y0, x1, y1) in the 512x224 frame. `state` names a private cold checkpoint (<states>/<state>.ps2st, never in the repository), `frames` the --frames count, `present_key` the judged present (the title displays the buffer a frame finished one vsync later: present K shows frame K-1). `twin` names the PCSX2 2.7.329 SaveFrame (unattended warp + PINE recipe) by its f<frame> ordinal in the private run directory.",
   "paris_ledge": {
     "state": "ep1_ledge_3090", "frames": 13, "present_key": 11,
     "twin": {"run": "ep1_pcsx2", "frame": 16},

@@ -1,7 +1,5 @@
-# build.ps1 -- configure + build NativeEE (the engine submodule) with the Sly 2 title module on Windows.
-# The Windows twin of build.sh (PowerShell 5.1+ / 7). UNVERIFIED on a Windows machine so far: the
-# engine's own Windows build is unverified upstream (its README, "Known issues": no Windows GL loader
-# yet, six TUs with POSIX headers), so the CI lane that runs this is `continue-on-error`.
+# build.ps1 -- configure and build NativeEE (the engine submodule) with the Sly 2 title module on Windows.
+# The Windows counterpart of build.sh (PowerShell 5.1+ / 7).
 #
 #   .\build.ps1 -Disc "X:\path\Sly 2 - Band of Thieves.iso"   your own disc image (NTSC-U, SCUS_973.16):
 #                                       the ELF is extracted (SHA-256 gated) and recompiled

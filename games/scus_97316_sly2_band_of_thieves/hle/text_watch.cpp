@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/text_watch.cpp -- TextWatch (text_watch.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/text_watch.h"
 
 #include <algorithm>

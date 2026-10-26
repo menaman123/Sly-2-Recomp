@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_saves.cpp -- LegSaves (leg_saves.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h"
 
 #include <chrono>
@@ -30,10 +29,9 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
                    LegDevices& devices, LegMtvu& mtvu, LegServices& services, LegIop& iop, LegPlay& play, const char* build_id)
     : memory_sections(core.ram, core.spad, nullptr, 0),
       restorer(memory_sections),
-      // The clock's provider identity: the title, the play composition's clock shape and the hle.* composition
-      // (SavestateSlots::Composition) -- NOT the whole config fingerprint: the GS queue mode, the window / video
-      // settings and the harness flags change what is presented, never what the title executes or an image
-      // carries, so a slot taken in a windowed lockstep run restores headless (the coverage workflow).
+      // The slot's identity: the title, the clock shape and the hle.* composition, not the whole config.
+      // Video settings, the GS queue mode and harness flags change only what is presented, so a slot taken
+      // in a windowed run restores headless.
       session_clock(core.domain, core.tick_source, core.sequencer.Ticks(),
                     title.serial + ":play-v1:" + ps2r::app::SavestateSlots::Composition(cfg)),
       vu_memory_section(devices.vu0, devices.vu1),
@@ -51,16 +49,13 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
       session_files(core.dump_frames_dir),
       cfg_(cfg), host_(host), core_(core), gs_(gs), mtvu_(mtvu), services_(services), iop_(iop), play_(play), title_mc_client_addr_(title.mc.client_addr),
       build_id_(build_id ? build_id : "") {
-    // The registry, in the first title's order (= the restore order): memory first (the restorer's
-    // own RAM0 / SPAD), the game clock, then the dependent owners.
+    // Registration order is restore order: memory, the game clock, then the owners that depend on them.
     ps2r::savestate::SectionRegistry& registry = restorer.Registry();
     if (!registry.Register(session_clock.Section()))
         std::fprintf(stderr, "nativeee: savestate: the session clock section did not register\n");
-    // Every REQUIRED section of an image must have an owner here: an image from another composition
-    // is refused before anything of the live one is touched.
+    // An image whose required sections have no owner here is refused before anything is touched.
     restorer.RequireSectionOwners();
-    // A restored VU1 memory / register file is mirrored into the MTVU worker's unit (the VU1 the
-    // title drives), so the restored title's first kick runs the restored program.
+    // A restored VU1 is mirrored into the MTVU worker's unit, so the first kick runs the restored program.
     MtvuStack* mtvu_stack = mtvu.mtvu.get();
     VuUnit& vu1 = devices.vu1;
     vu_memory_section.SetOnVu1Restored([mtvu_stack, &vu1] { if (mtvu_stack) mtvu_stack->MirrorVu1(vu1); });
@@ -68,8 +63,7 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
     thread_section.Register(registry);
     kernel_sections.Register(registry);
     intc_section.Register(registry);
-    // DMAC after INTC. Capture quiesces first: the deferred VIF1 kick is flushed so the file never
-    // carries a parked kick; a VIF1 channel still running at capture is counted (dmac_save_unquiesced).
+    // DMAC after INTC. Capture flushes the deferred VIF1 kick first, so a file never carries a parked kick.
     {
         Dmac& dmac = devices.dmac;
         uint64_t* unquiesced = &dmac_save_unquiesced;
@@ -83,8 +77,7 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
     }
     timer_section.Register(registry);
     vifs_section.Register(registry);
-    // The pipelined queue's split image: the VRAM section reads the pipeline's image (the committed
-    // GPU deposits live there), drained first.
+    // With a split image, the VRAM section reads the pipeline's copy (after draining it).
     if (gs.gs_queue && gs.pipeline_vram) {
         ps2r::gs::DrawIrThreadQueue* queue = gs.gs_queue.get();
         const ps2r::gs::VramImage* image = gs.pipeline_vram.get();
@@ -101,8 +94,7 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
     }
     gifs_section.Register(registry);
     pads_section.Register(registry);
-    // The VIFS section (restored before this one) rewrote VIF1's CYCLE: the early-FINISH scan
-    // re-seeds its CL / WL and drops anything pre-raised (a restore clears the pipeline).
+    // VIFS (restored before this) rewrote VIF1's CYCLE: re-seed the early-FINISH scan's CL / WL.
     Vif& vif = devices.vif;
     vu1_register_section.SetOnRestored([mtvu_stack, &vu1, &vif] {
         if (!mtvu_stack) return;
@@ -110,27 +102,24 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
         mtvu_stack->ResyncEarlyFinish(VifRegsCl(vif.regs(1)), VifRegsWl(vif.regs(1)));
     });
     vu1_register_section.Register(registry);
-    // The hosted IOP (IOPH) BEFORE the SPU sections: a re-armed IOP thread's entry may touch the SPU
-    // through libsd on its way to its first park; the SPU image restored after it is the saved one.
+    // IOPH before the SPU sections: a re-armed IOP thread may touch the SPU on its way to its first park.
     iop.iop_host.Section().Register(registry);
     sound_state_codec.Register(registry);
     mchl_section.Register(registry);
-    // Before any section restore: the emulated time domain re-anchors on the raw tick (the restored
-    // clock's boundaries / ticks come from GCLK).
+    // Before any section restore, re-anchor the emulated time domain on the raw tick.
     EmuDomain& domain = core.domain;
     TickSource& tick_source = core.tick_source;
     restorer.SetPreRestore([&domain, &tick_source](std::string*) {
         domain.ReAnchor(tick_source.RawCount());
         return true;
     });
-    // The F5 capture over this registry, on the completed game owner (GameBoundary::FreshThreads),
-    // admitted by the owners below (the MTVU worker is registered by SessionCapture itself).
+    // F5, on the game thread at a completed boundary, once the owners below are quiet.
     capture = std::make_unique<ps2r::app::SessionCapture>(registry, core.game_boundary, cfg, mtvu_stack, build_id_);
     if (gs.gs_queue) {
         ps2r::gs::DrawIrThreadQueue* queue = gs.gs_queue.get();
         capture->Conditions().Register("gs_queue", [queue](std::string* why) {
             if (queue->Faulted()) { if (why) *why = "the GS consumer faulted"; return false; }
-            queue->Sync();   // the pipeline's deposits are in the image the VRAM section reads
+            queue->Sync();   // so the VRAM section reads the pipeline's latest deposits
             return true;
         });
     }
@@ -147,15 +136,15 @@ void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionW
     ps2r::app::SessionRuntime* session = play_.session.get();
     if (!session) return;
     capture->Bind(hooks);
-    // The live F8's admission (LiveRestoreGate): each asynchronous owner that holds state no section
-    // carries refuses BY NAME; nothing is dropped to admit a boundary -- F8 again at the next one.
+    // F8 admission: an asynchronous owner holding state no section carries refuses by name, and the
+    // restore is retried at the next boundary.
     MtvuStack* mtvu_stack = mtvu_.mtvu.get();
     if (mtvu_stack) live_probes.mtvu_quiesce = [mtvu_stack](std::string* why) { return mtvu_stack->Quiesce(why); };
     live_probes.events_pending = [] { return EeEventQueue::Instance().HasPending(); };
     RpcRouter* router = &services_.rpc_router;
     live_probes.rpc_pending = [router] { return router->PendingCount(); };
-    live_probes.deliveries_pending = [] { return size_t{0}; };   // the disc reads complete in-line here (no DeliveryMeter)
-    live_probes.owners = [](std::string&) { return true; };      // no F5 owner beyond the Quiescence above
+    live_probes.deliveries_pending = [] { return size_t{0}; };   // disc reads complete in-line
+    live_probes.owners = [](std::string&) { return true; };
     ps2r::app::SessionRestore::Lifecycle lifecycle;
     lifecycle.inspect = [this](std::string& error) {
         if (ps2r::app::LiveRestoreGate::Inspect(live_probes, live_refusals, error)) return true;
@@ -168,8 +157,7 @@ void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionW
     };
     lifecycle.joined = [this](std::string&) {
         capture->Join();
-        // The display's memory of the OLD session: the consumer's last grab is the previous
-        // session's picture; a boundary of the restored session must never present it.
+        // Forget the consumer's last grab: it is the pre-restore picture.
         if (gs_.gs_queue) {
             gs_.gs_queue->Sync();
             if (gs_.consumer) {
@@ -207,10 +195,8 @@ void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionW
     };
     restore = std::make_unique<ps2r::app::SessionRestore>(*session, workers, restorer, session_clock, core_.game_boundary, host_,
                                                            session_files, std::move(lifecycle));
-    // The F8 route: LIVE (the newest slot restores IN this process; the hosted IOP is restored by its
-    // IOPH section -- f8=live,iop=section names it). The slot's sidecar is preflighted against the live
-    // composition first (another profile / hle.* composition is refused by name; a differing build_id=
-    // is a warning).
+    // F8 restores in this process. The slot's sidecar is checked first: another profile or hle.*
+    // composition is refused; a different build_id is a warning.
     f8_route = "live,iop=section";
     if (auto* meta = host_.Meta()) meta->Set("f8", f8_route);
     if (!restore->Bind(hooks, true)) {
@@ -229,8 +215,7 @@ void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionW
         return live_restore(request, frame);
     };
     hooks.alive = [&workers] { return workers.BoundaryAlive(); };
-    // F8 with nothing selected restores the newest slot<N>.ps2st; every F5/F8 result is LOUD (stderr +
-    // the SAVE log), never only a line in the menu.
+    // F8 with nothing selected restores the newest slot. Every F5/F8 result goes to stderr and the log.
     const std::string slots = ps2r::app::SavestateSlots::Directory(cfg_);
     session->Controls().SetRestoreFallback([slots](std::string* reason) { return ps2r::app::SavestateSlots::Latest(slots, reason); });
     session->Controls().SetObserver([](const ps2r::app::SessionControls::Result& result) {
@@ -248,8 +233,7 @@ int LegSaves::ColdBoot(const std::string& path, const ColdDeps& deps) {
     cold_restore = std::make_unique<ps2r::app::ColdRestore>(restorer, thread_section, ThreadManager::Instance());
     ps2r::app::ColdRestore& cold = *cold_restore;
     std::string err;
-    // A refusal / failure before any thread ran: the leg ends through its destructors -- the running flag
-    // released (the watchdog stops), the census written, the closer named (restore_route= names which).
+    // A refusal before any thread ran: the leg ends through its destructors.
     auto refuse = [&](const char* route, const std::string& why) {
         std::fprintf(stderr, "nativeee: --load-state %s: %s: %s\n", path.c_str(), route, why.c_str());
         if (auto* meta = host_.Meta()) {
@@ -265,25 +249,21 @@ int LegSaves::ColdBoot(const std::string& path, const ColdDeps& deps) {
         return 2;
     };
     if (!cold.Preflight(path, ps2r::app::SavestateSlots::Composition(cfg_), build_id_, &err)) return refuse("cold_refused", err);
-    // The slot may come from another harness shape (a paced windowed run restored headless / unpaced): the
-    // host pacing policy (tick source mode, pacer release) is this process's, not the image's.
+    // The slot may come from a run with different pacing; this process's pacing policy wins.
     session_clock.SetAcceptHostPolicy(true);
     if (!cold.Result().warning.empty())
         ps2r::app::SavestateSlots::Report("--load-state", "Warning", path + ": " + cold.Result().warning);
     if (!cold.Apply(&err)) return refuse("cold_failed", err);
     const ps2r::app::ColdRestore::Report& report = cold.Result();
-    // The restored owners: the boundary thread (the session's `alive`), the game boundary's completion
-    // state, the session's frame, the audio pump's anchor, the live pad's edges.
     deps.workers.SetBoundary(report.boundary_tid);
     core_.game_boundary.ResetAfterRestore();
     const uint64_t boundaries = core_.domain.BoundaryCount();
     if (play_.session) play_.session->RebaseFrame(boundaries);
     deps.audio.audio_pumped_tick = core_.domain.DomainTick();
     if (play_.live_input) play_.live_input->ResetPending();
-    // libmc's readiness is EE data the image carries: the bound-server word of its sceSifClientData
-    // (title.mc.client_addr + 0x24), written by sceMcInit's sceSifBindRpc before the slot was taken; the
-    // mcserv init command never re-runs in this process, so the model's Bound is derived from the word
-    // (0 = the image predates sceMcInit: the rows keep gating with -100 until a live init binds).
+    // libmc's readiness is in the image: the bound-server word of its sceSifClientData (client_addr + 0x24),
+    // written by sceMcInit. mcserv's init never re-runs here, so derive Bound from it (0 = taken before
+    // sceMcInit; the rows answer -100 until a live init binds).
     if (title_mc_client_addr_ != 0) {
         services_.mc_model.DeriveBound(memory::read<uint32_t>(title_mc_client_addr_ + SceSif::kClientServer));
         restore_mc_bound = services_.mc_model.Bound() ? "derived=1" : "derived=0";
@@ -312,8 +292,7 @@ int LegSaves::ColdBoot(const std::string& path, const ColdDeps& deps) {
     std::fprintf(stderr, "nativeee: --load-state %s: frame %u restored cold (mhash %s; boundary tid %d; sections %s; IOP %u/%u threads, %u servers, %u timers)\n",
                  path.c_str(), report.vsync_frame, Hex(report.mhash).c_str(), report.boundary_tid, restore_sections.c_str(),
                  iop.threads_armed, iop.threads_recorded, iop.servers, iop.timers_armed);
-    // The continuations: every started THRD record with a context gets its worker (the parked kernel
-    // waits re-entered at function start, the boundary owner at its post-HLE continuation).
+    // Every started THRD record with a context gets a worker, resuming at its continuation.
     const int count = cold.Relaunch([](uint32_t fn, uint32_t enter, CpuContext& ctx) { return DispatchTable::InvokeAt(fn, enter, ctx); }, &err);
     if (auto* meta = host_.Meta()) meta->Set("relaunch", std::to_string(count));
     if (count < 0) {
@@ -322,10 +301,8 @@ int LegSaves::ColdBoot(const std::string& path, const ColdDeps& deps) {
         return 2;
     }
     PS2R_LOG(HOST, Info, "cold restore: %d continuation(s) relaunched from %s (frame %u)", count, path.c_str(), report.vsync_frame);
-    // Play: the session's supervisor keeps the window while the boundary owner lives (hooks.alive); the
-    // `stopped` ladder joins the workers and writes the census. Headless: this thread waits for the
-    // boundary owner to end (the frames cap / a park cancels the workers) WITHOUT holding the thread
-    // manager's host lock (a guest StartThread joins its predecessor under it), then runs the ladder.
+    // Play: the session keeps the window while the boundary thread lives. Headless: wait here for it to end,
+    // without holding the thread manager's host lock (a guest StartThread joins its predecessor under it).
     if (play_.session) return 0;
     while (deps.workers.BoundaryAlive() && core_.running.load()) std::this_thread::sleep_for(std::chrono::milliseconds(2));
     core_.running.store(false);

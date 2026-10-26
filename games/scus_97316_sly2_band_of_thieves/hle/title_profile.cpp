@@ -1,9 +1,7 @@
 // Sly 2: Band of Thieves (NTSC-U, SCUS_973.16) -- the TitleProfile the engine consumes as data.
 //
-// Every value below was read off the retail disc / ELF during the recon stage (see the
-// repository's README and $WORK/recon_disc_notes.md for the evidence per field). Fields the
-// disc does not establish are left at their defaults and marked UNKNOWN with what would
-// establish them. Nothing here is per-title HLE: this is identity + ELF facts + boot env.
+// Every value was read off the retail disc and ELF. Fields the disc does not establish keep their defaults
+// and are marked UNKNOWN with what would establish them. Identity, ELF facts and boot environment only.
 #include "engine/title/title_profile.h"
 
 const TitleProfile& ActiveTitleProfile() {
@@ -34,7 +32,7 @@ const TitleProfile& ActiveTitleProfile() {
         t.sdk_version = "3.0.0";           // every PsII<lib> stamp in the ELF reads 3000 (libkernl, libgraph,
                                            // libdma, libcdvd, libpad, libmc, libscf, libmpeg, libipu; IOPRP300)
 
-        // --- boot environment (crt0 at 0x100008; disassembled in the recon stage) ---------------
+        // --- boot environment (crt0 at 0x100008) -------------------------------------------------
         t.boot.argv = {"cdrom0:\\SCUS_973.16;1"};
         t.boot.argv_block = 0x002dd380u;   // the `args` pointer crt0 hands InitMainThread (= .bss start;
                                            // crt0 zeroes .sbss/.bss first, then the kernel writes argc/argv there)
@@ -61,9 +59,8 @@ const TitleProfile& ActiveTitleProfile() {
         //     the binders accept 0 and these rows are not installed yet.
         // --- libmc's sceSifClientData (hle/sdk_bindings.tsv: sceMcInit @0x243cb0 binds client 0x450880 to
         //     mcserv 0x80000400): its bound-server word (+0x24) is the readiness predicate the sceMc* rows
-        //     gate on. A cold --load-state never re-runs sceMcInit, so the leg derives McCommandModel::Bound
-        //     from this word of the restored image (ep1_jobs: the autosave at the safehouse roof reported
-        //     "Auto-save ... has failed / disabled" in every cold-loaded process until it did).
+        //     gate on. A cold --load-state never re-runs sceMcInit, so McCommandModel::Bound is derived from
+        //     this word of the restored image (otherwise autosave reports failure after every cold load).
         t.mc.client_addr = 0x00450880u;
 
         // --- the frame boundary site. This ELF links no sceGsSyncV: the game's vsync wait is
@@ -71,9 +68,8 @@ const TitleProfile& ActiveTitleProfile() {
         //     sema is created by the display init 0x1700d0, which also AddIntcHandler(2 = VBLANK_START,
         //     0x16f468) + EnableIntc(2); that handler clears the flag and iSignalSema's the sema
         //     (0x16f468..0x16f488) before the display flip. Callers: 0x16f590 (the frame loop) and
-        //     0x16f788 (first-frame sync from 0x1700d0). The composition root installs the engine's
-        //     WaitForVblank mirror there; without it the boot stage's first run parked as
-        //     park=watchdog, watchdog_ra=0x16f580 (only a boundary could ever signal the sema).
+        //     0x16f788 (first-frame sync from 0x1700d0). The engine's WaitForVblank is installed there;
+        //     without it the boot hangs, since only a boundary can signal the sema.
         t.gs.vblank_wait_entry = 0x0016f560u;
         return t;
     }();

@@ -1,8 +1,6 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.h -- LegKnobs: the NATIVEEE_* environment knobs of
-// the title composition, read ONCE at the top of RunLeg (LegKnobs::FromEnvironment is the title's only
-// getenv site -- the engine's one-getenv rule applied to the title tree). Every knob is boot triage /
-// replay plumbing, never a replacement for a modelled mechanism; the module that acts on a knob
-// documents its grammar next to the use (leg_gs.cpp, leg_pad.cpp, leg_verify_slot.cpp ...).
+// LegKnobs: the NATIVEEE_* environment knobs, read once at the top of RunLeg. FromEnvironment is the
+// title's only getenv call. Every knob is a debugging or replay aid, never a substitute for a modelled
+// mechanism.
 #pragma once
 
 #include <cstdint>
@@ -17,13 +15,13 @@ struct LegKnobs {
     std::optional<std::string> watch;
     // NATIVEEE_GS_VERTS=<key>: trace the draws of the frame ending at present key <key> (0 = off).
     uint32_t gs_verts_key = 0;
-    // NATIVEEE_GS_VERTS_CAP=<n>: vertices printed per traced draw (default 64; the shadow-volume draws of
-    // the stencil block carry up to 420).
+    // NATIVEEE_GS_VERTS_CAP=<n>: vertices printed per traced draw (default 64; shadow-volume draws have up
+    // to 420).
     uint32_t gs_verts_cap = 64;
     // NATIVEEE_SHADOW_SPLIT=0: forward the stencil-shadow counter draws unsplit (hle/shadow_counter_split.h).
     bool shadow_split = true;
     // NATIVEEE_GS_SKIP_FROM=<n> [NATIVEEE_GS_SKIP_TO=<m>]: with GS_VERTS, drop the traced frame's draws with
-    // index in [n, m) (SKIP_TO unset / 0 = to the end of the frame; SKIP_FROM 0 = off) -- the draw bisect.
+    // index in [n, m) (SKIP_TO unset or 0 = to the end of the frame; SKIP_FROM 0 = off).
     uint32_t gs_skip_from = 0;
     uint32_t gs_skip_to = 0;
     // NATIVEEE_GS_SKIP_CLASS=<c>[,<c>...]: m16 / fbmsk / t8h / rtblend / date (every frame).
@@ -44,23 +42,19 @@ struct LegKnobs {
     // consumer runs on its own thread or no video stack exists).
     bool gif_drain_set = false;
     bool gif_drain_on = false;
-    // NATIVEEE_MTVU_EARLY_FINISH=1|0: force the E425/E426 lever (the GS FINISH raised at the EE's
-    // staging point, the deferred boundary, the composed GIF_STAT) on / off on top of Config
-    // engine.mtvu_early_finish (set = the env decides; "1" = on). MTVU only.
+    // NATIVEEE_MTVU_EARLY_FINISH=1|0: override engine.mtvu_early_finish (raise GS FINISH at the EE's staging
+    // point, defer the boundary, compose GIF_STAT). MTVU only.
     bool early_finish_set = false;
     bool early_finish_on = false;
-    // NATIVEEE_MTVU_WAIT_PROBE=1|0: force the E430 lever (the kernel-wait observation point probes the
-    // kernel object before idling on the worker) on / off on top of Config engine.mtvu_wait_probe
-    // (set = the env decides; "1" = on). MTVU only.
+    // NATIVEEE_MTVU_WAIT_PROBE=1|0: override engine.mtvu_wait_probe (probe the kernel object before idling
+    // on the worker at a blocking wait). MTVU only.
     bool wait_probe_set = false;
     bool wait_probe_on = false;
-    // NATIVEEE_EE_YIELD_SPIN_GATE=1|0: E432 (the yield point's spin gate: a trip of scheduling code passes
-    // no field of its own) on / off on top of Config engine.ee_yield_spin_gate (unset = the Config value).
+    // NATIVEEE_EE_YIELD_SPIN_GATE=1|0: override engine.ee_yield_spin_gate.
     bool yield_spin_gate_set = false;
     bool yield_spin_gate_on = false;
-    // NATIVEEE_MEM_LANE=1|0: force the harness mem lane (VerifyHost's 34 MB guest-RAM FNV every 60 boundaries,
-    // ~40 ms on the boundary thread) on / off (set = the env decides; the default: on in the headless /
-    // deterministic lanes, OFF in play -- the clock contract's rule 5, run.meta mem_lane=).
+    // NATIVEEE_MEM_LANE=1|0: force the harness mem lane (a 34 MB guest-RAM hash every 60 boundaries, ~40 ms
+    // on the boundary thread). Default: on headless, off in play.
     bool mem_lane_set = false;
     bool mem_lane_on = false;
     // NATIVEEE_IPU_DUMP=<file> / NATIVEEE_IPU_OUT_DUMP=<file>: the toIPU feed / the fromIPU drain, appended.
@@ -69,69 +63,58 @@ struct LegKnobs {
     // NATIVEEE_ISR_TRACE=1: one stderr line per GS SIGNAL / FINISH event and per syscall entry with a
     // pending INTC cause.
     bool isr_trace = false;
-    // NATIVEEE_IDLE_TRACE=1: one stderr line per idle field (the kernel idle passed a vblank with every
-    // guest thread blocked and the GS pipeline owing nothing) with the guest thread table -- the
-    // schedule-change triage line (census ee_yield idle_first=).
+    // NATIVEEE_IDLE_TRACE=1: one stderr line, with the guest thread table, per idle field (a vblank passed
+    // with every guest thread blocked and the GS pipeline owing nothing).
     bool idle_trace = false;
-    // NATIVEEE_AUDIO_DUMP=<file.wav>: a 48 kHz stereo int16 WAV of the audio -- the DEVICE stream (play
-    // mode, the default) or, with NATIVEEE_AUDIO_DUMP_SOURCE=mixer (and always without a device: headless),
-    // the MIXER's 800-frame output of every boundary (emulated-time audio, host speed independent).
+    // NATIVEEE_AUDIO_DUMP=<file.wav>: 48 kHz stereo int16 WAV of the device stream, or with
+    // NATIVEEE_AUDIO_DUMP_SOURCE=mixer (and always headless) the mixer's output per boundary.
     std::optional<std::string> audio_dump;
     bool audio_dump_mixer = false;
     // NATIVEEE_SPU_TRACE=<file.txt>: the SPU voice model's event record (engine VoiceTrace: key-on/off with the
     // programmed registers, loop ends, transfers, unmodelled services, a per-second level census per voice).
     std::optional<std::string> spu_trace;
     // NATIVEEE_RPC_TRACE=<file>: every EE -> IOP RPC round trip into a hosted module (IOP frame, sid, fno,
-    // request bytes, reply pointer + bytes) -- the cutscene track's view of what the EE asks 989snd/lgAud.
+    // request bytes, reply pointer and bytes).
     std::optional<std::string> rpc_trace;
     // NATIVEEE_PAD_SCRIPT=<script text | file> / NATIVEEE_PAD_RECORD=<file> / NATIVEEE_KEY_SCRIPT=<steps>.
     std::optional<std::string> pad_script;
     std::optional<std::string> pad_record;
     std::optional<std::string> key_script;
-    std::optional<std::string> lat_pulse;   // NATIVEEE_LAT_PULSE (leg_pad.h): the latency census's edge source
+    std::optional<std::string> lat_pulse;   // NATIVEEE_LAT_PULSE: input edges for the latency census
     // NATIVEEE_FN_TRACE=addr[,addr...]: entry / return prints around generated functions.
     std::optional<std::string> fn_trace;
-    // NATIVEEE_FN_CENSUS=<file>: every generated function wrapped with a call counter (DispatchTable::CountCalls);
-    // the counts (one `addr calls` line per called function) land in <file> at exit (leg_census). Diagnostic only.
+    // NATIVEEE_FN_CENSUS=<file>: count calls of every generated function; one `addr calls` line each at exit.
     std::optional<std::string> fn_census;
-    // NATIVEEE_VU0_TRACE=<file>:<pc>[,<pc>...]: the engine Vu0Trace (COP2 block before / after every VCALLMS of those
-    // micro pcs, hex byte addresses) flushed to <file> at exit (leg_census). Diagnostic only.
+    // NATIVEEE_VU0_TRACE=<file>:<pc>[,<pc>...]: the COP2 block before and after every VCALLMS of those micro
+    // pcs, written at exit.
     std::optional<std::string> vu0_trace;
     // NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>]: vu1_probe.h.
     std::optional<std::string> vu1_cap;
     // NATIVEEE_GS_ROUTES=<key>[,<key>...]: the pipeline's per-draw route trace of those frames.
     std::optional<std::string> gs_routes;
-    // NATIVEEE_GS_RT_DUMP=<key>,<fbp hex>[,cap=<n>][,at=<i>[+<i>...]][,noclass][,nofbmsk][,nopost]: the target
-    // dump of one frame (engine target_dump.h; parsed in leg_gs.cpp, armed by the Verify slot).
+    // NATIVEEE_GS_RT_DUMP=<key>,<fbp hex>[,cap=<n>][,at=<i>[+<i>...]][,noclass][,nofbmsk][,nopost]: dump one
+    // frame's render target.
     std::optional<std::string> gs_rt_dump;
-    // NATIVEEE_TEX_DUMP=<from>,<to>: the texture oracle dump -- every DISTINCT texture the resolver decodes
-    // during the frames that END at present keys [from, to] (engine TextureDumpSink; written once each to
-    // <dump dir or harness out>/textures/<hash>.{ppm,alpha.pgm,json,win,clut}; parsed in leg_gs.cpp, armed /
-    // disarmed by the Verify slot). tex_dump_to 0 = off.
+    // NATIVEEE_TEX_DUMP=<from>,<to>: every distinct texture decoded in the frames ending at present keys
+    // [from, to], once each, to textures/<hash>.{ppm,alpha.pgm,json,win,clut}. tex_dump_to 0 = off.
     uint32_t tex_dump_from = 0, tex_dump_to = 0;
-    // NATIVEEE_GS_TEXRES=<tbp hex>[,<cbp hex>] | '*' (every read, no bytes): the resolver's source-composition trace (engine TexresTrace,
-    // bytes kept) of the textured reads at that TEX0.TBP (and CLUT base), written with NATIVEEE_GS_ROUTES
-    // as texres_<key>.txt + texres_<key>_<seq>_{win.bin,clut.bin,tex.ppm} (parsed in leg_gs.cpp).
+    // NATIVEEE_GS_TEXRES=<tbp hex>[,<cbp hex>] | '*': trace how the texture resolver composed textured reads
+    // at that TEX0.TBP (and CLUT base), written with NATIVEEE_GS_ROUTES frames. '*' counts every read only.
     std::optional<std::string> gs_texres;
-    // NATIVEEE_GS_CAPTURE=<file.gsstream>: the consumer-stream capture (engine GsStreamRecorder, in front of the
-    // GS queue: draws + vertices, jobs with their upload pixels, frames with the CRTC snapshot, the EE image's
-    // local-memory writes between records, the image at open) -- the renderer throughput harness's input
-    // (tools/gs_replay stream; verify/judge_render_throughput.py). Wired in leg_gs.cpp.
+    // NATIVEEE_GS_CAPTURE=<file.gsstream>: record the GS consumer's input stream for tools/gs_replay and
+    // verify/judge_render_throughput.py.
     std::optional<std::string> gs_capture;
-    // NATIVEEE_GS_CONSUMER_LEVERS=0: the consumer_b renderer levers OFF (the deferred present capture in play, the
-    // grab -> scanout-deposit pixel sharing, the hidden window's swap as a flush) -- the A/B of one binary against
-    // itself (leg_gs.cpp).
+    // NATIVEEE_GS_CONSUMER_LEVERS=0: turn off the renderer optimisations (deferred present capture, grab and
+    // scanout pixel sharing, the hidden window's swap as a flush), for A/B comparison.
     bool gs_consumer_levers = true;
-    // NATIVEEE_GS_SKIP_DEPTH=<1|2>: the pipelined queue's frame-skip depth (complete pending frames the ring may
-    // hold before the oldest is dropped); 0 = the default (1: the previous frame is dropped as soon as the consumer
-    // is still on the one before it). Wired in leg_gs.cpp.
+    // NATIVEEE_GS_SKIP_DEPTH=<1|2>: complete frames the pipelined queue may hold before dropping the oldest.
+    // 0 = default (1).
     uint32_t gs_skip_depth = 0;
-    // NATIVEEE_GS_QUEUE_STAGE=<n>: records the pipelined queue's producer stages before they enter the ring under
-    // one lock (pipeline2); 1 = every push enters the ring at once (the pre-staging behaviour, the A/B); 0 = the
-    // queue's default (64). Wired in leg_gs.cpp.
+    // NATIVEEE_GS_QUEUE_STAGE=<n>: records the producer batches before entering the ring under one lock.
+    // 1 = push each record at once; 0 = default (64).
     uint32_t gs_queue_stage = 0;
-    // NATIVEEE_GL_SHADER_BLEND=1: the GL device blends EVERY blended draw through its exact shader arm (the
-    // fixed-function route off) -- the per-pixel oracle the Metal identity judge compares against (leg_gs.cpp).
+    // NATIVEEE_GL_SHADER_BLEND=1: blend every blended draw in the shader (no fixed-function path): the
+    // per-pixel reference the Metal identity judge compares against.
     bool gl_shader_blend = false;
     // NATIVEEE_WATCHDOG_S=<s> (default 60; 0 = off) / NATIVEEE_RAM_DUMP=<file> at the watchdog park.
     uint64_t watchdog_s = 60;
@@ -140,11 +123,9 @@ struct LegKnobs {
     std::optional<std::string> nav;
     // NATIVEEE_UNPACED=1: play mode keeps the boundary ticking inline (no wall-locked pacer).
     bool unpaced = false;
-    // NATIVEEE_WARP=<episode>[,<job>]: warp_tool.h (rewrite the private card's save1 before the boot so Resume
-    // Game loads that episode's hub).
+    // NATIVEEE_WARP=<episode>[,<job>]: rewrite a private card's save1 so Resume Game loads that episode.
     std::optional<std::string> warp;
 
-    // The ONE getenv site of the title: reads every knob above from the process environment.
     static LegKnobs FromEnvironment();
 };
 

@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# .github/ci/stage_dist.sh -- stage the dist folder of THIS title from a finished disc build: the title lanes'
-# SELF-CHECK (ci.yml, NATIVEEE_TITLE_LANES) and a developer's own local artefact. Called by build.sh --dist /
-# --dist-only. NOT A RELEASE since decision D-A (docs/RELEASING.md): the folder IS the recompiled title --
-# game-derived -- so release.yml no longer attaches it and the title lanes no longer upload it; releases carry
-# the launcher + the engine bundle + the compiler kit, and the player's machine makes this folder's equivalent.
-# There is no Windows twin: build.ps1 has no -Dist.
+# Stages the macOS / Linux dist folder of this title from a finished disc build (build.sh --dist / --dist-only),
+# for the title lanes' self-check and local use. Windows is staged by engine/tools/ci/release_dist.ps1.
 #
 #   stage_dist.sh --repo <checkout> --build-dir <dir> --dist-root <dir> [--preset <name>]
 #
@@ -27,8 +23,8 @@
 # engine/tools/ci/ffmpeg_static.sh, no GPL / non-free flag) and tools/ci/asset_scan.py over the folder
 # and the archive (names, format magic, ELF byte windows -- SLY2_ASSET_WINDOWS=<json> or
 # games/<title>/asset_scan_windows.json when present; SLY2_ASSET_ELF=<extracted ELF> adds the live windows).
-# Any finding removes the folder: nothing game-derived but the recompiled code is ever staged, and the
-# VU1 AOT pack is NOT part of a release (README "The VU1 AOT pack": licence boundary).
+# Any finding removes the folder: nothing game-derived but the recompiled code is staged, and the VU1 AOT
+# pack is never included.
 set -euo pipefail
 repo=""; build_dir=""; dist_root=""; preset=""
 while [ $# -gt 0 ]; do
@@ -86,12 +82,10 @@ if ls "$title_src"/verify/nav/*.json >/dev/null 2>&1; then
     cp "$title_src"/verify/nav/*.json "$dist/title/verify/nav/"
 fi
 
-# --- the user half of README.md: everything up to "## Layout" and from "## Playing" to the first
-#     developer heading (Layout / Building / the engine-relation and CI sections are the developer half)
+# --- the user half of README.md: the intro, Status, Running a build, the VU1 AOT pack and License
 awk '
-    /^## Layout/ || /^## Building/ { skip = 1; next }
-    /^## Playing/ || /^## The VU1 AOT pack/ || /^## Known issues/ || /^## Platforms/ { skip = 0 }
-    /^## How this repository relates/ || /^## Continuous integration/ || /^## Changes to the engine/ { exit }
+    /^## Playing on Windows/ || /^## Building/ || /^## Layout/ || /^## CI and releases/ || /^## How this repository relates/ { skip = 1; next }
+    /^## Status/ || /^## Running a build/ || /^## The VU1 AOT pack/ || /^## License/ { skip = 0 }
     !skip { print }
 ' "$repo/README.md" > "$dist/README.md"
 cp "$repo/LICENSE" "$dist/LICENSE"
@@ -111,13 +105,10 @@ case "$platform" in
         fi ;;
 esac
 
-# --- the FFmpeg that was LINKED, if any. ps2r_ipu (the engine's FFmpeg movie decoder) is on nativeee's link
-#     line through ps2r_ipu_model, but THIS title decodes its FMVs on the recompiled EE through the engine's IPU
-#     MODEL and references no FFmpeg symbol, so the linker drops every libavcodec / libavutil / libswscale
-#     archive member: the binary carries no FFmpeg code. The proof is read from the binary, never assumed:
-#     libavcodec's embedded configuration string (avcodec_configuration()) is absent AND `nm` finds no av_* /
-#     sws_* symbol. When a string IS present (another composition), it must be the LGPL recipe
-#     (engine/tools/ci/ffmpeg_static.sh --print-args), argument for argument, and the notices say so. ---
+# --- FFmpeg, if linked. Sly 2 decodes its movies through the engine's IPU model and references no FFmpeg
+#     symbol, so the linker drops FFmpeg entirely. That is checked in the binary (no embedded configuration
+#     string, no av_* / sws_* symbol). If FFmpeg is linked, its configuration must be the LGPL recipe of
+#     engine/tools/ci/ffmpeg_static.sh, argument for argument. ---
 ffmpeg_sh="$engine/tools/ci/ffmpeg_static.sh"
 confs="$(strings "$dist/nativeee" | grep -- '--prefix=' | sort -u || true)"
 n="$(printf '%s' "$confs" | grep -c . || true)"

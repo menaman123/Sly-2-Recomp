@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_iop.cpp -- LegIop (leg_iop.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_iop.h"
 
 #include <cstdio>
@@ -35,8 +34,8 @@ namespace ps2r::title::sly2 {
 
 namespace {
 
-// The embedded modules' expected SHA-256 (TITLE_INPUTS rows, via TitleInputs.cmake -> hle/CMakeLists.txt
-// compile definitions): the host refuses a pushed image that is not the one the build recompiled.
+// The embedded modules' expected SHA-256 (from TITLE_INPUTS.sha256 via compile definitions): the host
+// refuses a pushed image that is not the one the build recompiled.
 IopHost::ExpectedHashes ExpectedIopHashes() {
     IopHost::ExpectedHashes h;
     h.fileio = PS2R_SLY2_SHA_FILEIO;
@@ -54,7 +53,6 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
     SyscallTable::Instance().SetSifDmaCopy([this](uint32_t ee_src, uint32_t iop_dst, uint32_t size) {
         iop_host.SifDmaCopy(ee_src, iop_dst, size);
     });
-    // The padman face follows the padman the title loads.
     services.padman.SetModuleFacts([this] {
         PadmanModule::ModuleFacts f;
         if (const auto* m = iop_host.Table().FindModule("padman")) {
@@ -88,33 +86,29 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
         }
     }
     core.sequencer.SetStep(BoundarySequencer::Step::IopDispatch, [this](CpuContext& ctx) {
-        PumpFieldQuantum(ctx);   // the boundary's own field; the Verify slot's field pump runs the catch-up fields' quanta
+        PumpFieldQuantum(ctx);   // the boundary's own field; catch-up fields are pumped by the Verify slot
         return true;
     });
-    // The SIF command path IOP -> EE: a hosted module's sceSifSendCmd lands in libkernl's command
-    // buffer (the title's sceSifInitCmd static) and runs the handler the EE registered with
-    // sceSifAddCmdHandler, as a guest call on the EE's context.
+    // IOP -> EE: sceSifSendCmd lands in libkernl's command buffer and runs the EE's sceSifAddCmdHandler
+    // handler as a guest call.
     SceSif::SetCmdBuffer(SceSif::CmdBuffer{IopModules::kEeSifCmdBuffer, IopModules::kEeSifCmdSlots, IopModules::kEeSifCmdSlotBytes});
     SceSif::SetGuestCall([](uint32_t addr, CpuContext& ctx) { DispatchTable::Invoke(addr, ctx); });
     core.sequencer.SetStep(BoundarySequencer::Step::EeStreamRpc, [this](CpuContext&) {
         iop_host.Table().PumpAfterEeService();
         return true;
     });
-    // The back-edge yield.
     {
         Dmac& dmac = devices.dmac;
         std::unique_ptr<MtvuStack>& mtvu_stack = mtvu.mtvu;
         EeYieldPoint::Deps yd;
         yd.advance_field = [hook = core.protocol.WaitHook()] { hook(0); };
-        // The wall vblank landing on a running thread (E421): under Play a pacer tick nobody has
-        // fired yet readies the vsync thread at the holder's next syscall entry (leg_interrupts).
+        // A due pacer tick readies the vsync thread at the holder's next syscall entry.
         yd.wall_field_due = [&protocol = core.protocol] { return protocol.WallFieldDue(); };
         yd.domain = &core.domain;
         yd.alarms = &Alarms::Instance();
         yd.timers = &core.timers;
         yd.intc = &core.intc;
-        // The DMAC's INT1 handlers too: a guest loop spinning on a counter its channel-3
-        // completion handler bumps (libmpeg's CSC chunks) has no kernel call to deliver it at.
+        // DMAC INT1 handlers too: libmpeg spins on a counter its channel-3 completion handler bumps.
         yd.dispatch_dmac = [&dmac, &interrupts](CpuContext& ctx) {
             if (!dmac.CheckInterrupt()) return;
             interrupts.InstallDmacHandlers();
@@ -122,8 +116,7 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
         };
         yd.queue = &EeEventQueue::Instance();
         yd.inhibit = [&sequencer = core.sequencer] { return sequencer.InFlight() != 0; };
-        // The idle runner never passes a field over GS deliveries in flight (the worker's spans,
-        // the drain thread's parser): it parks on their progress as the pre-dispatch's idle wait does.
+        // Never pass a field while GS deliveries are in flight: wait on their progress instead.
         yd.pipeline_wait = [&mtvu_stack] { return mtvu_stack && !mtvu_stack->sync().WaitProgress(WaitCause::IdleWaitField); };
         if (knobs.idle_trace) {
             yd.on_idle_field = [](uint64_t tick, int tid) {
@@ -137,19 +130,16 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
             };
         }
         yd.pump_devices = [this, &mtvu_stack](CpuContext& ctx) {
-            // The IOP's threads run on their own clock while the EE spins (an RPC status
-            // poll into a hosted module needs the module to progress); its SIF commands land.
+            // The IOP keeps running while the EE spins (an RPC status poll needs the module to progress).
             iop_host.Table().PumpFromParkLoop();
             SceSif::DeliverPendingCommands(ctx);
-            // A guest loop spinning on a GS flag the worker's packets set (CSR.FINISH, a
-            // SIGNAL) has no kernel call to drain at: the sealed prefix lands here.
+            // A loop spinning on a GS flag (CSR.FINISH, SIGNAL) has no kernel call to drain at: drain here.
             if (mtvu_stack) mtvu_stack->sync().TryDrainPending();
         };
         yd.budget = kYieldBudget;
-        // E432 (engine.ee_yield_spin_gate / NATIVEEE_EE_YIELD_SPIN_GATE): a trip passes a field of its
-        // own only when its thread spun (no token acquire, no boundary since the previous trip); the
-        // 2^18th back-edge of code that schedules fires only the wall fields the pacer already noted
-        // (BoundaryProtocol::FireDueFields, no park). Census ee_yield= spin_trips/sched_trips/due_fields.
+        // engine.ee_yield_spin_gate: a trip advances a field only if its thread truly spun (no token
+        // acquire and no boundary since the last trip); otherwise it fires only fields the pacer already
+        // noted. Census ee_yield= spin_trips/sched_trips/due_fields.
         yd.spin_gate = knobs.yield_spin_gate_set ? knobs.yield_spin_gate_on : cfg.engine.ee_yield_spin_gate;
         yd.fire_due_fields = core.protocol.FireDueFieldsHook();
         EeYieldPoint::Instance().Bind(std::move(yd));

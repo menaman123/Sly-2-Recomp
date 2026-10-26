@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_vif_irq.cpp -- LegVifIrq (leg_vif_irq.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_vif_irq.h"
 
 #include "engine/ee/hle/thread_manager.h"

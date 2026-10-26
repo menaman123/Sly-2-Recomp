@@ -1,28 +1,18 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_mtvu.h -- LegMtvu: VU1 (and the VIF1 stream that drives
-// it) on its own host thread, and the VU1 AOT tier's persistent side.
-// MTVU (app/host/mtvu_stack.h, the first title's bundle): the worker's own VU1 unit, the staged VIF1
-// feed on the DMAC's chain walker (the walk, the deferred-kick model and the channel's completion stay
-// on the EE; the VIF1 bytes cross to the worker, copied), the GIF arbiter's order markers (the worker's
-// PATH1/PATH2 packets land at the stream position the inline path would have produced them at; the EE's
-// PATH3 behind), MtvuSync on the inline dispatch (an EE kick of VU1 syncs and runs on the worker's unit),
-// the VIF1 register window that syncs first. Play mode: Config engine.mtvu (default on). Headless /
-// --dump-frames: the lockstep inline path (the frames lane's determinism) unless NATIVEEE_MTVU=1 asks
-// for the worker. The GIF DRAIN THREAD (the GIF -> GsState -> DrawIR decode off the EE): on whenever the
-// DrawIR chain's consumer runs on its own thread (gs.queue=pipelined / thread) or no video stack exists
-// -- never with gs.queue=inline (the consumer draws on the pushing thread) -- NATIVEEE_GIF_DRAIN=1|0
-// forces it. With the thread up the EE's two pushes into the DrawIR chain travel as ordered arbiter
-// slots: the boundary's VSync job (LegGs::ordered_submit, fenced) and the privileged display registers'
-// jobs (GsPrivRegs::SetJobDeferrer); the FINISH / SIGNAL events rise when the drain thread's parser
-// reaches them (Intc's foreign-thread route). Boundaries are NOT deferred (Sly 2's render thread waits
-// for both of its GS FINISHes before the vblank wait); kick drop OFF (Sly's FINISH rides a DIRECT packet
-// of the same chain). Started before any producer traffic (the ELF is not loaded yet); stopped in the
-// join ladder / destroyed before the DMAC (this object sits after LegDevices on RunLeg's frame).
-// The AOT tier (app/host/vu1_aot_cache.h, app/host/vu1_aot_builder.h) on the LIVE VU1 unit (the worker's
-// under MTVU): the manifest under <user_data>/vu1_aot/<build>/ seeds the verdicts, the corpus is
-// verified on a background thread, the kick observer collects new images; the code generator emits a
-// verified image's blocks as C++, compiles them with the host toolchain, re-verifies and hands them to
-// the tier. The builder is declared BEFORE the cache (destroyed after it: the tier may hold its
-// functions until the VU is quiet).
+// LegMtvu: VU1 and its VIF1 stream on a worker thread (MTVU), the GIF drain thread, and the VU1 AOT tier.
+//
+// MTVU: the worker owns its own VU1 unit and receives copies of the VIF1 bytes; the DMAC walk and channel
+// completion stay on the EE. The GIF arbiter keeps the worker's PATH1/PATH2 packets at the stream position
+// the inline path would produce. On in play mode (engine.mtvu); headless runs stay on the deterministic
+// inline path unless NATIVEEE_MTVU=1.
+//
+// GIF drain thread: decodes GIF -> GsState -> DrawIR off the EE whenever the DrawIR consumer has its own
+// thread (never with gs.queue=inline). The EE's own pushes into the chain (the VSync job, the display
+// register jobs) then go through the arbiter in stream order. Sly 2's render thread waits for both of its
+// GS FINISHes before the vblank wait, so boundaries are not deferred by default.
+//
+// AOT tier, on the live VU1 unit: a manifest under <user_data>/vu1_aot/<build>/ seeds the verdicts, new
+// microprograms are verified in the background, then compiled to native code and installed. The builder
+// is declared before the cache so it outlives it.
 #pragma once
 
 #include <memory>
@@ -44,17 +34,16 @@ class LegMtvu {
 public:
     LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs& knobs, LegCore& core, LegGs& gs,
             LegDevices& devices);
-    bool DrainThread() const { return mtvu && mtvu->drain().Running(); }
     LegMtvu(const LegMtvu&) = delete;
     LegMtvu& operator=(const LegMtvu&) = delete;
 
-    // The live VU1 unit: the worker's under MTVU, else the inline unit.
+    // The worker's VU1 unit under MTVU, else the inline unit.
     VuUnit& LiveVu1() { return mtvu ? mtvu->WorkerVu1() : devices_.vu1; }
 
-    std::unique_ptr<MtvuStack> mtvu;   // null = the inline path
-    bool early_finish = false;         // E425 (the early FINISH) is on (MTVU only)
-    bool wait_probe = false;           // E430 (the observation point probes the kernel object first) is on (MTVU only)
-    bool deferred_boundary = false;    // E426 (deferred boundary, no VSync fence, composed GIF_STAT): paced play only
+    std::unique_ptr<MtvuStack> mtvu;   // null = inline
+    bool early_finish = false;         // engine.mtvu_early_finish (MTVU only)
+    bool wait_probe = false;           // engine.mtvu_wait_probe (MTVU only)
+    bool deferred_boundary = false;    // no terminal sync at the boundary (paced play only)
     std::unique_ptr<ps2r::app::Vu1AotBuilder> vu1_aot_builder;
     std::unique_ptr<ps2r::app::Vu1AotCache> vu1_aot_cache;
 

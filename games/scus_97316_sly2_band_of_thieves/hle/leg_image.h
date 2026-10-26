@@ -1,14 +1,7 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_image.h -- LegImage: the ELF image + boot environment and
-// the generated dispatch + the SDK binding manifest of the title's play composition. The ELF is loaded
-// into main memory and its entry checked against the TitleProfile; BootEnv is configured and pre-seeded;
-// the generated dispatch table is initialised; the manifest's builtins, the sceGsSync family, the sceSif
-// rows (the IOP heap = the host's sysmem heap; sceSifLoadModuleBuffer answered by the IOP host, the load
-// order kept in run.meta iop_modules=), the libcdvd rows over the disc and the libmc rows over the host
-// store are bound; the title's hle/sdk_bindings.tsv rows are resolved and installed (wait bodies with
-// their continuation proofs); the frame boundary site (TitleProfile::Gs::vblank_wait_entry -- the
-// engine's WaitForVblank mirror where the title links no sceGsSyncV); NATIVEEE_FN_TRACE wraps generated
-// functions with entry / return prints (boot triage only). The run.meta rows elf_*, sif_rows,
-// cdvd_rows, libmc_rows, title, functions, sdk_rows* are written here.
+// LegImage: loads the ELF (entry checked against the TitleProfile), sets up the boot environment and the
+// generated dispatch table, and binds the SDK: builtins, sceGsSync, sceSif (over the IOP host), libcdvd
+// (over the disc), libmc (over the host card store) and the title's hle/sdk_bindings.tsv rows. Installs the
+// frame boundary at TitleProfile::Gs::vblank_wait_entry, since Sly 2 links no sceGsSyncV.
 #pragma once
 
 #include <atomic>
@@ -35,14 +28,14 @@ public:
     LegImage(const LegImage&) = delete;
     LegImage& operator=(const LegImage&) = delete;
 
-    // 0, or the leg's exit code when the image / manifest could not be installed (the message printed).
+    // 0, or the exit code after a failed install (already reported).
     int Error() const { return error_; }
 
-    std::string iop_modules;          // run.meta iop_modules=: every module load answered, in order
+    std::string iop_modules;          // run.meta iop_modules=: module loads, in order
     uint64_t iop_module_loads = 0;
     uint64_t boundary_site_hits = 0;  // run.meta boundary_site_hits=: WaitForVblank mirror entries
 
-    // NATIVEEE_FN_CENSUS: writes the per-function call counts (every exit path, from leg_census).
+    // NATIVEEE_FN_CENSUS: per-function call counts.
     void WriteFnCensus();
 
 private:

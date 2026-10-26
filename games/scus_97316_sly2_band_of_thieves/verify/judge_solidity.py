@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""judge_solidity.py -- the Sly 2 SOLIDITY gate (round H item 1: the D1 / D3 / D7 see-through class).
+"""judge_solidity.py -- the solidity gate: no see-through walls or characters.
 
 One presented frame of ours against its PCSX2 2.7.329 twin (the same save, the same hub, the same idle
 camera: the warp + PINE recipe), inside three regions of the fixture (verify/solidity/fixtures.json --
 numbers only: boxes in the 512x224 frame):
   sly        -- the player character,
-  wall       -- a near wall / roof sheet (the D3 / D7 surfaces),
+  wall       -- a near wall / roof sheet,
   background -- scenery next to the character (what shows THROUGH him when he is see-through).
 
 Metrics (both frames reduced to 512x224 Rec.601 luminance; the twin is aligned to ours by the best
@@ -143,17 +143,6 @@ def lum_w1(ours, twin, box):
     b = sorted(lum(*twin[i]) for i in box_pixels(box))
     n = min(len(a), len(b))
     return sum(abs(a[i] - b[i]) for i in range(n)) / max(n, 1)
-
-
-def mean_rgb(frame, box):
-    s = [0, 0, 0]
-    n = 0
-    for i in box_pixels(box):
-        p = frame[i]
-        s[0] += p[0]; s[1] += p[1]; s[2] += p[2]
-        n += 1
-    n = max(n, 1)
-    return (s[0] / n, s[1] / n, s[2] / n)
 
 
 def palette(frame, box, step):

@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_services.cpp -- LegServices (leg_services.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
 
 #include "engine/ee/recomp_abi/host_app/memory.h"
@@ -24,7 +23,7 @@ LegServices::LegServices(const ps2r::Config& cfg, LegCore& core)
       sd_block_trans(cfg.audio.sdr_block_ms, [this] { return mixer.FramesMixed(); }),
       sdr_remote(spu_core, sd_block_trans, [](uint32_t a) { return memory::read<uint32_t>(a); },
                  [](uint32_t a, uint32_t v) { memory::write<uint32_t>(a, v); }) {
-    // The SPU2 voice resampler (audio.interpolation): linear by default, the hardware's 4-tap Gaussian opt-in.
+    // audio.interpolation: linear by default; the hardware's 4-tap Gaussian on request.
     ps2r::sound::Voice::SetGaussian(cfg.audio.interpolation == ps2r::AudioInterpolation::Gaussian);
     rpc_router.RegisterServer(McservModule::kServerId, mcserv, "MCSERV");
     rpc_router.RegisterServer(PadmanModule::kCommandServerId, padman, "PADMAN");

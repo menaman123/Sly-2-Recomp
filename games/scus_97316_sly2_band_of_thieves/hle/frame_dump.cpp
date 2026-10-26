@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/frame_dump.cpp -- FrameDump (see frame_dump.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/frame_dump.h"
 
 #include <cstdio>

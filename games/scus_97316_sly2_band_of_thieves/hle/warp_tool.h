@@ -1,10 +1,7 @@
-// games/scus_97316_sly2_band_of_thieves/hle/warp_tool.h -- WarpTool: the title-side episode warp. Coverage
-// tooling in the pad-script family: before the cold boot it rewrites the save the game is about to read from
-// the PRIVATE card directory (cfg.paths.mc_dir/mc0/BASCUS-97316YAOTWTD!/save1) so that the game's own "Resume
-// Game" path (FUN_00165e38: episodeCurrent -> the per-episode hub-file table -> the level loader) lands in the
-// chosen episode's hub. Nothing else changes: the game parses, validates (trailer) and loads the save exactly as
-// it would a card written on a console; the field offsets and the episode / mission / task vocabulary are DATA
-// in verify/nav/sly2_probe.json ("save": the schema read from a RAM dump, warp_notes.md).
+// WarpTool: a test aid that jumps to an episode. Before the cold boot it rewrites save1 on a private card
+// (cfg.paths.mc_dir/mc0/BASCUS-97316YAOTWTD!/save1) so the game's own Resume Game path (FUN_00165e38) loads
+// the chosen episode's hub. The game parses and validates the save as it would a console card. Field
+// offsets and the episode / mission / task names are data in verify/nav/sly2_probe.json ("save").
 //
 //   NATIVEEE_WARP=<episode>[,<job>]
 //     <episode>   0..8 or a name (intro nightclub palace temple prison castle train sawmill blimp)
@@ -39,7 +36,6 @@ public:
 
     bool Requested() const { return requested_; }
     bool Applied() const { return applied_; }
-    int Episode() const { return episode_; }
     // One run.meta row: off | warp=<ep>:<name>:wid=<w>:jobs=<n>:<applied|failed:<why>>
     std::string Census() const;
 

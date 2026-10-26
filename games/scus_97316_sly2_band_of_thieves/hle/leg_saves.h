@@ -1,31 +1,17 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h -- LegSaves: the save states (F5 / F8) of the
-// title's play composition, over the engine's title-neutral machinery. The section registry
-// (StateRestorer over MemorySections: RAM0 / SPAD) carries, in registration = restore order (the first
-// title's order, private app/host/ee_bootstrap_sections.cpp RegisterSections): GCLK (SessionClock),
-// VUMM (VU0/VU1 memories; a restored VU1 is mirrored into the MTVU worker's unit), THRD (threads +
-// parked contexts + shadow chains), SEMA/EVFL, INTC, DMAC (quiesced: the deferred VIF1 kick flushed at
-// capture), TIMR, VIFS, GSST/VRAM/GSPR (the VRAM read through the pipelined queue's Sync when the image
-// is split), GIFS, PADS, VU1R, IOPH (the hosted IOP: RAM, the kernel tables, the module rows / libraries /
-// RPC servers / timers of lgAud, 989snd, spiop and FILEIO -- engine/iop/savestate/iop_host_section.h,
-// registered BEFORE the SPU sections so the restored SPU image wins over anything a re-armed IOP thread's
-// entry touched), SDRX/SNDC (SPU2 voices + block transfers), MCHL (libmc pending + card-seen). A restore
-// re-arms every hosted IOP thread from its record: a fresh coroutine runs the module's thread entry to its
-// first park on the restored RAM (the Crash contract), the RPC servers are re-registered on the RpcRouter,
-// the hard timer re-armed (run.meta f8=live,iop=section).
-//   F5 (SessionCapture, E234): the capture runs on the completed game owner inside the GameBoundary
-//   consumer (GameBoundary::FreshThreads sees only that scope -- the session's Boundary() moved from the
-//   Verify slot into that consumer), admitted by a Quiescence of owners (the MTVU worker, the GS queue's
-//   Sync); the writer publishes <save root>/savestates/slot<save.slot>.ps2st + .meta.
-//   F8 (SessionRestore, the LIVE route): preflight on the game owner (the slot's sidecar composition, the
-//   registry, the clock, THRD's boundary owner), unwind + join the guest workers, the display's memory
-//   forgotten (the consumer's last frame), every section restored on the live composition, the guest
-//   threads relaunched from their continuations (DispatchTable::InvokeAt). run.meta restore rows:
-//   restore_mhash=, restored_vsync_frame=, restore_route=, restore_sections=.
-//   --load-state <slot.ps2st> (ColdBoot, the COLD route, app/host/cold_restore.h): the composition boots
-//   and arms everything, then -- before the first guest instruction -- the slot is preflighted (registry,
-//   sidecar, THRD boundary owner), every section restored in registration order, and the THRD records
-//   relaunched (ThreadRelauncher) in place of the ELF entry; the session's supervisor keeps the window
-//   while the boundary owner lives; headless, the relaunched workers are joined. restore_route=cold.
+// LegSaves: save states.
+//
+// Sections, in registration order (which is also restore order): RAM0/SPAD, GCLK, VUMM, THRD, SEMA/EVFL,
+// INTC, DMAC, TIMR, VIFS, GSST/VRAM/GSPR, GIFS, PADS, VU1R, IOPH, SDRX/SNDC, MCHL. IOPH (the hosted IOP)
+// comes before the SPU sections so the saved SPU image wins over anything a re-armed IOP thread touches.
+// Restoring IOPH re-runs each hosted IOP thread to its first park on the restored RAM and re-registers
+// the RPC servers.
+//
+//   F5            capture on the game thread at a completed boundary, once the MTVU worker and GS queue
+//                 are quiet; writes <save root>/savestates/slot<N>.ps2st and .meta.
+//   F8            live restore: preflight, unwind and join the guest workers, restore every section in
+//                 this process, relaunch the threads from their continuations.
+//   --load-state  cold restore: boot everything, then before the first guest instruction restore the
+//                 slot and relaunch its threads in place of the ELF entry.
 #pragma once
 
 #include <atomic>
@@ -81,27 +67,21 @@ public:
     LegSaves(const LegSaves&) = delete;
     LegSaves& operator=(const LegSaves&) = delete;
 
-    // The Verify slot's owner calls this BEFORE SessionRuntime::SetHooks: the capture / restore hooks
-    // (F5 / F8) are bound here with the guest workers and the ticker the restore has to stop / restart.
-    // Play mode with a session only; a no-op otherwise.
+    // Binds the F5 / F8 hooks; must run before SessionRuntime::SetHooks. Play mode only.
     void Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionWorkers& workers, TickThread& tick_thread,
               LegAudio& audio);
-    // The COLD route (--load-state): on the game owner's thread before any guest instruction -- the
-    // session's worker in play (returns 0 and the supervisor keeps the session while the relaunched
-    // boundary owner lives), main headless (the relaunched workers are joined here, then the ladder).
-    // Returns the leg's result: 0 ran, 2 refused (nothing of the live composition touched when the
-    // preflight refuses, so the leg ends through its destructors).
+    // --load-state, on the game thread before any guest instruction. Returns 0, or 2 if the preflight
+    // refused (nothing has been touched yet).
     struct ColdDeps {
         ps2r::app::SessionWorkers& workers;
         LegAudio& audio;
         LegPark& park;
         LegCensus& census;
-        std::function<void()> join_ladder;   // headless: the Verify slot's ladder after the workers ended
+        std::function<void()> join_ladder;   // headless: run after the workers end
     };
     int ColdBoot(const std::string& path, const ColdDeps& deps);
-    // The supervisor's shutdown ladder step: the writer joined.
     void JoinWriter();
-    // run.meta rows (LegCensus): savestate_capture=, f8=, restore_*=.
+    // run.meta rows: savestate_capture=, f8=, restore_*=.
     void WriteCensus(ps2r::verify::RunMeta& meta);
 
     MemorySections memory_sections;
@@ -122,13 +102,13 @@ public:
     ps2r::app::SessionFiles session_files;
     std::unique_ptr<ps2r::app::SessionCapture> capture;
     std::unique_ptr<ps2r::app::SessionRestore> restore;
-    std::unique_ptr<ps2r::app::ColdRestore> cold_restore;   // the --load-state route's owner (outlives the relaunched workers)
+    std::unique_ptr<ps2r::app::ColdRestore> cold_restore;   // outlives the relaunched workers
     uint64_t dmac_save_unquiesced = 0, gifs_restore_tail_bytes = 0;
     std::atomic<uint64_t> restores{0};
     uint32_t restored_vsync_frame = 0;
-    std::string restore_sections;   // the tags of the last restored image, file order
+    std::string restore_sections;   // section tags of the last restored image, in file order
     std::string restore_route;      // "live" | "cold"
-    std::string restore_mc_bound;   // cold: libmc readiness derived from the image (run.meta restore_mc_bound=)
+    std::string restore_mc_bound;   // cold restore: libmc readiness read from the image
     std::string f8_route = "none";
     ps2r::app::LiveRestoreGate::Census live_refusals;   // run.meta live_restore_refusals=
     ps2r::app::LiveRestoreGate::Probes live_probes;

@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_audio.cpp -- LegAudio (leg_audio.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 
 #include <algorithm>
@@ -25,7 +24,7 @@ LegAudio::LegAudio(const ps2r::Config& cfg, const LegKnobs& knobs, const LegCore
 }
 
 LegAudio::~LegAudio() {
-    spu_core.SetTrace(nullptr);   // the mixer has stopped (the ladder ran); the file closes with the trace
+    spu_core.SetTrace(nullptr);   // the mixer has stopped by now
 }
 
 void LegAudio::TapMixer(const float* out) {

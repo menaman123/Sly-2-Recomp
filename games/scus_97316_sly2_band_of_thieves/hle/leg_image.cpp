@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_image.cpp -- LegImage (leg_image.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_image.h"
 
 #include <cstdio>
@@ -35,7 +34,7 @@ LegImage::LegImage(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
     BootEnv::Instance().Configure(title.boot);
     BootEnv::Instance().PreSeed();
     Ps2Float::SetGuestThreadRounding();
-    DispatchTable::SetFastDispatch(cfg.engine.ee_fast_dispatch);   // before Initialize: the generated init tail latches it
+    DispatchTable::SetFastDispatch(cfg.engine.ee_fast_dispatch);   // must precede Initialize, which latches it
     DispatchTable::Initialize();
     if (!InstallDispatch(cfg, host, title, title_dir, knobs, core, disc, services, iop)) error_ = 2;
 }
@@ -67,11 +66,8 @@ bool LegImage::InstallDispatch(const ps2r::Config& cfg, ps2r::verify::VerifyHost
     SdkBindingManifest& manifest = SdkBindingManifest::Instance();
     manifest.RegisterBuiltins();
     GsSync::Register(manifest);
-    // The IOP heap is the host's sysmem heap (counted by SceSif::Heap()); a
-    // sceSifLoadModuleBuffer ("buffer@<iop addr> <args>") is answered by the host: the hosted
-    // module whose .iopmod name matches is booted (relocated, entry run with its args, threads
-    // dispatched to their first block), a natively served one becomes a row; the module id is
-    // the table row. run.meta iop_modules= keeps the load order.
+    // The IOP heap is the host's sysmem heap. sceSifLoadModuleBuffer goes to the IOP host, which boots a
+    // hosted module or adds a row for a natively served one.
     IopHost& iop_host = iop.iop_host;
     SceSif::IopHeap iop_heap;
     iop_heap.alloc = [&iop_host](uint32_t size) { return iop_host.HeapAlloc(size); };
@@ -83,10 +79,9 @@ bool LegImage::InstallDispatch(const ps2r::Config& cfg, ps2r::verify::VerifyHost
         PS2R_LOG(HOST, Info, "sceSifLoadModuleBuffer(%s) -> %d", path.c_str(), id);
         return id;
     });
-    // A client bound before this router existed (a restored image: the bindings sceSifBindRpc made at
-    // boot are EE RAM, the router's table is not): the handle word (0xDEAD0000 | sid & 0xFFFF) is resolved
-    // against the LIVE registered server ids -- the SDK system servers (0x800000xx) and the modules'
-    // own ids (989snd's 0x123456/7) alike; an unknown low half answers 0 (the sif_server_unbound park).
+    // A client bound before this router existed (a restored state: sceSifBindRpc's bindings live in EE RAM,
+    // the router's table does not): resolve the handle word (0xDEAD0000 | sid & 0xFFFF) against the
+    // registered server ids. An unknown low half answers 0.
     RpcRouter* router = &services.rpc_router;
     const int sif_rows = SceSif::Bind(manifest, services.rpc_router, core.sif_state, std::move(iop_heap), [router](uint32_t handle) {
         if ((handle & 0xFFFF0000u) != 0xDEAD0000u) return 0u;
@@ -94,12 +89,12 @@ bool LegImage::InstallDispatch(const ps2r::Config& cfg, ps2r::verify::VerifyHost
         if (!low) return 0u;
         for (uint32_t sid : router->ServerIds())
             if ((sid & 0xFFFFu) == low) return sid;
-        return 0x80000000u | low;   // not registered (yet): the SDK system servers keep their low half
+        return 0x80000000u | low;   // not registered yet: SDK system servers keep their low half
     });
     if (!manifest.MarkWaitBody("libkernl.a", "sceSifRpcLoop", TSW_SLEEP)) return false;
     const int cdvd_rows = LibcdvdBindings::Bind(manifest, disc.Reader(), &core.clocks, &disc.stream_reader);
-    // The memory card: the libmc rows over the host store (cfg.paths.mc_dir/mc0 = a formatted
-    // 8 MB card in slot 1); this libmc 3.0.0 passes sceMcGetInfo's fifth argument in t0.
+    // Memory card: cfg.paths.mc_dir/mc0 is a formatted 8 MB card in slot 1. This libmc (3.0.0) passes
+    // sceMcGetInfo's fifth argument in t0.
     const int libmc_rows = LibmcBindings::Bind(manifest, &services.mc_model, &services.mc_store);
     LibmcBindings::SetFormatInT0(cfg.hle.libmc_format_in_t0);
 
@@ -134,10 +129,8 @@ bool LegImage::InstallDispatch(const ps2r::Config& cfg, ps2r::verify::VerifyHost
                 if (pushed) ShadowCallStack::Pop();
             }, proof);
         });
-    // The frame boundary site when the title links no sceGsSyncV (TitleProfile::Gs::vblank_wait_entry):
-    // the engine's WaitForVblank mirror (GsSync::WaitForVblank -> BoundarySequencer::RunBoundary)
-    // replaces the game's flag + WaitSema vsync wait; its VBLANK INTC handler still runs at the
-    // boundary's TickAdvance (Intc::DispatchPending) and does the display flip.
+    // The frame boundary: GsSync::WaitForVblank replaces the game's flag + WaitSema vsync wait. The game's
+    // VBLANK handler still runs at the boundary and does the display flip.
     if (title.gs.vblank_wait_entry) {
         const bool ok = DispatchTable::Install(title.gs.vblank_wait_entry, [this](CpuContext& ctx, uint32_t) {
             ++boundary_site_hits;
@@ -149,8 +142,7 @@ bool LegImage::InstallDispatch(const ps2r::Config& cfg, ps2r::verify::VerifyHost
             return false;
         }
     }
-    // NATIVEEE_FN_TRACE=addr[,addr...]: wrap generated functions with an entry/return print
-    // (a0..a3 at entry, v0 at return) -- boot triage only, never a replacement.
+    // NATIVEEE_FN_TRACE=addr[,addr...]: print a0..a3 on entry and v0 on return of these functions.
     if (knobs.fn_trace) InstallFnTrace(*knobs.fn_trace);
     if (knobs.fn_census) {
         fn_census_path_ = *knobs.fn_census;
@@ -194,8 +186,8 @@ void LegImage::InstallFnTrace(const std::string& list) {
     }
 }
 
-// NATIVEEE_FN_CENSUS: every generated function counted (DispatchTable::CountCalls, EveryCall) -- the
-// diagnostic for "which functions run only while X happens" (two runs, diff the files).
+// NATIVEEE_FN_CENSUS: call counts of every generated function. Diff two runs to find what runs only
+// while something happens.
 void LegImage::InstallFnCensus() {
     const uint32_t n = DispatchTable::FunctionCount();
     fn_census_counts_.resize(n);

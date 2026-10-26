@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/video_stack.cpp -- VideoStack (see video_stack.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/video_stack.h"
 
 #include <SDL.h>

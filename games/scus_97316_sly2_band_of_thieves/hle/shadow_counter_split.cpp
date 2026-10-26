@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/shadow_counter_split.cpp -- ShadowCounterSplit (see .h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/shadow_counter_split.h"
 
 #include <algorithm>

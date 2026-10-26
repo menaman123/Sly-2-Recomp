@@ -1,52 +1,17 @@
-# .github/workflows/ci.yml -- Sly-2-Recomp CI: the title module built against the pinned NativeEE
-# submodule, WITHOUT any game data (a public runner never has the disc).
+# CI: the title module built against the pinned NativeEE engine, without any game data.
 #
-#   guard         game files NEVER in the repository, NEVER in CI: the engine's source-tree asset scan
-#                 (engine/tools/ci/asset_scan.py --tree: names, format magic, byte windows of a title
-#                 ELF, raster images, > 1 MB files, pasted byte arrays) over games/ and over engine/,
-#                 then the asset guard (class A disc / extracted files, class B oracle images) over both,
-#                 the tools' selftests, the engine lints' selftests, this workflow's YAML, actionlint.
-#                 Zero findings or nothing builds.
-#   build-nodisc  {macos-latest arm64, ubuntu-latest x86-64, windows-latest x64} x Release: the engine
-#                 configured as the CMake source tree with THIS repository's games/ as PS2R_GAMES_DIR
-#                 (./build.sh --no-disc --tests / .\build.ps1 -NoDisc), the engine's host preset
-#                 (macos-release / linux-release-clang / windows-release). Without a disc the title's
-#                 recompiled code and play composition are skipped by the engine's own SKIPPED lines;
-#                 what builds: every engine library, the tools, nativeee (the no-composition stub), the
-#                 title's ps2r_title_hle, the component test suite. Then ctest minus
-#                 .github/ci/ctest_exclusions.txt (title lanes, first-title pins, the known-broken
-#                 targets' tests, the engine regressions at the pinned commit -- every row has its
-#                 reason there and in README.md "Known issues"). The Windows lane is a REAL gate like the
-#                 engine's own (no job-level continue-on-error, as the engine's windows-x86_64 lane has none): it
-#                 configures with the engine's windows-release preset (clang-cl + Ninja, SDL2 / FFmpeg from the
-#                 vcpkg manifest) and REQUIRES what the engine's cross-compile smoke has proven to compile to
-#                 x86-64 COFF (ps2r_host, ps2r_core, the title's ps2r_title_hle); the whole tree + the no-disc
-#                 ctest run as a SEPARATE, non-blocking step because the engine's GL backend has no Windows GL
-#                 loader yet (engine/platform/host/platform.h: PS2R_GL_HEADER undefined on _WIN32) and four
-#                 app/host TUs still include POSIX headers -- that step is expected red until the engine's
-#                 Windows arm lands, and its log is uploaded. Flipping it to a gate = deleting one line.
-#   launcher      the launcher players download (engine/app/launcher, Qt 6 Widgets, title-neutral; this
-#                 repository contributes launcher/title.json): built with the official Qt kit on
-#                 {macos-14 arm64, macos-15-intel x86_64, ubuntu-22.04 x86_64, windows-2022 x64}, its tests
-#                 headless (QT_QPA_PLATFORM=offscreen: LauncherModels, LauncherScreens, the launcher's lints),
-#                 then PACKAGED by engine/tools/ci/release_launcher.{sh,ps1} (.dmg / .AppImage / portable
-#                 .zip, asset-scanned) and uploaded as launcher-<target> -- release.yml attaches exactly
-#                 those on a tag (no second build). [TwinsanityEvolved/.github/workflows/launcher.yml,
-#                 merged here as a job; the AppImage lane added.] Until engine/app/launcher exists in the
-#                 pinned submodule the job's steps skip with a warning (the first step probes the path).
-#   title-lanes   needs the disc: gated on the repository variable NATIVEEE_TITLE_LANES == 'true'
-#                 (Settings -> Secrets and variables -> Actions -> Variables), as the engine's own
-#                 ci.yml gates its dist / identity lanes. Leave it unset on the public repository.
-#                 A TEST lane only (decision D-A: nothing made from a disc is published or even uploaded):
-#                 it builds, boots a bounded leg, stages + scans the folder as its self-check, and uploads
-#                 run.meta / pack.txt. Its last steps build the VU1 AOT pack from a corpus the lane
-#                 collects itself and prove a compiler-less engine loads it; the corpus, the pack and the
-#                 recompiled binary never leave the runner.
+#   guard         the engine's asset scan and asset guard over games/ and engine/ (no disc files, extracted files,
+#                 game images, oversized files or pasted byte arrays), the tools' and lints' selftests, actionlint.
+#                 Nothing builds unless this passes.
+#   build-nodisc  macOS arm64, Linux x86-64, Windows x64: the engine with this repository's games/ as the title
+#                 directory (./build.sh --no-disc --tests / .\build.ps1 -NoDisc). Without a disc the recompiled
+#                 code and play composition are skipped; everything else builds, then the component suite runs
+#                 minus .github/ci/ctest_exclusions.txt (each row states its reason).
+#   title-lanes   the full build from the disc, on self-hosted runners that have it. Gated on the repository
+#                 variable NATIVEEE_TITLE_LANES == 'true'. Builds, boots a bounded headless run, stages and scans
+#                 the folder, and uploads only run.meta / pack.txt.
 #
-# Local validation: `python3 -c 'import yaml,sys; yaml.safe_load(open(".github/workflows/ci.yml"))'`
-# and `actionlint .github/workflows/*.yml` (the guard job runs the latter). The macOS lane's exact
-# commands were run on a fresh clone with no disc before this file was written (README "Known issues"
-# lists the ctest summary); the Linux and Windows lanes are structurally the engine's own lanes.
+# Validate locally with `actionlint .github/workflows/*.yml` (the guard job runs it too).
 name: Sly-2-Recomp CI
 
 on:
@@ -54,7 +19,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  workflow_call:        # release.yml runs this matrix on a tag before it ships anything
 
 permissions:
   contents: read
@@ -68,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      # THE gate: zero findings over the title tree and over the engine, or the workflow fails here.
+      # Zero findings over the title tree and the engine, or the workflow stops here.
       - name: Asset scan over games/ (names / magic / ELF windows / images / size / arrays)
         run: python3 engine/tools/ci/asset_scan.py --tree games --report asset_scan_games.md
       - name: Asset scan over engine/
@@ -94,12 +58,6 @@ jobs:
           python3 engine/tests/lint/lint_header_globals.py --selftest
           python3 engine/tests/lint/lint_session_tags.py --selftest
           python3 .github/ci/ci_lists.py --selftest
-          # the release pipeline's scripts (release.yml): the index tool's selftest, every shell script parses
-          python3 engine/tools/ci/release_index.py --selftest
-          bash -n engine/tools/ci/stage_engine_bundle.sh engine/tools/ci/release_launcher.sh engine/tools/ci/release_local.sh \
-                  engine/tools/ci/bundle_smoke.sh engine/tools/toolchain/fetch_compiler.sh
-          # the compiler + packaging pins parse (64-hex + two spaces + a name; nothing else)
-          grep -v '^#' engine/tools/toolchain/COMPILER_PINS.sha256 engine/tools/toolchain/PACKAGING_PINS.sha256 | grep -v ':$' | grep -vE ':[0-9a-f]{64}  [A-Za-z0-9.+_-]+$' && exit 1 || true
       - name: Submodule pin is what .gitmodules says (branch sly2-upstream) and the checkout is clean
         run: |
           git submodule status
@@ -131,8 +89,7 @@ jobs:
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
-      # build.sh's default sibling layout (<checkout>-build next to the checkout), spelled out: the
-      # build dir must be outside the repository (it would hold game-derived files in a disc build).
+      # The build dir must be outside the repository (a disc build puts game-derived files there).
       SLY2_BUILD_DIR: ${{ github.workspace }}/../build
     steps:
       - uses: actions/checkout@v4
@@ -145,7 +102,7 @@ jobs:
           python3 engine/tools/ci/asset_guard.py --root games --mode ci
           python3 engine/tools/ci/asset_guard.py --root engine --mode ci
 
-      # --- dependencies per host (the engine's ci.yml, verbatim) -------------------------------
+      # --- dependencies per host --------------------------------------------------------------
       - name: Dependencies (macOS -- Homebrew)
         if: matrix.platform == 'macos'
         run: brew install cmake ninja sdl2 ffmpeg
@@ -181,21 +138,14 @@ jobs:
         with:
           arch: x64
 
-      # --- macOS / Linux: configure + build `all` + component suite in one command -------------
-      #     (build.sh: the engine's preset via `cmake -S engine -B $SLY2_BUILD_DIR --preset`, ninja -k 0
-      #      audited against .github/ci/known_broken_targets.txt, 0 warning: / 0 ld: warning, then
-      #      ctest -E <ctest_exclusions.txt>; on Linux without a display it wraps ctest in xvfb-run).
+      # --- macOS / Linux: configure, build everything, run the component suite ------------------
+      #     Only targets in .github/ci/known_broken_targets.txt may fail to build; no warnings allowed.
       - name: build.sh --no-disc --tests (configure, build, audit, ctest)
         if: matrix.platform != 'windows'
         shell: bash
         run: ./build.sh --no-disc --tests --preset ${{ matrix.preset }} --jobs ${{ matrix.jobs }}
 
-      # --- Windows: configure + the proven targets (REQUIRED), then the whole tree (non-blocking) -----
-      #     The required set is what tools/build/win_cross_smoke.py (ctest PlatformWindowsCrossSmoke) has
-      #     compiled to x86-64 COFF against the real MSVC CRT / Windows SDK: the host shim arm (ps2r_host),
-      #     every engine/core TU (ps2r_core) and -- here -- the title's ps2r_title_hle (TitleProfile only,
-      #     no POSIX include in the title tree: README.md "Platforms"). A failure here is a real
-      #     regression on a real Windows toolchain and blocks the repository.
+      # --- Windows: the core targets (required), then the whole tree (non-blocking) ----------------
       - name: build.ps1 -NoDisc (configure; ps2r_host + ps2r_core + ps2r_title_hle) -- REQUIRED
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -206,11 +156,9 @@ jobs:
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: vcpkg-${{ runner.os }}-${{ hashFiles('engine/vcpkg.json') }}
-      #     The whole tree + the no-disc ctest: the engine's GL backend has no Windows GL loader yet, so this
-      #     step is expected red (the first error CI prints: PS2R_GL_HEADER undefined on _WIN32). It stays a
-      #     step-level continue-on-error -- never job-level -- so the required part above is a real gate and
-      #     this part's log is still collected; remove the one line when the engine's Windows arm is green.
-      - name: build.ps1 -NoDisc -Tests (the whole tree + component suite -- non-blocking until the engine has a Windows GL loader)
+      #     Non-blocking while a few component tests still fail on Windows (see .github/workflows/windows.yml);
+      #     remove continue-on-error once they pass.
+      - name: build.ps1 -NoDisc -Tests (the whole tree + component suite, non-blocking)
         if: matrix.platform == 'windows'
         continue-on-error: true
         shell: pwsh
@@ -239,129 +187,10 @@ jobs:
           path: ci-logs/
           if-no-files-found: ignore
 
-  # The launcher: engine/app/launcher built against the official Qt kit (jurplel/install-qt-action), its tests
-  # headless, then packaged by the engine's scripts with THIS repository's manifest (launcher/title.json). The
-  # artefact is what release.yml attaches on a tag; on a push / PR it is the same file, kept 14 days, so a reviewer
-  # can open the real .dmg / .AppImage / .zip of a change. Nothing of the game is in it (asset scan inside the script).
-  launcher:
-    name: launcher ${{ matrix.target }} (build + tests headless + package)
-    needs: guard
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: macos-14,       target: macos-arm64,  platform: macos,   qt_host: mac,     qt_arch: clang_64 }
-          - { os: macos-15-intel, target: macos-x86_64, platform: macos,   qt_host: mac,     qt_arch: clang_64 }
-          - { os: ubuntu-22.04,   target: linux-x86_64, platform: linux,   qt_host: linux,   qt_arch: linux_gcc_64 }
-          - { os: windows-2022,   target: windows-x86_64,  platform: windows, qt_host: windows, qt_arch: win64_msvc2022_64 }
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
-    env:
-      QT_VERSION: 6.8.3
-      # on a tag the packaged version is the tag; otherwise the scripts use `git describe` (fetch-depth 0 below)
-      LAUNCHER_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-      - name: The launcher source is in the pinned engine (else this job skips with a warning)
-        id: src
-        shell: bash
-        run: |
-          if [ -f engine/app/launcher/CMakeLists.txt ] && [ -f launcher/title.json ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=launcher::engine/app/launcher or launcher/title.json is not in this checkout -- the launcher lane did nothing"
-          fi
-      - name: Qt ${{ env.QT_VERSION }} (${{ matrix.qt_arch }}, cached)
-        if: steps.src.outputs.present == 'true'
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          host: ${{ matrix.qt_host }}
-          target: desktop
-          arch: ${{ matrix.qt_arch }}
-          cache: true
-      - name: Dependencies (macOS -- Ninja)
-        if: steps.src.outputs.present == 'true' && matrix.platform == 'macos'
-        run: brew install ninja
-      - name: Dependencies (Linux -- Ninja, the GL / xkb / fuse libraries Qt's platform plugins and the AppImage tools load)
-        if: steps.src.outputs.present == 'true' && matrix.platform == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build zip libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 libfuse2 file
-      - name: MSVC developer environment
-        if: steps.src.outputs.present == 'true' && matrix.platform == 'windows'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-      - name: Packaging pins cache (linuxdeploy; sha256 re-checked on every run)
-        if: steps.src.outputs.present == 'true' && matrix.platform == 'linux'
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/pins-cache
-          key: packaging-pins-${{ matrix.target }}-${{ hashFiles('engine/tools/toolchain/PACKAGING_PINS.sha256') }}
-
-      - name: release_launcher.sh (build, the tests headless, stage, deploy Qt, sign, asset scan, image)
-        if: steps.src.outputs.present == 'true' && matrix.platform != 'windows'
-        shell: bash
-        env:
-          # optional: a Developer ID identity already in the runner's keychain, and a notarytool credentials profile
-          CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
-          NOTARY_PROFILE: ${{ secrets.MACOS_NOTARY_PROFILE }}
-        run: |
-          engine/tools/ci/release_launcher.sh --manifest launcher/title.json --engine engine --qt "$QT_ROOT_DIR" \
-            --build-dir "$RUNNER_TEMP/build-launcher" --dist-dir dist --pins-cache "$RUNNER_TEMP/pins-cache" \
-            ${LAUNCHER_VERSION:+--version "$LAUNCHER_VERSION"} 2>&1 | tee release_launcher.log
-      - name: release_launcher.ps1 (build, the tests headless, stage, windeployqt, asset scan, zip)
-        if: steps.src.outputs.present == 'true' && matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          $v = if ($env:LAUNCHER_VERSION) { @("-Version", $env:LAUNCHER_VERSION) } else { @() }
-          ./engine/tools/ci/release_launcher.ps1 -Manifest launcher/title.json -Engine engine -Qt "$env:QT_ROOT_DIR" -BuildDir "$env:RUNNER_TEMP\build-launcher" -DistDir dist @v 2>&1 | Tee-Object -FilePath release_launcher.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      # The tests ran inside the script (ctest under QT_QPA_PLATFORM=offscreen); this proves WHICH ran: the models test,
-      # the screens test and the launcher's lints must be registered, and every registered test must have passed.
-      - name: The launcher's tests are the ones expected (LauncherModels, LauncherScreens, the lints) and all passed
-        if: steps.src.outputs.present == 'true'
-        shell: bash
-        run: |
-          ctest --test-dir "$RUNNER_TEMP/build-launcher" -N | tee tests.txt
-          grep -q "LauncherModels" tests.txt
-          grep -q "LauncherScreens" tests.txt
-          grep -qE "LauncherLint|LauncherOneClass" tests.txt
-          QT_QPA_PLATFORM=offscreen ctest --test-dir "$RUNNER_TEMP/build-launcher" --output-on-failure --rerun-failed --no-tests=ignore
-      - uses: actions/upload-artifact@v4
-        if: steps.src.outputs.present == 'true'
-        with:
-          name: launcher-${{ matrix.target }}
-          path: |
-            dist/*.dmg
-            dist/*.AppImage
-            dist/*.zip
-            dist/*.sha256
-            dist/asset_scan_launcher-*.md
-          if-no-files-found: error
-          retention-days: 14
-      - uses: actions/upload-artifact@v4
-        if: always() && steps.src.outputs.present == 'true'
-        with:
-          name: launcher-log-${{ matrix.target }}
-          path: release_launcher.log
-          if-no-files-found: ignore
-
-  # The title lanes: the recompiled title needs the user's disc (cmake/TitleInputs.cmake extracts
-  # SCUS_973.16 from NATIVEEE_DISC, SHA-256 gated against games/<title>/TITLE_INPUTS.sha256), which a
-  # public runner never has. The job exists so SELF-HOSTED runners whose environment exports NATIVEEE_DISC
-  # can run the full build (recompile + MANIFEST.sha256 checks), a bounded headless boot leg, and stage the
-  # dist folder (build.sh --dist -> dist/<platform>/ + the archive, licence-linted and asset-scanned) as a
-  # self-check -- NOT uploaded, NOT released (D-A: release.yml ships the launcher model). Two lanes: a macOS runner (the dev host's shape; also the VU1
-  # AOT pack proof) and a Linux runner with Docker (the build runs inside the engine's toolchain image,
-  # engine/tools/ci/linux.Dockerfile, the disc bind-mounted READ-ONLY; nothing game-derived leaves the
-  # runner but the recompiled binary the release is). On the public repository the variable is unset and
-  # the job is skipped. Windows has no title lane: the engine's Windows arm is not built yet (above).
+  # The title lanes: the full build from the disc on self-hosted runners whose environment exports
+  # NATIVEEE_DISC (macOS directly; Linux inside the engine's toolchain image with the disc mounted read-only).
+  # Recompile with the MANIFEST.sha256 checks, a bounded headless boot, and a staged, scanned dist folder as a
+  # self-check. Nothing game-derived leaves the runner. Windows releases are built by windows-release.yml.
   title-lanes:
     name: title lane / ${{ matrix.platform }} (disc on the runner; NATIVEEE_TITLE_LANES)
     needs: guard
@@ -400,12 +229,9 @@ jobs:
             --set paths.user_data="$RUNNER_TEMP/ud" --set paths.mc_dir="$RUNNER_TEMP/mc"
           grep -E "^(park|park_detail|boundaries|iop_modules)=" "$RUNNER_TEMP/leg/run.meta"
           grep -q '^park=none' "$RUNNER_TEMP/leg/run.meta"
-      # The VU1 AOT pack lane (README "The VU1 AOT pack"): a second bounded leg under the AOT tier
-      # collects the title's VU1 corpus into the lane's PRIVATE user data dir (never the runner
-      # user's), the pack tool builds the pack from it (emit, compile, load, re-verify every image)
-      # and the check mode proves an engine WITHOUT a compiler is served by it. The corpus and the
-      # pack are game-derived: they stay under $RUNNER_TEMP and are NEVER part of a release; only
-      # pack.txt (numbers) is uploaded.
+      # VU1 AOT pack: a second run collects the VU1 corpus into a private user data dir, the pack tool builds
+      # and re-verifies the pack, and the check proves an engine without a compiler is served by it. Corpus
+      # and pack stay under $RUNNER_TEMP; only pack.txt is uploaded.
       - name: VU1 AOT corpus (a bounded aot-tier leg into a private user data dir)
         if: matrix.platform == 'macos'
         shell: bash
@@ -430,9 +256,7 @@ jobs:
           "$T" check --corpus "$RUNNER_TEMP/ud/vu1_aot/corpus" --pack "$RUNNER_TEMP/pack"
           cat "$RUNNER_TEMP/pack/pack.txt"
 
-      # --- Linux: the same inside the engine's toolchain image (what this repository's maintainers ran
-      #     locally under Docker: README "Platforms"); the headless leg runs under Xvfb + Mesa llvmpipe,
-      #     the engine's own route for its GL tests (engine/tools/ci/linux_build.sh). -------------------
+      # --- Linux: the same inside the engine's toolchain image; the headless run uses Xvfb + Mesa llvmpipe --
       - name: Build the toolchain image (engine/tools/ci/linux.Dockerfile --target toolchain)
         if: matrix.platform == 'linux'
         shell: bash
@@ -458,34 +282,7 @@ jobs:
           grep -q '^park=none' "$RUNNER_TEMP/out/leg/run.meta"
           mkdir -p "$RUNNER_TEMP/dist" && cp -R "$RUNNER_TEMP/out/dist/." "$RUNNER_TEMP/dist/"
 
-      # --- the engine bundle, route A (the engine_bundle CMake target: tools/dist/engine_bundle.py reads this DISC build's
-      #     own build.ninja for the exact shard / link commands nativeee-prepare replays). Not game-derived by construction
-      #     (the generated targets are described, not shipped) and PROVEN by the asset scan with the live ELF; uploaded as
-      #     engine-bundle-disc-<platform> -- release.yml prefers it over the public lane's fallback bundle. Skipped (with a
-      #     notice) when the pinned engine has no such target. ------------------------------------------------------------
-      - name: engine_bundle (route A) -- the exact-command bundle from this disc build, scanned with the live ELF
-        if: matrix.platform == 'macos'
-        shell: bash
-        run: |
-          B="$RUNNER_TEMP/build-title"
-          if ! (cd "$B" && ninja -t targets all | grep -qE '^engine_bundle:'); then echo "::notice::no engine_bundle target in the pinned engine -- route A skipped"; exit 0; fi
-          cmake --build "$B" --target engine_bundle
-          elf="$(find "$B/generated" -name 'SCUS_973.16' -type f | head -1)"
-          python3 engine/tools/ci/asset_scan.py "$B"/dist/engine-bundle-* ${elf:+--elf "$elf"} --report "$RUNNER_TEMP/asset_scan_engine_bundle_disc.md"
-          mkdir -p "$RUNNER_TEMP/bundle-upload"
-          (cd "$B/dist" && for d in engine-bundle-*/; do d="${d%/}"; tar -cf - "$d" | xz -T0 -6 > "$RUNNER_TEMP/bundle-upload/$d.tar.xz"; done)
-          python3 engine/tools/ci/asset_scan.py "$RUNNER_TEMP"/bundle-upload/*.tar.xz ${elf:+--elf "$elf"}
-          ls -la "$RUNNER_TEMP/bundle-upload"
-      - uses: actions/upload-artifact@v4
-        if: matrix.platform == 'macos'
-        with:
-          name: engine-bundle-disc-${{ matrix.platform }}
-          path: ${{ runner.temp }}/bundle-upload/
-          if-no-files-found: ignore
-
-      # --- the staged folder: the lane's SELF-CHECK (licence lint + asset scan ran in stage_dist.sh; the asset guard
-      #     once more here). Decision D-A: it is NOT uploaded -- it is the recompiled title, game-derived; the release
-      #     ships the launcher + the engine bundle + the compiler (release.yml) and the player's machine makes this. ----
+      # --- the staged folder: checked (licence lint and asset scan in stage_dist.sh, the asset guard here), not uploaded --
       - name: Asset guard over the staged folder (--mode artifact) -- self-check only, nothing uploaded
         shell: bash
         run: |

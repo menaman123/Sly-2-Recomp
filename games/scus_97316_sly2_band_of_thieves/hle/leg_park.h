@@ -1,13 +1,6 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_park.h -- LegPark: the leg closer and the leg-wide counters
-// every exit path of the title's play composition reads: LegCloser (run.meta park= / park_pc= /
-// park_tid= / park_detail= / unhandled_mmio= + the `census:` block, written exactly once), the boundary
-// count, the wall clock at every 100th boundary (run.meta boundary_wall_ms= -- the frame rate of a WINDOW
-// of the run, where wall_ms / frames averages the FMV, the loads and the level together), the shutdown's
-// step census and the abandoned guest workers, the NATIVEEE_VU1_CAP probe (hle/vu1_probe.h; reads
-// `boundaries` at every kick), the main thread's context pointer for the watchdog's park_pc, and the
-// thread census (every guest thread: status, what it waits on, priority, entry, live ra/pc -- racy reads
-// of live contexts; a diagnostic. st: 1 RUN 2 READY 4 WAIT 8 SUSPEND 16 DORMANT; wait: 1 sleep 2 sema 4
-// event flag).
+// LegPark: LegCloser (run.meta park=, park_pc=, park_tid=, park_detail=, unhandled_mmio= and the
+// `census:` block, written once) and the counters every exit path reads: boundaries, the wall clock every
+// 100th boundary, the shutdown steps, abandoned workers, the NATIVEEE_VU1_CAP probe and the thread table.
 #pragma once
 
 #include <atomic>
@@ -32,19 +25,19 @@ public:
     LegPark(const LegPark&) = delete;
     LegPark& operator=(const LegPark&) = delete;
 
-    // run.meta threads=: the guest thread table as described above.
+    // run.meta threads=: every guest thread's status, wait object, priority, entry and live ra/pc (racy
+    // reads; diagnostic only). st: 1 RUN 2 READY 4 WAIT 8 SUSPEND 16 DORMANT; wait: 1 sleep 2 sema 4 flag.
     static std::string ThreadCensus();
-    // Appends the wall clock since the leg's cold boot to boundary_wall_ms at every 100th boundary.
+    // Every 100th boundary, appends the wall clock since boot to boundary_wall_ms (per-window frame rate).
     void NoteBoundaryWall();
 
     LegCloser closer;
     uint64_t boundaries = 0;
-    // The GameBoundary completed-consumer calls (the session's boundary runs there, play): a count
-    // below `boundaries` = boundaries whose completion the dispatch could not schedule (run.meta).
+    // Completed-boundary callbacks (play). Fewer than `boundaries` means some completions never ran.
     uint64_t boundary_consumer_calls = 0;
     const std::chrono::steady_clock::time_point leg_t0;
     std::string boundary_wall;
-    std::string shutdown_steps, guest_join_abandoned;   // run.meta shutdown= ("" = no ladder ran / none abandoned)
+    std::string shutdown_steps, guest_join_abandoned;   // run.meta shutdown=
     Vu1Probe vu1_probe;
     std::atomic<CpuContext*> main_ctx{nullptr};
 };

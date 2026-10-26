@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""judge_cane.py -- the Sly 2 CHARGED-CANE EFFECT gate (round 6, track cane).
+"""judge_cane.py -- the charged-cane effect gate: are the cane's particles drawn?
 
 Hold SQUARE in the Paris hub and the cane head carries a bright orange additive glow with yellow spark
 streaks and orange particle dots (the particle systems: kind-12 draw entries). Before the round every

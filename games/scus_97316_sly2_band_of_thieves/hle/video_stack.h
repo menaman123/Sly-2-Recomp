@@ -1,23 +1,12 @@
-// games/scus_97316_sly2_band_of_thieves/hle/video_stack.h -- VideoStack: the title composition's
-// live video stack over the engine's GENERIC GS renderer -- the render backend video.backend
-// selects (gl: a hidden SDL window + the GL 4.1 context + GlDevice; metal: MetalDevice, no window,
-// no context -- macOS builds) and the plain-GS scene objects (ScalePolicy, RenderTargetCache,
-// TargetRefresher, TextureResolver, ScanoutComposer, Presenter, DrawPipeline) over an EMPTY
-// VramLayout and NO class registry: every draw takes DrawPipeline::DrawGeneric (the documented
-// "engine built without a title behaves as a plain GS" mode, targets/vram_layout.h). The
-// title-neutral subset of the first title's app/host/video_stack (minus its RendererProfile,
-// FrameReview and typed graphics), with the LIVE rules: no OnSetWindow seed, the scanout base
-// starts UNSET (DrawScanout presents nothing until the first DISPFB job), SetLiveSnapshot(true).
+// VideoStack: the live renderer over the engine's generic GS pipeline. video.backend picks GL (a hidden
+// SDL window with a GL 4.1 context) or Metal (macOS). There is no class registry and the VRAM layout is
+// empty, so every draw takes DrawPipeline::DrawGeneric, the plain-GS path. The scanout base starts unset:
+// nothing is presented until the first DISPFB job.
 //
-// The GL window is ALWAYS hidden (platform::Window::Create(headless = true)): what a player sees
-// is the SessionRuntime's own window on the main thread, fed with the backend's PRESENTED image
-// (GlDevice::ArmPresentCapture + ReadPresented: Present draws the display quad into an owned
-// framebuffer of the device's window size and reads it back before the swap -- the hidden
-// window's own 64x64 default framebuffer never limits it). The same image is the headless
-// --dump-frames p<key>.ppm. So no OS window resize is ever needed: a SetWindow job only sets the
-// device's window size (OnWindowResized, consumer thread). The context is current on one host
-// thread at a time (the GS consumer thread after ReleaseCurrent() on main); EnsureCurrent()
-// re-binds it when the calling thread changed (counted).
+// The GL window is always hidden. The player sees SessionRuntime's window on main, fed with the backend's
+// presented image (the display quad drawn into an owned framebuffer and read back before the swap); the
+// same image is the headless p<key>.ppm. A SetWindow job therefore only sets the device's window size. The
+// GL context is current on one thread at a time; EnsureCurrent() re-binds it when the caller changes.
 //
 // Create() returns false when no window / GL context / device is available (the leg then keeps
 // its counting sink and reports video=stub); nothing here fails a leg. Shutdown order: pipeline
@@ -77,7 +66,6 @@ public:
     gs::DrawPipeline* Pipe() { return pipe_.get(); }
     // The active backend (GL or Metal); valid after a successful Create().
     render::Backend& Device() { return *be_; }
-    bool IsMetal() const { return metal_active_; }
     // The backend in force ("metal" / "gl") and whether video.backend=auto chose it.
     const char* ActiveBackend() const { return metal_active_ ? "metal" : "gl"; }
     bool BackendAuto() const { return backend_auto_; }
@@ -101,8 +89,8 @@ public:
     void SetPresentCaptureDeferred(bool deferred) { present_capture_deferred_ = deferred; if (be_) be_->SetPresentCaptureDeferred(deferred); }
     // The present capture is read one present late (the picture posted at a present is the previous present's).
     bool PresentCaptureDeferred() const { return present_capture_deferred_; }
-    // Round 5: the prompt capture's bounded wait (video.capture_wait_ms; backend.h) and the lag of the
-    // picture ReadPresented last handed over (0 = this present's, 1 = the previous present's).
+    // The prompt capture's bounded wait (video.capture_wait_ms), and the lag of the picture ReadPresented
+    // last returned (0 = this present's, 1 = the previous present's).
     void SetPresentCaptureWaitNs(uint64_t ns) { if (be_) be_->SetPresentCaptureWaitNs(ns); }
     void SetPresentCaptureGate(std::function<bool()> gate) { if (be_) be_->SetPresentCaptureGate(std::move(gate)); }
     int PresentedLag() const { return be_ ? be_->PresentedLag() : 0; }

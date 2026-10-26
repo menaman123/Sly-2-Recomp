@@ -1,6 +1,4 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_text.h -- the text helpers the composition's modules share
-// (a free-function group, no class): Hex renders a value as 0x<hex> for the run.meta rows and the triage
-// prints exactly as the single-file composition did.
+// Formatting shared by the leg modules.
 #pragma once
 
 #include <cstdint>
@@ -8,6 +6,6 @@
 
 namespace ps2r::title::sly2 {
 
-std::string Hex(uint64_t v);
+std::string Hex(uint64_t v);   // "0x<hex>"
 
 }  // namespace ps2r::title::sly2

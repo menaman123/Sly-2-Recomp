@@ -1,6 +1,5 @@
-// games/scus_97316_sly2_band_of_thieves/hle/vert_trace_sink.h -- VertTraceSink: the DrawIR sink the title
-// composition keeps at the head of GsState's chain, always (the run.meta gs_pages= census counts every
-// draw / transfer), with three boot-triage knobs on top:
+// VertTraceSink: always at the head of GsState's DrawIR chain (gs_pages= counts every draw and transfer),
+// with three debugging knobs:
 //   NATIVEEE_GS_VERTS=<key>     every draw of the frame that ENDS at present key <key> (the draws between
 //                               boundaries key-1 and key) to stderr with its raster state and vertices
 //                               (NATIVEEE_GS_VERTS_CAP=<n> vertices per draw, default 64);
@@ -12,14 +11,10 @@
 //                               the buffers), fbmsk (a partial FBMSK other than alpha-only), t8h (a PSMT8H /
 //                               PSMT4HH / PSMT4HL read), rtblend (a textured sprite blending a buffer with
 //                               FIX), date (DATE-tested draws).
-// Census gs_pages=: the 8 KB VRAM pages a host->local / local->local transfer wrote (InvalidateTextures
-// jobs: a1 = dbp bytes, a2 = bytes) and the pages textured draws sample (TEX0 tbp0 / cbp) -- a texture
-// page sampled but never written is the "garbage strip" class (blacklevel notes: pages 448..486
-// all-zero at frame 600). page_target: every page of the FRAME / ZBUF footprint a draw rendered into
-// (base .. the scissor's last row at FBW pixels of the PSM's byte width). A page sampled but only ever
-// written by draws is a render-to-texture target (gs_pages rtt=), not an orphan: the Binocucom portraits
-// are 128x128 PSMCT32 targets at 0x140000 / 0x150000 (Z 0x170000) drawn ~1000 times a frame and sampled
-// by one sprite each (pages_notes.md).
+// Census gs_pages=: the 8 KB VRAM pages transfers wrote and the pages textured draws sampled. A page
+// sampled but never written is suspect (garbage texture); a page sampled but only written by draws is a
+// render-to-texture target (rtt=), e.g. the Binocucom portraits, 128x128 PSMCT32 targets at 0x140000 /
+// 0x150000 sampled by one sprite each.
 #pragma once
 
 #include <array>
@@ -39,7 +34,7 @@ struct VertTraceSink : ps2r::gs::DrawIrSink {
     bool skip_m16 = false, skip_fbmsk = false, skip_t8h = false, skip_rtblend = false, skip_date = false;
     // Triage classes of the title's two-pass textured objects: `addpass` = the second pass
     // (ALPHA A=Cs B=0 C=As D=Cd, additive with the fragment alpha), `lerppass` = the first
-    // (ALPHA A=Cs B=Cd C=As D=Cd) -- the Paris canopy bisect (ep1 stage).
+    // (ALPHA A=Cs B=Cd C=As D=Cd).
     bool skip_addpass = false, skip_lerppass = false;
     // `tbp=<hex>` -- drop every textured draw reading TEX0.TBP0 at that byte address (which object is it?).
     std::vector<uint32_t> skip_tbp;

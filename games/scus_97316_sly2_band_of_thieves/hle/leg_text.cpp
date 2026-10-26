@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_text.cpp -- Hex (leg_text.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_text.h"
 
 #include <cstdio>

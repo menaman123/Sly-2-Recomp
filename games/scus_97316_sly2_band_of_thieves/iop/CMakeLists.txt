@@ -1,8 +1,6 @@
-# games/scus_97316_sly2_band_of_thieves/iop -- the title's IOP modules, RECOMPILED at build time.
-#
-# Sly 2 embeds its IOP modules in the ELF (TITLE_INPUTS.sha256 `SCUS_973.16!<name>` rows;
-# cmake/TitleInputs.cmake extracts them SHA-256 gated into ${PS2R_TITLE_INPUTS_DIR}). Three have
-# no native engine owner and are hosted on the engine's IOP kernel as native code:
+# Sly 2's IOP modules, recompiled at build time. They are embedded in the ELF (extracted and SHA-256
+# checked by cmake/TitleInputs.cmake); FILEIO comes from IOPRP300.IMG. These have no native engine model
+# and run on the engine's IOP kernel:
 #
 #   id       .iopmod name     base      exports  what it is
 #   fileio   FILEIO_service   0x20000   (none)   the IOPRP300 reboot image's stock fileio (RPC 0x80000001 the EE's libfileio calls)
@@ -10,14 +8,9 @@
 #   snd989   989snd_Library   0x33000   snd989   SCEA's 989snd sound driver -- the RPC servers 0x123456/0x123457 the EE calls
 #   spiop    spiop            0x5a000   (none)   Sucker Punch's streaming module (hangs into 989snd's/lgaud's exports)
 #
-# Each is recompiled by the in-tree ps2r_iop_recompiler (--base <B> --namespace iop_<id>
-# --import-call: relocated to its load address, wrapped in its own namespace, every library
-# import routed through the engine's IopLibraryTable) into ${PS2R_IOP_GEN_ROOT}/<id>/ and
-# compiled as ps2r_title_iop_<id> over the engine's generic ABI (engine/iop/abi). The bases
-# are title layout data (iop_modules.h): images end below the sysmem heap floor (0x60000).
-# MANIFEST.sha256 per module pins the generated output (hashes only, no game bytes).
-#
-# Nothing game-derived is committed here; the generated TUs live in the build directory.
+# ps2r_iop_recompiler relocates each to its base, wraps it in namespace iop_<id> and routes every library
+# import through the engine's IopLibraryTable. Bases are in iop_modules.h (all below the sysmem heap at
+# 0x60000). Each module's MANIFEST.sha256 pins the generated output; nothing generated is committed.
 if(NOT PS2R_TITLE_EMBEDDED_AVAILABLE)
     message(STATUS "games/scus_97316_sly2_band_of_thieves/iop: no extracted embedded modules -- ps2r_title_iop_* not defined")
     return()
@@ -48,9 +41,8 @@ function(ps2r_sly2_iop_module id module base)
     set_source_files_properties(${_generated} PROPERTIES GENERATED TRUE)
     add_custom_target(ps2r_title_iop_${id}_generate DEPENDS ${_generated})
 
-    # MANIFEST.sha256 (hashes of the GENERATED files): the regeneration must reproduce it
-    # byte for byte when present and PS2R_RECOMP_CHECK_MANIFEST is ON. Record from the first
-    # successful generation:  (cd ${_gen} && shasum -a 256 iop_recompiled.h iop_recompiled.cpp) > iop/<id>/MANIFEST.sha256
+    # With PS2R_RECOMP_CHECK_MANIFEST on, the generated files must match MANIFEST.sha256 byte for byte.
+    # To record it:  (cd ${_gen} && shasum -a 256 iop_recompiled.h iop_recompiled.cpp) > iop/<id>/MANIFEST.sha256
     set(_manifest "${CMAKE_CURRENT_SOURCE_DIR}/MANIFEST.sha256")   # the function runs from iop/<id>/
     set(_verify_stamp "")
     if(EXISTS "${_manifest}")
@@ -83,7 +75,7 @@ function(ps2r_sly2_iop_module id module base)
         ${CMAKE_SOURCE_DIR}/engine/iop/abi/anchor   # "../host_app/x.h" -> engine/iop/abi/host_app/x.h
         ${CMAKE_SOURCE_DIR}
         ${_gen})
-    # The generated TU compiles like the first title's: -O0, no warnings, semantic flags only.
+    # Generated code: -O0, no warnings, semantic flags only.
     set_source_files_properties("${_gen}/iop_recompiled.cpp" PROPERTIES COMPILE_OPTIONS "-w;-fno-strict-aliasing;-fwrapv;-O0")
     target_link_libraries(ps2r_title_iop_${id} PUBLIC ps2r_iop)
     add_dependencies(ps2r_title_iop_${id} ps2r_title_iop_${id}_generate)

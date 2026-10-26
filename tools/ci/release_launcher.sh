@@ -1,37 +1,28 @@
 #!/usr/bin/env bash
-# tools/ci/release_launcher.sh -- the release a player downloads, for macOS (arm64 / x86_64) and Linux (x86_64):
+# Builds, tests and packages the launcher for macOS (arm64 / x86_64) and Linux (x86_64):
 #
 #   <product>-<tag>-<platform>.zip          (release.asset_pattern in launcher/title.json)
 #   └── <product>-<platform>/               (release.bundle_folder)
-#       ├── <Name>.app | <product>-launcher  the engine's launcher (engine/app/launcher, Qt 6 Widgets, dynamic Qt, LGPL)
-#       │   └── Contents/Resources/titles/title.json, BUILD-ID, LICENSE, THIRD_PARTY_NOTICES.md, licenses/
-#       ├── engine/                          the prebuilt engine bundle for this platform (--engine-bundle DIR)
-#       └── tools/                           the pinned portable compiler + linker for this platform (--compiler-bundle DIR)
+#       └── <Name>.app | launcher/<product>-launcher   with titles/title.json, BUILD-ID, LICENSE,
+#                                                       THIRD_PARTY_NOTICES.md, licenses/ (Qt linked dynamically, LGPL)
 #
-# Nothing game-derived is in it (decision D-A): the player's disc is read and the game prepared on their machine, by the
-# launcher, with the compiler in tools/. The engine/ and tools/ halves are produced by the prepare track's packaging and
-# are COPIED here; this script fails when they are asked for and missing, and stages a launcher-only zip (for the
-# launcher's own CI) when --launcher-only is given.
+# These packages carry the launcher only; the Windows package also ships the game (release_launcher.ps1).
 #
-#   tools/ci/release_launcher.sh [--qt PREFIX] [--build-dir DIR] [--dist-dir DIR] [--engine DIR]
-#                                [--engine-bundle DIR] [--compiler-bundle DIR] [--launcher-only] [--skip-build] [--tag TAG]
+#   tools/ci/release_launcher.sh [--qt PREFIX] [--build-dir DIR] [--dist-dir DIR] [--engine DIR] [--skip-build] [--tag TAG]
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 QT="${QT_PREFIX:-/opt/homebrew/opt/qt6}"; BUILD="$ROOT/build-launcher"; DIST_ROOT="$ROOT/dist"; ENGINE="$ROOT/engine"
-ENGINE_BUNDLE=""; COMPILER_BUNDLE=""; LAUNCHER_ONLY=0; SKIP_BUILD=0; TAG=""
+SKIP_BUILD=0; TAG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --qt) QT="$2"; shift 2 ;;
     --build-dir) BUILD="$2"; shift 2 ;;
     --dist-dir) DIST_ROOT="$2"; shift 2 ;;
     --engine) ENGINE="$2"; shift 2 ;;
-    --engine-bundle) ENGINE_BUNDLE="$2"; shift 2 ;;
-    --compiler-bundle) COMPILER_BUNDLE="$2"; shift 2 ;;
-    --launcher-only) LAUNCHER_ONLY=1; shift ;;
     --skip-build) SKIP_BUILD=1; shift ;;
     --tag) TAG="$2"; shift 2 ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
     *) echo "release_launcher: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -100,11 +91,9 @@ for f in LICENSE.LGPL3 LICENSE.GPL3-EXCEPT LICENSE.GPL3 LICENSE.FDL; do [ -f "$Q
 {
   echo "# $NAME -- third-party notices -- $(head -1 "$RES/BUILD-ID")"
   echo
-  echo "This application is the NativeEE engine's launcher (engine/app/launcher, MIT) carrying this title's description. It"
-  echo "contains NO game data and no code derived from the game: it reads your own disc image and prepares the game on your"
-  echo "machine with the tools in tools/. Qt $QT_VERSION is linked dynamically under the LGPL v3 (licenses/Qt-LICENSE.LGPL3)"
-  echo "and may be replaced by another build of the same major version. The engine bundle in engine/ and the tools in"
-  echo "tools/ carry their own notices."
+  echo "This application is the NativeEE engine's launcher (engine/app/launcher, MIT) with this title's description. It"
+  echo "contains no game data. Qt $QT_VERSION is linked dynamically under the LGPL v3 (licenses/Qt-LICENSE.LGPL3) and may be"
+  echo "replaced by another build of the same major version."
 } > "$RES/THIRD_PARTY_NOTICES.md"
 
 if [ "$PLAT_OS" = macos ]; then
@@ -112,13 +101,6 @@ if [ "$PLAT_OS" = macos ]; then
   [ -x "$QT/bin/macdeployqt" ] || { echo "release_launcher: no macdeployqt under $QT/bin" >&2; exit 2; }
   "$QT/bin/macdeployqt" "$APP" -no-strip > "$DIST_ROOT/macdeployqt-$PLATFORM.log" 2>&1 || { tail -20 "$DIST_ROOT/macdeployqt-$PLATFORM.log"; exit 1; }
   codesign --force --deep --sign "${CODESIGN_IDENTITY:--}" "$APP" && codesign --verify --deep --strict "$APP"
-fi
-
-if [ "$LAUNCHER_ONLY" = 0 ]; then
-  step "the engine bundle and the compiler (from the prepare track's packaging)"
-  [ -n "$ENGINE_BUNDLE" ] && [ -d "$ENGINE_BUNDLE" ] || { echo "release_launcher: --engine-bundle DIR (the prebuilt engine for $PLATFORM) is required; --launcher-only stages the launcher alone" >&2; exit 2; }
-  [ -n "$COMPILER_BUNDLE" ] && [ -d "$COMPILER_BUNDLE" ] || { echo "release_launcher: --compiler-bundle DIR (the pinned portable compiler + linker for $PLATFORM) is required" >&2; exit 2; }
-  cp -R "$ENGINE_BUNDLE" "$DIST/engine"; cp -R "$COMPILER_BUNDLE" "$DIST/tools"
 fi
 
 step "no game-derived file in the staged folder"

@@ -47,7 +47,7 @@
         23000
       ],
       "ink_lum": 48,
-      "ink_lum_note": "the intro cinematic runs under a fade: the ink lands at L 38 in the twin (42 ours, the colour stage's few levels of global tone -- bg mean 26.5 vs 27.7); the default 40 cuts through it"
+      "ink_lum_note": "the intro cinematic runs under a fade: the ink lands at L 38 in the twin (42 ours, a few levels of global tone apart -- bg mean 26.5 vs 27.7); the default 40 cuts through it"
     },
     "palace_hub": {
       "scene": "episode-2 palace (India jungle) hub, the spawn ledge, camera behind Sly (PCSX2 slot-3 state from the same rewritten save: per-draw dump f15 = wp_pcsx2/hwdump_ep2, frame PNG f16 fr1; ours states/hub_ep2.ps2st present key 11, NATIVEEE_GS_VERTS=11 TEX_DUMP=0,12). Same spawn, idle phase differs -> ring reported only.",

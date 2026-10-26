@@ -1,21 +1,12 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_iop.h -- LegIop: the IOP arm of the title's play
-// composition -- the title's embedded modules hosted on the engine's IOP kernel (hle/iop_host.h) and the
-// SIF wiring around them. The EE's sceSifSetDma pushes land in IOP RAM; sceSifAllocIopHeap is the sysmem
-// heap; a sceSifLoadModuleBuffer boots the recompiled module whose .iopmod name matches (lgAud, 989snd,
-// spiop) or records the row of a natively served one (the loader itself is installed with the manifest,
-// leg_image.cpp). The 989snd RPC servers the module registers are put on the RpcRouter by the host, so
-// snd_Init's sceSifCallRpc reaches them. The padman face follows the padman the title loads (padman.irx
-// 4.10 on this disc: the SDK-3 command table, GET_MODVER 0x410); the row image's .bss is the
-// actuator-DMA sink. The boundary's IopDispatch step pumps the IOP one frame quantum and delivers its
-// SIF commands (PumpFieldQuantum); the Verify slot's play-mode field pump runs the same quantum once more
-// per catch-up field, between the SPU quanta it mixes, so the IOP's frame clock follows the SPU's (one
-// quantum per delivered field) and 989snd's stream refills keep pace below 60 boundaries/s; the EeStreamRpc step pumps after the EE's service; the SIF command path IOP -> EE lands in libkernl's
-// command buffer (the title's sceSifInitCmd static, iop/iop_modules.h) and runs the EE's handler as a
-// guest call. The back-edge yield (recomp/CMakeLists.txt: --yield-backedges): a guest loop that reaches
-// no kernel call trips EeYieldPoint every kYieldBudget back-edges -- one field of emulated time, alarms,
-// timers, the pending ISRs (the DMAC's INT1 handlers too), the event drain, the IOP pump, the MTVU
-// drain, then the thbase preemption point; refused while the boundary sequence is in flight. Unbound
-// when this object goes.
+// LegIop: the IOP host (iop_host.h) and the SIF wiring around it.
+//
+//   * The padman model follows the padman.irx this disc loads (4.10: the SDK-3 command table).
+//   * Each boundary pumps the IOP one frame quantum and delivers its SIF commands; in play mode each
+//     catch-up field pumps once more, so 989snd's stream refills keep pace below 60 boundaries/s.
+//   * IOP -> EE SIF commands land in libkernl's command buffer and run the EE's handler as a guest call.
+//   * Back-edge yield (recomp --yield-backedges): a guest loop that makes no kernel call trips EeYieldPoint
+//     every kYieldBudget back-edges, which advances a field and delivers timers, ISRs, events, the IOP
+//     pump and the MTVU drain. Not taken while a boundary is in flight.
 #pragma once
 
 #include <cstdint>
@@ -42,10 +33,8 @@ public:
     LegIop(const LegIop&) = delete;
     LegIop& operator=(const LegIop&) = delete;
 
-    // One IOP frame quantum (IopModuleTable::PumpAtBoundary) + the SIF commands it sent, delivered to the
-    // EE. The IopDispatch step runs it once per boundary; the Verify slot's field pump runs it once more
-    // per catch-up field, BETWEEN the SPU quanta it mixes (LegAudio::field_quantum) -- IOP quantum k
-    // precedes SPU quantum k in both lanes, so the IOP's frame clock follows the SPU's at any frame rate.
+    // One IOP frame quantum plus delivery of the SIF commands it sent. Runs once per boundary and once
+    // per catch-up field, before that field's SPU quantum, so IOP time follows SPU time at any frame rate.
     void PumpFieldQuantum(CpuContext& ctx);
 
     IopHost iop_host;

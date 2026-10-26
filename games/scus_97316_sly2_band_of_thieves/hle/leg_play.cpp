@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_play.cpp -- LegPlay (leg_play.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_play.h"
 
 #include <algorithm>
@@ -16,7 +15,7 @@ namespace ps2r::title::sly2 {
 
 namespace {
 
-// Config's enums onto the engine's selections (the same order; pinned here).
+// Config's enums map onto the engine's selections in the same order.
 ps2r::gs::AspectSelection::Shape ShapeOf(ps2r::AspectSel a) {
     static_assert(static_cast<int>(ps2r::gs::AspectSelection::Shape::Auto) == static_cast<int>(ps2r::AspectSel::Auto) &&
                   static_cast<int>(ps2r::gs::AspectSelection::Shape::Narrow) == static_cast<int>(ps2r::AspectSel::R4_3) &&
@@ -54,9 +53,8 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         session->ConfigurePresentation(cfg.video.vsync, cfg.video.fps_cap);
         session->SetWindowTitle(title.display_name.empty() ? title.serial : title.display_name);
         session->SetEventTrace(cfg.dev.log_level == ps2r::LogLevelSetting::Narrate);
-        // The player's settings: seeded from Config, persisted to the ONE settings file (ConfigStore:
-        // the nativeee.ini the loader read, which the launcher's Settings page edits too), never to
-        // the memory card. A write failure is loud, never silent.
+        // Settings are seeded from Config and persisted to the nativeee.ini the loader read (the launcher
+        // edits the same file). A failed write is reported.
         const std::string settings_file = ps2r::ConfigStore::ActivePath();
         session->ConfigureSettings(cfg.ui.perf_overlay, [this, settings_file](const std::string& key, const std::string& value) {
             std::string err;
@@ -68,13 +66,8 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
                 std::fprintf(stderr, "nativeee: settings: %s=%s not saved: %s\n", key.c_str(), value.c_str(), err.c_str());
             }
         }, [] { return ps2r::ConfigStore::ReadAll(); });
-        // The Display page: the presenter's rows (mode, aspect, vsync, render rate, frame cap) seeded from
-        // video.*; the aspect selection fits the picture in the session window; the texture
-        // filter selection is the GL device's sampler choice (video.texture_filter / anisotropy).
-        // video.scale is persisted by the row and read at the next start (this video stack builds
-        // its ScalePolicy once, at Create).
-        // video.frame_cap seeds the Frame cap row (the presented-frame cadence: off | 30 | 60; the
-        // engine's FramePacer order == the Config enum's).
+        // Display page rows are seeded from video.*. video.scale takes effect at the next start, since the
+        // video stack builds its scale policy once.
         static_assert(static_cast<int>(ps2r::FrameCap::Off) == 0 && static_cast<int>(ps2r::FrameCap::Hz30) == 1 &&
                       static_cast<int>(ps2r::FrameCap::Hz60) == 2);
         session->ConfigureDisplayRows({cfg.video.scale, static_cast<int>(cfg.video.aspect), static_cast<int>(cfg.video.render_rate),
@@ -85,30 +78,24 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         texture_filter = std::make_shared<ps2r::render::TextureFilterSelection>(FilterOf(cfg.video.texture_filter), cfg.video.anisotropy);
         gs.video.Device().SetTextureFilter(texture_filter);
         session->SetTextureFilter(texture_filter);
-        // The pause menu (Escape) and the Controls page (press-to-bind over bindings.ini beside the settings file,
-        // applied to the live pad at once).
+        // The pause menu and the Controls page (press-to-bind, applied to the live pad at once).
         session->ConfigurePauseMenu(true);
-        // --dump-frames <dir> in play: the presented WINDOW image the session ends on (<dir>/w_final.ppm:
-        // the picture plus the menu overlays -- what the user saw), the pin for the menu pages.
+        // --dump-frames in play: the final window image, menus included, as <dir>/w_final.ppm.
         if (gs.frame_dump.Enabled()) session->ConfigureWindowDump(gs.frame_dump.Dir());
-        // The F1 panel's Renderer line: the backend in force and how it was chosen.
         if (gs.video_live)
             session->SetRenderer(std::string(gs.video.ActiveBackend()) + (gs.video.BackendAuto() ? " (auto): " : ": ") +
                                  gs.video.Renderer());
         controls_page = std::make_unique<ps2r::app::ControlsPageBinding>(ps2r::ConfigStore::ActiveDir(), live_input.get());
         session->ConfigureControlsPage(controls_page->Model());
-        // The presenter's draws: the ones that showed a NEW picture are the shown lane of the record.
+        // Window draws that showed a new picture form the `shown` lane.
         session->SetPresentObserver([this](std::chrono::steady_clock::time_point at, bool new_picture, uint64_t tag, uint64_t) {
             if (new_picture) timeline.NoteAt(FrameTimeline::Lane::Shown, at, tag);
         });
-        // The latency census (frame_timeline.h): the drained / consumed lanes are noted on the drain and
-        // consumer threads through the tap; the posted picture carries its EE frame ordinal to the presenter.
+        // The posted picture carries its EE frame ordinal to the presenter for the latency census.
         gs.latency_tap.timeline = &timeline;
-        // The consumer thread's presented image goes to the session window and, with --dump-frames,
-        // every dump_every-th one is written as p<n>.ppm (n = the OUTPUT frame ordinal).
-        // The picture's frame ordinal: the frame record the consumer is delivering, or the one before it
-        // when the present capture was read one present late (SetPresentCaptureDeferred, leg_gs.cpp;
-        // the backend says which for each hand-over: PresentedLag, round 5's prompt capture reads its own).
+        // The consumer's presented image goes to the session window (and to p<n>.ppm with --dump-frames).
+        // Its frame is the record being delivered, or the one before when the capture was read one present
+        // late (the backend reports which via PresentedLag).
         gs.video.SetOutput([this, &gs](std::vector<uint8_t> rgba, int w, int h) {
             const uint64_t frame = gs.latency_tap.current_frame.load(std::memory_order_relaxed);
             const uint64_t capture_lag = gs.video.PresentCaptureDeferred() ? static_cast<uint64_t>(gs.video.PresentedLag()) : 0u;

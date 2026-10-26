@@ -1,10 +1,9 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_disc.h -- LegDisc: the disc of the title's play composition
-// -- IsoFs over the image (--iso, else <game_files>/<disc_image_file>), the sector reader the libcdvd
-// rows copy from (Sly 2 reads raw sectors with sceCdRead), the StreamReader, the run.meta iso_path= /
-// iso_open= rows -- and the kernel's SifDmaTransfer id hook: the engine's syscall keeps its first title's
-// rule (0 for a list without the command attribute, attr & 4) which Sly 2's plain data pushes never
-// carry; the IOP-boot function 0x1a7630 polls `while (!sceSifSetDma(&t, 1))` and would spin forever, so
-// this hook supplies the id for such lists (upstream candidate: the kernel rule in the engine).
+// LegDisc: the disc image (--iso, else <game_files>/<disc_image_file>), the sector reader behind
+// libcdvd (Sly 2 reads raw sectors with sceCdRead), and the stream reader.
+//
+// It also hooks the kernel's SifDmaTransfer id. The engine returns 0 for a list without the command
+// attribute (attr & 4), which Sly 2's plain data pushes never set; its IOP boot code at 0x1a7630 polls
+// `while (!sceSifSetDma(&t, 1))` and would spin forever, so the hook supplies an id for such lists.
 #pragma once
 
 #include <cstdint>
@@ -25,7 +24,7 @@ public:
     LegDisc(const LegDisc&) = delete;
     LegDisc& operator=(const LegDisc&) = delete;
 
-    // The ReadEngine the libcdvd rows / the IOP host read from; null when no disc image opened.
+    // Null when no disc image opened.
     ReadEngine* Reader() { return iso_open ? &read_engine : nullptr; }
 
     IsoFs iso_fs;

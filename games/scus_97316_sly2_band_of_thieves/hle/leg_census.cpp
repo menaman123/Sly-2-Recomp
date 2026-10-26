@@ -1,5 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_census.cpp -- LegCensus (leg_census.h). The row order is
-// the single-file composition's write_census, cut into the five groups below at the same keys.
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 
 #include <algorithm>
@@ -91,8 +89,8 @@ void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
                                      ":functions=" + std::to_string(fns) + ":installs=" + std::to_string(DispatchTable::InstallCount()));
     }
     {
-        // The foreign-event queue: how many enqueues poked every park (no token holder) vs the
-        // holder's parks only (E420: a blocked thread is never woken for an event the holder applies).
+        // The foreign-event queue: enqueues that woke every park (no token holder) vs only the holder's
+        // (a blocked thread is never woken for an event the holder applies).
         const EeEventQueue& q = EeEventQueue::Instance();
         meta->Set("ee_events", "pokes_all=" + std::to_string(q.PokesAll()) + ":pokes_holder=" + std::to_string(q.PokesHolder()) +
                                    ":ring_drops=" + std::to_string(q.RingFullDrops()) +
@@ -129,8 +127,8 @@ void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
     meta->Set("intc_edges", intc.EdgeCensus());
     meta->Set("gs_irq", "events=" + std::to_string(irq.gs_irq_events) + ":masked=" + std::to_string(irq.gs_irq_masked) +
                             ":raises=" + std::to_string(irq.gs_irq_raises));
-    // E425 hazard census: the GS events by kind / parser path / raising thread, and the EE's
-    // reads of the GS event state (CSR by the event bits it carried, SIGLBLID, the W1C clears).
+    // GS events by kind / parser path / raising thread, and the EE's reads of the GS event state
+    // (CSR by the event bits it carried, SIGLBLID, the W1C clears).
     {
         std::string s;
         static const char* const kKind[2] = {"finish", "signal"};
@@ -162,8 +160,8 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
                                  ",arbiter_sealed_ready=" + (gif_arbiter.hasSealedReady() ? "1" : "0") +
                                  ",worker_busy=" + (mtvu->worker().IsBusy() ? "1" : "0")
                            : "off");
-    // E430: every producer-side park on the pipeline by cause (count/ns), the VIF1 registers
-    // the EE wrote / read through the gate.
+    // Producer-side parks on the pipeline by cause (count/ns), and the VIF1 registers the EE wrote /
+    // read through the gate.
     meta->Set("mtvu_waits", mtvu ? mtvu->WaitsCensus() : "off");
     WriteGsPages(meta);
     WriteShadowSplit(meta);
@@ -345,7 +343,7 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
         meta->Set("present_hist", row);
         // The chain's per-frame latency behind the EE boundary (frame_timeline.h; matched by frame tag).
         meta->Set("present_latency", play.timeline.LatencyCensus());
-        // The input -> photon budget per stage (round 5; verify/judge_latency.py judges it in fields).
+        // The input -> photon latency per stage (verify/judge_latency.py).
         meta->Set("latency", play.timeline.InputLatencyCensus() + ";pulse=" + pad.PulseCensus());
         // The presented-frame cadence in force and the pacer's census (video.frame_cap; engine FramePacer).
         meta->Set("frame_cap", play.session->FrameCapCensus());
@@ -385,14 +383,12 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
     meta->Set("pace_work_max_breakdown", protocol.WorkMaxBreakdown().empty() ? std::string("none") : protocol.WorkMaxBreakdown());
     meta->Set("pace_long_trace", protocol.LongTrace().empty() ? std::string("none") : protocol.LongTrace());
     meta->Set("tick_profile", protocol.SiteTotals());
-    // The clock contract's census (engine ClockCensus; the series per 1 s wall window) and the INVARIANT row
-    // `clock=`: logic_hz = fields of game time per wall second (the game's vblank clock; 60.00 +- 0.1 at real
-    // time whatever the frame rate), frame_hz = boundaries per wall second (the picture-production rate),
-    // catchup_ticks = boundaries that found their field already noted (frame work > one period) with the
-    // extra fields they delivered, slow_motion = pacer ticks noted and still undelivered at the census beyond
-    // the ONE a running frame always has in flight (a domain that fell behind the wall). The summary skips the
-    // first kClockRampWindows windows (the boot / state-restore ramp) and the partial last one; the series
-    // keep every completed window.
+    // clock= (engine ClockCensus, per 1 s wall window):
+    //   logic_hz       fields of game time per wall second (60.00 +- 0.1 at real time, whatever the frame rate)
+    //   frame_hz       boundaries per wall second
+    //   catchup_ticks  boundaries whose field was already noted (frame work > one period), and the extra fields
+    //   slow_motion    pacer ticks still undelivered beyond the one a running frame has in flight
+    // The summary skips the first kClockRampWindows windows (boot / state restore) and the partial last one.
     {
         const ps2r::app::ClockCensus& cc = play.clock_census;
         meta->Set("clock_game_hz", cc.GameHzSeries().empty() ? std::string("none") : cc.GameHzSeries());

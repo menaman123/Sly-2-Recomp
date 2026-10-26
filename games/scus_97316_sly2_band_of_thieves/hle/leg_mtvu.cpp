@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_mtvu.cpp -- LegMtvu (leg_mtvu.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_mtvu.h"
 
 #include <cstdio>
@@ -19,84 +18,68 @@ namespace ps2r::title::sly2 {
 LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs& knobs, LegCore& core, LegGs& gs,
                  LegDevices& devices)
     : devices_(devices) {
-    // The DrawIR queue's producer stages its Pipelined records (pipeline2): the end of every drain pass --
-    // on the drain thread, or inline on the EE -- hands the staged records to the ring, so none waits for
-    // the next kick (a frame record / ordered work flush on their own).
+    // The DrawIR queue batches pipelined records; the end of every drain pass flushes the batch so no
+    // record waits for the next kick.
     if (gs.gs_queue)
         devices.gif_arbiter.SetPassEndHook(+[](void* user) { static_cast<ps2r::gs::DrawIrThreadQueue*>(user)->EndOfPass(); },
                                            gs.gs_queue.get());
-    // NATIVEEE_MTVU=1|0 (boot triage) forces the stack on / off in every mode (the deterministic
-    // profile pins engine.mtvu=off; =1 under it is the frame-identity oracle for the worker). The
-    // Config default is on and the loader records no "was set", so the env knob is the headless opt-in.
+    // NATIVEEE_MTVU=1|0 forces the worker on or off in every mode; =1 under the deterministic profile checks
+    // the worker's frames against the inline path.
     const bool mtvu_wanted = knobs.mtvu_set ? knobs.mtvu_on : (cfg.engine.mtvu && core.play_mode);
     if (mtvu_wanted) {
         MtvuSettings mtvu_settings;
         mtvu_settings.enabled = true;
         mtvu_settings.depth_frames = cfg.engine.mtvu_depth;
-        mtvu_settings.depth_hold = cfg.engine.mtvu_depth_hold;   // round 5: the hold cap on the frames arm
+        mtvu_settings.depth_hold = cfg.engine.mtvu_depth_hold;
         mtvu = std::make_unique<MtvuStack>(devices.vif, devices.dmac.walker(), devices.gif_arbiter, devices.vu1.dispatch(),
                                            devices.vu1.dispatch().settings(), title.quirks.xgkick_defer, mtvu_settings, &core.running);
         mtvu->SetKickDrop(false);
-        // E425/E426 (engine.mtvu_early_finish / NATIVEEE_MTVU_EARLY_FINISH; default off). The early
-        // FINISH applies wherever the worker runs; the DEFERRED boundary (E426: no terminal sync at
-        // SyncV, no VSync drain fence, the composed GIF_STAT) only in the paced play composition --
-        // the headless / unpaced lanes keep the terminal sync so their Verify grab reads the frame
-        // the boundary closed (the fhash lane stays keyed by boundary: the oracle lanes are inert).
+        // engine.mtvu_early_finish (default off). The early FINISH applies wherever the worker runs; the
+        // deferred boundary (no terminal sync, no VSync fence, composed GIF_STAT) only in paced play, so the
+        // headless grab still reads the frame its boundary closed.
         early_finish = knobs.early_finish_set ? knobs.early_finish_on : cfg.engine.mtvu_early_finish;
-        // E430 (engine.mtvu_wait_probe / NATIVEEE_MTVU_WAIT_PROBE): the syscall entry's observation
-        // point (leg_interrupts) asks the kernel object whether the wait would park before idling on
-        // the worker -- the WaitSema after the kick, whose FINISH the early raise signalled in the
-        // same entry, no longer serialises the frame behind the worker's replay.
+        // engine.mtvu_wait_probe: before idling on the worker, ask the kernel object whether the wait would
+        // park at all, so a WaitSema already satisfied by the early FINISH does not wait out the replay.
         wait_probe = knobs.wait_probe_set ? knobs.wait_probe_on : cfg.engine.mtvu_wait_probe;
         const bool paced = core.play_mode && gs.video_live && !knobs.unpaced;
         deferred_boundary = early_finish && paced;
         mtvu->SetDeferBoundaries(deferred_boundary);
         mtvu->SetComposedGifStat(deferred_boundary);
-        // E427: with the boundary deferred, the vsync thread's sceGsSyncPath (0x2403d8, the
-        // libgraph body: VIF1_STAT / GIF_STAT polled until idle; 12 polls per frame on tid 3,
-        // census vif1_stat_poll_site) would otherwise park on the worker and -- at priority 2
-        // over the logic thread's 5 -- keep the frame a series; the EE-side view answers it.
+        // With the boundary deferred, the vsync thread's sceGsSyncPath (0x2403d8, which polls VIF1_STAT /
+        // GIF_STAT until idle) would park on the worker and, at priority 2 over the logic thread's 5,
+        // serialise the frame. The EE-side view answers it instead.
         mtvu->SetVif1IdleView(deferred_boundary);
         mtvu->SetVif1PollSite(+[](void*) -> uint32_t {
             ShadowCallStack::Frame f{};
             return ShadowCallStack::Top(0, f) ? f.func_addr : 0u;
         }, nullptr);
-        // A completed EE-side sync (the pipeline ran empty on the EE's demand) is an observation
-        // point for the GS causes the pipeline latched (E422, leg_interrupts: the FINISH /
-        // SIGNAL observer raises deferred; the INTC collects at observation points only).
+        // A completed EE-side sync is an observation point: collect the GS causes the pipeline latched.
         mtvu->sync().SetAfterSyncHook(+[](void* user) { static_cast<Intc*>(user)->CollectDeferred(); }, &core.intc);
-        // The drain thread only where the DrawIR chain's consumer never draws on the pushing thread.
         const bool drain_possible = !gs.video_live || gs.gs_queue_thread;
-        // Default ON (E420-E422: the drain thread's FINISH is applied on the holder's context at a
-        // scheduling point, never on a woken thread's -- idle_isrs 0, the GS census and the kernel
-        // census equal to the inline lane); NATIVEEE_GIF_DRAIN=0|1 forces (the A/B lever).
+        // On by default: the drain thread's FINISH is applied on the token holder at a scheduling point,
+        // never on a woken thread. NATIVEEE_GIF_DRAIN=0|1 overrides.
         const bool drain_wanted = knobs.gif_drain_set ? knobs.gif_drain_on : drain_possible;
         mtvu->Start(/*with_drain_thread=*/drain_wanted && drain_possible);
         if (mtvu->drain().Running()) {
             GifArbiter& arbiter = devices.gif_arbiter;
-            // The EE's pushes into the DrawIR chain ride the arbiter in stream order: the boundary's
-            // VSync job (then fenced: the Verify slot / the vblank read a completed frame) and the
-            // privileged display registers' jobs (one kick, no wait).
-            // Under the deferred boundary (E426) the fence goes: the frame's packets may still be
-            // unparsed at the boundary by design; the wall-locked Verify grab reads LastFrameHeaderCopy.
+            // The EE's pushes go through the arbiter in stream order: the VSync job (fenced, so readers see a
+            // completed frame) and the display register jobs. With the boundary deferred there is no fence:
+            // the frame may still be unparsed, and the Verify grab reads LastFrameHeaderCopy.
             const bool fence = !deferred_boundary;
             MtvuStack* stack = mtvu.get();
             gs.ordered_submit = [&arbiter, stack, fence](std::function<void()> work) {
                 arbiter.submitOrdered(std::move(work));
                 arbiter.drain();
-                if (fence) stack->VsyncFence();   // = arbiter.DrainFence(), booked as vsync_fence
+                if (fence) stack->VsyncFence();
             };
             gs.gs_state.Priv().SetJobDeferrer([&arbiter](std::function<void()> push) {
                 arbiter.submitOrdered(std::move(push));
                 arbiter.drain();
             });
         }
-        // E425 early FINISH (engine.mtvu_early_finish / NATIVEEE_MTVU_EARLY_FINISH; default off): the
-        // EE raises the GS FINISH -- CSR.FINISH + the INTC edge through the same observer as the
-        // parser's raise, so IMR masking and the deferred collection are unchanged -- when it has
-        // STAGED the chain carrying the write (the VIF1 walk's closing PATH2 DIRECT, tid 3's PATH3
-        // chains), and the parser's own Finish() for that write consumes the pre-raised count: one
-        // edge per FINISH write (O4: gs_irq 1800 / intc GS edges 1800 on the Paris 600 lane).
+        // Early FINISH: the EE raises GS FINISH (through the same observer, so masking is unchanged) as soon
+        // as it has staged the chain carrying the write; the parser's later Finish() for that write consumes
+        // the pre-raised count, so there is still one edge per FINISH write.
         if (early_finish) {
             GifArbiter& arbiter = devices.gif_arbiter;
             ps2r::gs::GsPrivRegs& priv = gs.gs_state.Priv();
@@ -107,9 +90,8 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
                  mtvu->drain().Running() ? "thread" : "inline", deferred_boundary ? "deferred" : "terminal sync",
                  cfg.engine.mtvu_depth, early_finish ? "on" : "off", wait_probe ? "on" : "off");
     }
-    // The AOT tier's persistent side on the LIVE VU1 unit (the worker's under MTVU: its dispatch copied
-    // the settings above). Only when the tier is selected. No compiler on the host = one notice, the
-    // specialised tier continues.
+    // The AOT tier on the live VU1 unit, only when selected. Without a compiler on the host it prints one
+    // notice and the specialised tier carries on.
     {
         VuUnit& live = LiveVu1();
         live.dispatch().aot().set_fallback(cfg.engine.vu1_aot_fallback == ps2r::Vu1AotFallback::Interp
@@ -131,7 +113,7 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
             bs.compiler = cfg.engine.vu1_aot_compiler;
             bs.sysroot = cfg.engine.vu1_aot_sysroot;
             bs.prelude_dir = cfg.engine.vu1_aot_prelude;
-            bs.pack_dir = cfg.engine.vu1_aot_pack;   // "" = <executable dir>/vu1_aot_pack (the shipped pack)
+            bs.pack_dir = cfg.engine.vu1_aot_pack;   // "" = <executable dir>/vu1_aot_pack
             bs.opt_level = cfg.engine.vu1_aot_opt;
             bs.region.block_cap = cfg.engine.vu1_aot_region_blocks;
             bs.region.op_cap = cfg.engine.vu1_aot_region_ops;

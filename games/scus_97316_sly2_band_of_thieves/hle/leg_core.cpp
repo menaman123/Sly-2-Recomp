@@ -1,7 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_core.cpp -- LegCore (leg_core.h): memory + MMIO, the time
-// domain, INTC + timers, the boundary and the kernel seams, in the single-file composition's order. The
-// members' constructors run first (every one of them is a plain binding of references / defaults), then
-// the arming sequence below in the order the single-file leg ran it.
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
 
 #include <cstdio>
@@ -32,9 +28,8 @@ LegCore::LegCore(const ps2r::Config& cfg, const LegKnobs& knobs)
       protocol(tick_source, sequencer.Ticks()) {
     // --- memory + MMIO (the sink answers every unmodelled page idle; INTC/timers/SIF displace it) --
     RecompAbi::BindMemory(&fast_mem);
-    // NATIVEEE_WATCH=<hexaddr>,<bytes>[;...][;max=<n>][;val=<hex>]: print every EE store overlapping
-    // the guest ranges (store_watch.h; boot triage, non-NDEBUG builds).
-    // The `text` mode of the knob is TextWatch's (text_watch.h; armed after the ELF load in RunLeg).
+    // NATIVEEE_WATCH=<hexaddr>,<bytes>[;...][;max=<n>][;val=<hex>]: print EE stores to those ranges
+    // (non-NDEBUG builds). Its `text` mode is TextWatch, armed after the ELF load.
     store_watch.Install(knobs.watch && !TextWatch::IsTextSpec(knobs.watch->c_str()) ? knobs.watch->c_str() : nullptr);
 
     // --- time domain, boundary owner, INTC + timers, SIF registers -------------------------------
@@ -50,7 +45,7 @@ LegCore::LegCore(const ps2r::Config& cfg, const LegKnobs& knobs)
     tick_source.SetPolicy(cfg.time.tick_deterministic ? TickSource::Policy::Deterministic : TickSource::Policy::Play);
     tick_source.SetMode(cfg.harness.headless ? TickSource::Mode::Freerun : TickSource::Mode::Realtime);
 
-    // --- the boundary: sequencer + the game-thread boundary owner + the Phase-3 steps ------------
+    // --- the frame boundary ---------------------------------------------------------------------
     attached_ = game_boundary.Attached();
     if (!attached_) {
         std::fprintf(stderr, "nativeee: the game boundary did not attach\n");
@@ -70,18 +65,17 @@ LegCore::LegCore(const ps2r::Config& cfg, const LegKnobs& knobs)
 
     // --- kernel clocks + seams --------------------------------------------------------------------
     clocks.InstallKernelClocks(SyscallTable::Instance(), protocol.WaitHook());
-    // engine.cop0_count (round 5, cutscene track): the COP0 Count register advances with the emu tick.
-    // Sly 2 builds a 64-bit cycle clock from mfc0 Count (FUN_0014d240: wrap-counted 32-bit reads) for its
-    // frame dt (FUN_0014d0b8: clamp(dt, 1/60, 1/30) -- the floor hides a frozen register) and for lgAud's
-    // dialog timeline (FUN_001fd830): with the register frozen the binocucom typewriter / lip-sync never
-    // advance past the first glyph once a voice stream is playing.
+    // engine.cop0_count: COP0 Count advances with the emulated tick. Sly 2 builds a 64-bit cycle clock from
+    // it (FUN_0014d240) for its frame dt (FUN_0014d0b8 clamps dt to [1/60, 1/30], which hides a frozen
+    // register) and for lgAud's dialog timeline (FUN_001fd830): with Count frozen, cutscene text and
+    // lip-sync stop at the first glyph once a voice stream plays.
     if (cfg.engine.cop0_count)
         SyscallTable::Instance().SetCop0CountClock([&clocks = clocks] { return clocks.Cop0Count(); });
     GsSync::Bind(&sequencer, &clocks);
     guest_call = [this](uint32_t addr, CpuContext& ctx) {
         if (DispatchTable::IdOf(addr) >= DispatchTable::FunctionCount()) {
-            // Not a generated function start: Invoke runs nothing. Count + list (the SDK's libkernl kernel
-            // patches do this at boot: syscall 0x5b -> 0x8007[456]000; see the title README, overlays).
+            // Not a generated function: Invoke runs nothing. The SDK's libkernl patches do this at boot
+            // (syscall 0x5b -> 0x8007[456]000).
             if (guest_call_unknown++ < 16) {
                 std::lock_guard<std::mutex> lock(guest_call_unknown_mutex);
                 guest_call_unknown_list += (guest_call_unknown_list.empty() ? "" : ",") + Hex(addr) + "@ra" +

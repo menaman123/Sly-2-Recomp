@@ -1,4 +1,4 @@
-// games/scus_97316_sly2_band_of_thieves/hle/nav_json.h -- NavJson: the minimal JSON reader the navigator's
+// NavJson: the minimal JSON reader the navigator's
 // DATA files use (verify/nav/sly2_probe.json for NavProbe, verify/nav/ep1_waypoints.json for PadScript's
 // `path:` steps). Objects, arrays, strings, numbers, true/false/null; string escapes limited to \" \\ \/ \n \t.
 // Enough for a hand-written data file; a malformed file fails the parse (the byte offset names the spot).

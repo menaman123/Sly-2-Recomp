@@ -109,7 +109,7 @@ def judge(ours, oracle, args):
     feat_ours_all = features(ours)
     s_lo = int(args.ours_search[0] * SR) // WIN if args.ours_search else 0
     s_hi = int(args.ours_search[1] * SR) // WIN if args.ours_search else len(feat_ours_all)
-    lag, corr_raw = align(feat_ours_all, features(oracle_leg), s_lo, s_hi)
+    lag, _ = align(feat_ours_all, features(oracle_leg), s_lo, s_hi)
     if lag is None:
         return {"leg": args.leg, "pass": False, "error": "no alignment (ours shorter than the oracle window)"}
     n = len(env_or)

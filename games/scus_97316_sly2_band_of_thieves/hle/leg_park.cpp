@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_park.cpp -- LegPark (leg_park.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park.h"
 
 #include <cstdio>
@@ -11,8 +10,7 @@ namespace ps2r::title::sly2 {
 
 LegPark::LegPark(ps2r::verify::VerifyHost& host, const LegKnobs& knobs, LegCore& core, LegDevices& devices, LegMtvu& mtvu)
     : closer(host, core.mmio), leg_t0(std::chrono::steady_clock::now()) {
-    // NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>] (boot triage): Vu1Case + PATH1 packet capture of
-    // VU1 kicks (hle/vu1_probe.h); the probe reads `boundaries` at every kick.
+    // NATIVEEE_VU1_CAP=<dir>:<frame>:<nth>[:<count>]: capture VU1 kicks (vu1_probe.h).
     if (knobs.vu1_cap)
         if (!vu1_probe.Install(knobs.vu1_cap->c_str(), mtvu.LiveVu1(), devices.gif_arbiter, &boundaries, &devices.vif))
             std::fprintf(stderr, "nativeee: NATIVEEE_VU1_CAP=%s: malformed or unmakeable (ignored)\n", knobs.vu1_cap->c_str());

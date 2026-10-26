@@ -1,9 +1,6 @@
-// games/scus_97316_sly2_band_of_thieves/hle/nav_probe.h -- NavProbe: the title-side reader of Sly's world
-// position / facing and the camera's yaw out of guest RAM at every pad stamp (the navigator's eyes), plus the
-// RAM-dump hunt that found them. Boot triage / coverage tooling in the pad-script family (leg_pad.h slot 4):
-// nothing here changes what the game sees; it only READS RAM at the boundary and feeds (a) the per-stamp
-// CSV `nav_trace.csv` under the harness out dir and (b) PadScript's closed-loop steps (goto / face /
-// wait_still / jump_when_near), which synthesise the left stick from the camera-relative heading to a target.
+// NavProbe: reads Sly's world position, facing and the camera's yaw from guest RAM at every pad stamp. It
+// only reads; the samples feed nav_trace.csv and PadScript's closed-loop steps (goto / face / wait_still /
+// jump_when_near), which steer the left stick toward a target relative to the camera.
 //
 //   NATIVEEE_NAV=<item>[;<item>...]
 //     probe=<file>                   the probe table (default <title dir>/verify/nav/sly2_probe.json)
@@ -88,12 +85,11 @@ public:
     bool Value(const std::string& name, double* out) const;
     // The navigator's one WRITE: store `count` f32 values at `offset` from the object the probe called `base`
     // points at (its chain followed to the last dereference; a one-element chain = a static address, offset
-    // added to it). PadScript's `warp:` step moves Sly with it (title tooling: a survey / transport shortcut,
-    // never part of a judged route). False = no such probe, a broken chain or an address outside RAM.
+    // added to it). PadScript's `warp:` step moves Sly with it. False = no such probe, a broken chain or an
+    // address outside RAM.
     bool PokeF32(const std::string& base, uint32_t offset, const float* values, size_t count);
 
     const std::vector<Probe>& Probes() const { return probes_; }
-    const std::string& ProbePath() const { return probe_path_; }
     // run.meta nav_probe= body: probes=,table=,trace=,samples=,valid=,ramdumps= (or "off")
     std::string Census() const;
 

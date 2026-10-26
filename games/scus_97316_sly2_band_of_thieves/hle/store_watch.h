@@ -1,4 +1,4 @@
-// games/scus_97316_sly2_band_of_thieves/hle/store_watch.h -- StoreWatch: the NATIVEEE_WATCH boot-triage
+// StoreWatch: the NATIVEEE_WATCH boot-triage
 // knob. NATIVEEE_WATCH=<hexaddr>,<bytes>[;<hexaddr>,<bytes>...][;max=<n>][;val=<hex>] prints every EE
 // store that overlaps one of the guest ranges (thread, innermost shadow-stack frame + its ra, the
 // caller frame, address, width, old -> new bits) through FastMem's process-wide write observer.

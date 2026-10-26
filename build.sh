@@ -11,7 +11,7 @@
 #                                   NATIVEEE_TITLE_ELF in the environment are ignored in this mode.
 #   ./build.sh                       neither flag: like --no-disc unless NATIVEEE_DISC / NATIVEEE_TITLE_ELF
 #                                   are set in the environment
-#   ./build.sh --disc IMAGE --dist   ... and stage the release folder (see --dist below; what release.yml ships)
+#   ./build.sh --disc IMAGE --dist   ... and stage the dist folder (see --dist below)
 #
 #   --preset NAME      an ENGINE configure preset (engine/CMakePresets.json: macos-release, linux-release,
 #                      linux-release-clang, linux-release-gcc, macos-dev, ...). Default: this host's release

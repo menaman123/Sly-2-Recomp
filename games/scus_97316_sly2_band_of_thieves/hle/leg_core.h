@@ -1,13 +1,7 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_core.h -- LegCore: the first phase of the title's play
-// composition (boot_leg.cpp RunLeg). Owns, in the first title's construction order, the EE memory + the
-// MMIO sink/router (the sink answers every unmodelled page idle; INTC / timers / SIF displace it), the
-// NATIVEEE_WATCH store observer, the emulated time domain and derived clocks, INTC + the EE timers, the
-// SIF register block, the tick source, the frame rendezvous and the `running` flag, the boundary
-// (sequencer + the game-thread boundary owner + the Phase-3 steps + the protocol), and the kernel seams
-// (kernel clocks, GsSync, the guest-call hook, the syscall trace, the INTC mask word, the thread
-// manager's event applier and guest body). Later phases hold a LegCore& and reach these members.
-// Members are the composition's shared state (public by design: the modules are one leg split along its
-// construction order, not an API); everything stays on RunLeg's frame through this object.
+// LegCore: the first phase. EE memory and the MMIO router (unmodelled pages read as idle), the time
+// domain, INTC and the EE timers, the SIF registers, the tick source and frame rendezvous, the frame
+// boundary, and the kernel hooks. Members are public on purpose: the leg modules are one composition
+// split into phases, and later phases reach this shared state through a LegCore&.
 #pragma once
 
 #include <atomic>
@@ -48,8 +42,7 @@ public:
     LegCore(const LegCore&) = delete;
     LegCore& operator=(const LegCore&) = delete;
 
-    // False when the game boundary did not attach: the leg ends with exit 2 (nothing after the
-    // boundary owner was armed).
+    // False if the game boundary did not attach; RunLeg then exits with 2.
     bool Attached() const { return attached_; }
 
     // --- memory + MMIO ---------------------------------------------------------------------------
@@ -59,7 +52,7 @@ public:
     MmioSink sink;
     MmioRouter mmio;
     FastMem fast_mem;
-    StoreWatch store_watch;   // the FastMem observer is process-wide and never cleared: lives here
+    StoreWatch store_watch;   // the FastMem observer is process-wide, so it lives for the whole leg
 
     // --- time domain, boundary owner, INTC + timers, SIF registers ---------------------------------
     Intc& intc;
@@ -70,14 +63,12 @@ public:
     TickSource tick_source;
     FrameRendezvous rendezvous;
     std::atomic<bool> running{true};
-    // Play mode = a window exists and the boundary is wall-paced (neither --headless nor time.tick_sync).
-    // Headless with --dump-frames <dir>: the GS pipeline into a hidden GL window. Headless without a dump
-    // dir: a counting sink, no GL.
+    // Play mode: a window and a wall-paced boundary (neither --headless nor time.tick_sync).
     const bool play_mode;
     const std::string dump_frames_dir;
     const bool want_video;
 
-    // --- the boundary: sequencer + the game-thread boundary owner + the Phase-3 steps -------------
+    // --- the frame boundary ---------------------------------------------------------------------
     BoundarySequencer sequencer;
     GameBoundary game_boundary;
     BoundaryProtocol protocol;
@@ -88,9 +79,8 @@ public:
     std::string first_syscalls;   // run.meta first_syscalls=: the first 40 syscalls, name(num)
     uint64_t syscall_count = 0;
     std::deque<std::string> last_syscalls;   // run.meta last_syscalls=: the last 24 syscalls (park / exit triage)
-    // run.meta guest_call_unknown=: guest calls (SetSyscall-redirected numbers, INTC/DMAC handlers, alarms)
-    // whose target is NO generated function start -- DispatchTable::Invoke is silent for those (the body
-    // runs nothing, $v0 stays stale), so they are counted and listed here (the overlay census, item ii).
+    // run.meta guest_call_unknown=: guest calls (redirected syscalls, INTC/DMAC handlers, alarms) whose
+    // target is not a generated function. DispatchTable::Invoke silently runs nothing for those.
     std::atomic<uint64_t> guest_call_unknown{0};
     std::mutex guest_call_unknown_mutex;
     std::string guest_call_unknown_list;   // up to 16 entries addr@caller_pc

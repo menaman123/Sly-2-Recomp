@@ -1,11 +1,6 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_census.h -- LegCensus: the run.meta census rows of the
-// title's play composition, written by every exit path (the frames cap, the window close, a park, the
-// watchdog, an exception, the guest's return) in ONE frozen order: the kernel / SIF / INTC rows, the GS
-// rows (gs_irq, gs_pages, gs_draws, the video stack, the queue, the grab sources, the dump), the play rows
-// (pad, session, the audio device, the pace census, boundary_wall_ms, shutdown), the device rows (gif_sink,
-// the DMAC, the IPU, the COP2 bridge, the VU1 tier, the AOT tier). RunMeta::Set replaces a key in place,
-// so a repeated Write keeps the first write's order. Holds references to every earlier phase; constructed
-// after LegPark and before the park sink (leg_park_sink.h), which is the first caller.
+// LegCensus: the run.meta census rows, written by every exit path (frames cap, window close, park,
+// watchdog, exception, guest return) in a fixed order: kernel/SIF/INTC, GS, play, then device rows.
+// RunMeta::Set replaces keys in place, so a repeated Write keeps the first write's order.
 #pragma once
 
 #include "engine/core/config/config.h"
@@ -34,7 +29,6 @@ namespace ps2r::title::sly2 {
 
 class LegCensus {
 public:
-    // Every phase the rows read, in construction order.
     struct Phases {
         const ps2r::Config& cfg;
         ps2r::verify::VerifyHost& host;
@@ -55,7 +49,7 @@ public:
         LegImage& image;
         TextWatch& text_watch;
         LegPark& park;
-        // Set by LegVerifySlot (constructed after the census): the harness display sequence's census.
+        // Set later by LegVerifySlot.
         const ps2r::app::DisplaySequence* verify_display_sequence = nullptr;
     };
     void SetDisplaySequence(const ps2r::app::DisplaySequence* seq) { p_.verify_display_sequence = seq; }
@@ -64,7 +58,6 @@ public:
     LegCensus(const LegCensus&) = delete;
     LegCensus& operator=(const LegCensus&) = delete;
 
-    // Writes every census row to the host's RunMeta (nothing when the host has none).
     void Write();
 
 private:

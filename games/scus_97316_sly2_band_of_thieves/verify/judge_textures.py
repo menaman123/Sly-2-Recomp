@@ -405,7 +405,7 @@ def load_pcsx2(dump_dir):
         m = ITEX_RE.match(name)
         if not m or m.group(13):
             continue
-        draw, frame, src, tbp0, src_tbp, psm_name = int(m.group(1)), int(m.group(2)), m.group(3), int(m.group(4), 16), int(m.group(5), 16), m.group(6)
+        draw, frame, src, tbp0, psm_name = int(m.group(1)), int(m.group(2)), m.group(3), int(m.group(4), 16), m.group(6)
         psm = PSM_NAMES.get(psm_name)
         if psm is None:
             continue

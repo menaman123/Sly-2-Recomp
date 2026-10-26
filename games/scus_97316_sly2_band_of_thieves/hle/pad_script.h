@@ -1,4 +1,4 @@
-// games/scus_97316_sly2_band_of_thieves/hle/pad_script.h -- PadScript: the NATIVEEE_PAD_SCRIPT overlay
+// PadScript: the NATIVEEE_PAD_SCRIPT overlay
 // of the title composition (boot triage / replay / coverage navigation). The value is either the script
 // text itself or the path of a readable file holding it (what PadRecorder writes), in one grammar:
 //
@@ -143,7 +143,6 @@ public:
     void Apply(uint64_t stamp, NavProbe& probe, PadProtocol::Input* in);
 
     const std::vector<Step>& Steps() const { return steps_; }
-    const std::vector<NavStep>& NavSteps() const { return nav_; }
     bool Empty() const { return steps_.empty() && nav_.empty(); }
     bool ClosedLoop() const { return !nav_.empty(); }
     const std::string& Source() const { return source_; }
@@ -151,7 +150,6 @@ public:
     const std::string& Warning() const { return warning_; }
     // The path table's load report ("" = none / fine).
     const std::string& PathsWarning() const { return paths_warning_; }
-    size_t PathCount() const { return paths_.size(); }
     // The first stamp past every timed step (0 = no steps).
     uint64_t End() const;
     // run.meta pad_script= body: steps=,end=,source=[,truncated_at=][,nav=<n>:<kind>@<start>-<end>=<reached|timeout|active|pending>[/u<unsticks>]...]

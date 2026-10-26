@@ -1,4 +1,3 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_interrupts.cpp -- LegInterrupts (leg_interrupts.h).
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_interrupts.h"
 
 #include <cstdio>
@@ -24,27 +23,22 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
     Dmac& dmac = devices.dmac;
     std::unique_ptr<MtvuStack>& mtvu_stack = mtvu.mtvu;
     Intc& intc = core.intc;
-    // The deferred VIF1 kick's observation points at the frame boundary / sceGsSyncPath.
-    // Under MTVU the chase is followed by the frame sync: the frame's VIF1 feed is complete; the
-    // terminal Sync(SceGsSyncV) finishes every queued span (the chase's resumed END slots included)
-    // before the boundary runs. Absent the stack both hooks are exactly the chase / the flush.
+    // The deferred VIF1 kick's observation points at the frame boundary and sceGsSyncPath. Under MTVU the
+    // final Sync(SceGsSyncV) finishes every queued span before the boundary runs.
     GsSync::BindDmac(
         [&dmac, &mtvu_stack] {
             dmac.ChaseVif1Tail();
             if (mtvu_stack) mtvu_stack->FrameSync(GsSync::SyncVCount(), ps2r::Park::NowNs());
         },
         [&dmac, &mtvu_stack] {
-            // "Is the path idle": with boundaries not deferred this is a real wait (the stack's
-            // SiteSync would skip it under the deferral rule); unbound in this title's manifest.
+            // "Is the path idle": a real wait when boundaries are not deferred. Unbound in Sly 2's manifest.
             if (mtvu_stack) mtvu_stack->sync().Sync(SyncSite::SceGsSyncPath);
             dmac.FlushDeferredVif1();
         });
-    // The GS interrupt: SIGNAL / FINISH count on GsPrivRegs as the general register is written
-    // (on the kicking guest thread, so STAT is set in place); the IMR view is the kernel's
-    // GsPutIMR word (syscall 113; bit 8 SIGMSK, bit 9 FINISHMSK). Delivered at the next
-    // dispatch point: the syscall-entry hook below, a back-edge yield, or the boundary.
-    // NATIVEEE_ISR_TRACE=1 (boot triage): one stderr line per GS SIGNAL / FINISH event -- the
-    // kicking tid, the kernel's IMR word and whether the cause was raised or masked.
+    // GS interrupt: SIGNAL/FINISH are counted on GsPrivRegs when the register is written, on the kicking
+    // thread. The mask is the kernel's GsPutIMR word (syscall 113; bit 8 SIGMSK, bit 9 FINISHMSK).
+    // Delivered at the next dispatch point: a syscall entry, a back-edge yield, or the boundary.
+    // NATIVEEE_ISR_TRACE=1 prints one line per event.
     const bool isr_trace = knobs.isr_trace;
     GifParser& gif_parser = devices.gif_parser;
     GifArbiter& gif_arbiter = devices.gif_arbiter;
@@ -75,52 +69,35 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
             ++gs_irq_masked;
             return;
         }
-        // Deferred (E422): the parser that reaches the register runs behind the VU1 worker (and
-        // on the drain thread, off the guest's threads); the cause is latched and enters
-        // INTC_STAT on the HOLDER at its next scheduling point (below: a syscall entry; a yield
-        // trip; the boundary; the kernel idle; a completed sync) -- never on a thread the latch
-        // woke: the handler's context is the running thread's, as an in-place raise's.
+        // Deferred: the parser runs behind the VU1 worker on the drain thread, so the cause is latched and
+        // enters INTC_STAT on the token holder at its next scheduling point, never on the thread it woke.
         intc.RaiseDeferred(Intc::kGs);
         ++gs_irq_raises;
     });
-    // The interrupt taken at the next kernel call: every syscall's entry dispatches the pending
-    // enabled INTC causes (and the DMAC's INT1 handlers) on the calling thread before the
-    // syscall's body runs -- a GS FINISH raised in-line by the kick above reaches the game's GS
-    // handler before its WaitSema would block forever. Intc's in-dispatch guard keeps an ISR's own
-    // kernel calls (iSignalSema) from recursing into the dispatch.
-    // A BLOCKING kernel wait is also a DMA observation point (Dmac::ObserveAtKernelWait): the
-    // thread that kicked a VIF1 chain / PATH3 upload and now sleeps for the FINISH handler's
-    // semaphore gives the bus to the DMA; the parked chain is walked and the arbiter's PATH3
-    // backlog reaches the GS. The FINISH the observer raises is then pending in INTC_STAT, and
-    // an interrupt runs on WHICHEVER thread is running when it lands: if another thread is READY,
-    // the waiter blocks and the ISR is taken at that thread's next dispatch point (its next
-    // kernel call, back-edge yield or boundary) -- the DMA's latency shows up as the other
-    // threads' run time, as on the console. Taking it here instead would complete the kick
-    // instantaneously and return the waiter before it ever blocked: a high-priority render /
-    // frame-pacing thread pair then never both wait and the lower-priority main thread starves
-    // (Sly 2's level loader after the intro FMV). Only when nothing else is READY -- the kernel's
-    // idle loop would take the interrupt -- is it dispatched here, before the block.
-    // The entry LOOPS: a handler's exit (EeRunToken::IsrEnd) may hand the token to the thread it
-    // readied; when this thread is re-elected it is still at this entry, about to block, and the
-    // other threads counted it READY while they deferred -- so the causes raised meanwhile are its
-    // to take now. Without the re-check they would stay pending with every thread asleep.
-    // NATIVEEE_ISR_TRACE also prints one line per syscall entry that finds an INTC cause
-    // pending -- tid, syscall, the pending/mask words and the decision.
-    // Under MTVU the chain the observer flushes is STAGED to the worker and its FINISH arrives later,
-    // through the GIF drain on this thread: every entry drains the sealed prefix first (the packets
-    // the worker finished since the last entry reach the GS, their FINISH / SIGNAL the INTC), and a
-    // BLOCKING wait that finds no other READY thread while the worker still runs idles on the
-    // worker's progress (MtvuSync::WaitProgress: seal / idle, drain, re-check) instead of blocking
-    // with nothing left to deliver the interrupt -- the console's idle loop taking the GS interrupt.
-    // E430 (engine.mtvu_wait_probe): the observation point below asks the kernel object whether the
-    // wait would park before idling on the worker. Off = every blocking-class entry with nothing else
-    // READY idles until the worker is quiescent -- the WaitSema after the VIF1 kick, whose FINISH the
-    // early raise already signalled, then costs the whole replay (census mtvu_waits= idle_nonblocking).
+    // Syscall entry: pending enabled INTC causes (and DMAC INT1 handlers) are dispatched on the calling
+    // thread before the syscall runs, so a GS FINISH raised by a kick reaches the game's handler before its
+    // WaitSema could block forever. Intc's in-dispatch guard stops an ISR's own kernel calls recursing.
+    //
+    // A blocking wait is also a DMA observation point: the parked chain is walked and the PATH3 backlog
+    // reaches the GS. If another thread is READY, the waiter blocks and the ISR runs at that thread's next
+    // dispatch point, so DMA latency shows up as other threads' run time, as on the console. Taking it here
+    // instead would finish the kick instantly; the high-priority render/pacing pair would then never both
+    // wait, and the main thread starves (Sly 2's level loader after the intro movie). Only when nothing else
+    // is READY (the console's idle loop) is the interrupt taken here.
+    //
+    // The entry loops: an ISR may hand the token to the thread it readied, and when this thread is
+    // re-elected, causes raised meanwhile are its to take.
+    //
+    // Under MTVU the chain is staged to the worker and its FINISH arrives later via the GIF drain: each
+    // entry drains the sealed prefix first, and a blocking wait with nothing else READY idles on the
+    // worker's progress instead of blocking with nothing left to deliver the interrupt.
+    // engine.mtvu_wait_probe: first ask the kernel object whether the wait would park at all; without it, a
+    // WaitSema whose FINISH was already signalled still waits out the whole replay.
     const bool wait_probe = mtvu.wait_probe;
     SyscallTable::Instance().SetPreDispatch([this, isr_trace, wait_probe, &dmac, &mtvu_stack, &intc](int num, CpuContext& ctx) {
         if (num == 4 || num == 35 || num == 37 || num == 38) {
-            // Exit / ExitThread / TerminateThread / iTerminateThread: the site (a thread exit ends the leg when
-            // it is tid 1's) -- one line each, shadow frames innermost first.
+            // Exit / ExitThread / TerminateThread / iTerminateThread: print the call site, shadow frames
+            // innermost first. tid 1 exiting ends the run.
             ShadowCallStack::Frame f0{}, f1{}, f2{};
             ShadowCallStack::Top(0, f0);
             ShadowCallStack::Top(1, f1);
@@ -130,23 +107,15 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
                          f0.func_addr, f0.ra, f1.func_addr, f2.func_addr);
         }
         const bool blocking = SyscallTable::IsBlockingWait(num);
-        // A wall field is due (Play: the pacer ticked while this thread ran) and a thread sleeps on
-        // the vblank: it is readied here and, being the higher-priority vsync thread, runs its
-        // boundary now -- the next frame's VIF1 kick overlaps the rest of this thread's logic
-        // tick, as the console's vblank interrupt would have it (E421; census ee_yield wall_wakes).
+        // A wall field is due and a thread sleeps on the vblank: ready it now. As the higher-priority vsync
+        // thread it runs its boundary, so the next frame's VIF1 kick overlaps this thread's logic tick, as the
+        // console's vblank interrupt would.
         EeYieldPoint::Instance().WakeVblankIfWallFieldDue();
         if (blocking) dmac.ObserveAtKernelWait();
-        // The observation point (E422): a blocking wait that finds no other READY guest thread
-        // -- the console's idle loop. The GS causes the pipeline latched enter INTC_STAT at every
-        // scheduling point (this entry, a yield trip, the boundary, the kernel idle: what an
-        // in-place raise would have had pending there); the observation point alone first waits
-        // for the pipeline to owe nothing, so that the thread the console's idle loop would have
-        // taken the interrupt on takes it here, in-line and on the drain thread alike.
-        // E430: the idle loop is for a block that leaves the EE with NOTHING to run. A wait whose body
-        // returns at once is not a block: the thread runs on (and takes the next cause at its next
-        // scheduling point, as a running console thread would). A block while a thread sleeps in
-        // WaitVblank is not idle either: that sleeper wakes the instant this thread blocks (the vblank
-        // is "now" on an all-blocked EE) and runs the boundary -- itself a scheduling point.
+        // The observation point: a blocking wait with no other READY guest thread, i.e. the console's idle
+        // loop. It first waits for the pipeline to owe nothing, so the interrupt is taken on the thread the
+        // console would take it on. A wait that returns at once is not a block, and neither is one while a
+        // thread sleeps in WaitVblank (that sleeper wakes the moment this thread blocks).
         const auto observation_point = [&] {
             if (!blocking || EeRunToken::Instance().AnyReadyBesides(EeRunToken::Instance().CurrentTid())) return false;
             if (wait_probe && !SyscallTable::WouldBlockNow(num, ctx)) {
@@ -159,10 +128,8 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
             }
             return true;
         };
-        // The idle wait's CAUSE (census mtvu_waits=): would this wait's body park the thread
-        // now (a FINISH handler dispatched at this very entry signalled the semaphore the
-        // thread is about to wait on: it would not), and would the park itself wake a
-        // vblank sleeper (WaitVblank's "every other thread blocked = the vblank is now").
+        // Why the idle wait happened (census mtvu_waits=): would the body park now (not if a FINISH
+        // handler at this entry already signalled the semaphore), and would the park wake a vblank sleeper.
         const auto idle_cause = [&] {
             if (!SyscallTable::WouldBlockNow(num, ctx)) return WaitCause::IdleWaitNonBlocking;
             if (EeRunToken::Instance().VblankWaiters() != 0) return WaitCause::IdleWaitVblankWaiter;
@@ -172,24 +139,18 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
             // The inline drain parses the sealed prefix here (its GS events latch deferred).
             if (mtvu_stack) mtvu_stack->sync().TryDrainPending();
             EeEventQueue::Instance().DrainIfPendingOnHolder();   // foreign wakes
-            // Every entry is a scheduling point: what the pipeline has latched by now enters
-            // STAT here (an in-place raise would have been pending at this entry: a poll loop's
-            // SignalSema takes the FINISH as on main). The OBSERVATION point below (a blocking
-            // wait with nothing else READY) first waits for the pipeline to owe nothing, so the
-            // set it collects is what the guest's submissions produce -- in-line and on the drain
-            // thread alike -- and no cause is left for an idle grant on another thread's context.
+            // Every entry is a scheduling point: causes the pipeline latched so far enter STAT here.
             intc.CollectDeferred();
             if (dmac.CheckInterrupt()) {
                 InstallDmacHandlers();
                 dmac.DispatchInterrupt(ctx);
             }
             if (!intc.Pending()) {
-                // No "is the worker busy" test here: the worker publishes idle AFTER its last seal,
-                // so a busy test that read idle could block with that marker undrained; WaitProgress
-                // answers at once (after one drain) when nothing is outstanding.
+                // No "is the worker busy" test: the worker publishes idle after its last seal, so such a test
+                // could block with that seal undrained. WaitProgress returns at once when nothing is owed.
                 if (mtvu_stack && observation_point()) {
                     ++mtvu_idle_wait_entries;
-                    if (!mtvu_stack->sync().WaitProgress(idle_cause())) continue;   // progress delivered, the pipeline still runs
+                    if (!mtvu_stack->sync().WaitProgress(idle_cause())) continue;   // progress made, pipeline still running
                     EeEventQueue::Instance().DrainIfPendingOnHolder();
                     intc.CollectDeferred();                             // a FINISH the pipeline latched meanwhile
                     if (intc.Pending()) continue;                       // the last drain raised a cause

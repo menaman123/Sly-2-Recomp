@@ -1,7 +1,7 @@
 # .github/ci/ctest_exclusions.txt -- the engine tests the no-disc lanes do NOT run, one anchored
 # regex per line (joined with '|' into `ctest -E`). build.sh --tests, build.ps1 -Tests and
 # .github/workflows/ci.yml all read THIS file, so there is one list. Every row names its reason;
-# a row whose reason is gone must be deleted (the README's "Known issues" mirrors this file).
+# a row whose reason is gone must be deleted.
 #
 # None of these is "flaky": each fails for a stated, reproducible reason on a fresh checkout of
 # the pinned engine commit with no disc.
@@ -11,11 +11,11 @@
 ^Root
 ^Og
 
-# ---- 2. First-title pins. The engine's first title left tests that read ITS tables and fixture
-#         layout -- games/<title>/verify/baseline, verify/platform_ref/, verify/restore_mhash_expected.tsv,
-#         symbols/build_symbols.py, a 298-row sdk_bindings.tsv, its retail argv string -- instead of
-#         SKIPping when the title in games/ has none. Upstream issue: parametrise on the title or
-#         SKIP 77. They fail for ANY second title.
+# ---- 2. Engine tests pinned to another title. They read that title's tables and fixture layout
+#         (games/<title>/verify/baseline, verify/platform_ref/, verify/restore_mhash_expected.tsv,
+#         symbols/build_symbols.py, a 298-row sdk_bindings.tsv, its retail argv string) instead of
+#         skipping when the title in games/ has none. Upstream fix: parametrise on the title or
+#         SKIP 77.
 ^RecompDispatchTableLink$
 ^RecompManifestIntact$
 ^RecompSymbolCensus$

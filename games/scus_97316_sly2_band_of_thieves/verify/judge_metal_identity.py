@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""judge_metal_identity.py -- the METAL IDENTITY judge (round 3, track metal): the Metal arm's picture
+"""judge_metal_identity.py -- the Metal identity judge: the Metal backend's picture
 against the GL arm's TWO blend routes, as a band.
 
 The GS blends in integers; GL's fixed-function arm (GL_ff, the default route) blends in floats the

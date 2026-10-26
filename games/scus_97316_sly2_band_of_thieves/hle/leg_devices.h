@@ -1,13 +1,7 @@
-// games/scus_97316_sly2_band_of_thieves/hle/leg_devices.h -- LegDevices: the hardware fallbacks GS MMIO /
-// GIF / VU / VIF / DMAC of the title's play composition (the first title's construction order,
-// app/host/ee_bootstrap_{devices,services}.cpp), each displacing its MmioSink row: the GS privileged
-// register window, the GIF register block and the GIF parser's fan-out (GsStateSink, plus GifTraceSink
-// under NATIVEEE_GIF_TRACE), the GIF arbiter, the two VU units (VU1 fed by the arbiter), the VU0
-// registry, the VIF and the DMAC. The VU1 fallback tier is chosen here (Config engine.vu1_mode, then
-// NATIVEEE_VU1_MODE on top) BEFORE the MTVU stack (leg_mtvu.h) copies the inline dispatch's settings
-// for the worker's unit. The register windows of GIF / VIF / VU memory / DMAC / IPU are registered by
-// LegDmaIpu, after the MTVU stack exists (the VIF1 window syncs the worker first; the GIF window fences
-// the drain thread first).
+// LegDevices: the GS, GIF, VU, VIF and DMAC hardware models: the GS privileged registers, the GIF
+// registers, parser and arbiter, both VU units, the VU0 registry, the VIF and the DMAC. The VU1 tier is
+// chosen here, before LegMtvu copies the dispatch settings for its worker. LegDmaIpu registers the
+// register windows later, once the MTVU stack exists.
 #pragma once
 
 #include "engine/core/config/config.h"
