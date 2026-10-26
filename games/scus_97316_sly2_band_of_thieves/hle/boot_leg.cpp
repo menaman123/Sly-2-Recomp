@@ -398,6 +398,15 @@ int TitlePlayMain(int argc, char** argv) {
         else std::fprintf(stderr, "nativeee: title directory not found: neither %s nor %s has %s\n", PS2R_TITLE_DIR,
                           beside.c_str(), title.sdk_bindings_file.c_str());
     }
+    // A disc image named on the command line installs itself on the first start: the first-run extraction
+    // without its screen (the ELF verified against this build and extracted, the image REFERENCED in place --
+    // no 4 GB copy --, memcards, settings, stamp). The player's launcher starts the game this way (--iso is a
+    // harness flag, so the screen above is bypassed), and Play needs no second disc prompt.
+    if (!FileExists(ResolveElf(cfg, title)) && !cfg.paths.iso.empty() && FileExists(cfg.paths.iso)) {
+        std::fprintf(stderr, "nativeee: first start: extracting the game's files from %s (the image stays where it is)\n",
+                     cfg.paths.iso.c_str());
+        ps2r::app::FirstRun::RunCli(ps2r::app::FirstRun::PlanFor(cfg, title, g_build_id, cfg.paths.iso, /*copy_disc=*/false));
+    }
     const std::string elf_path = ResolveElf(cfg, title);
     if (!FileExists(elf_path)) {
         std::fprintf(stderr,
