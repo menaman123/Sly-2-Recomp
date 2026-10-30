@@ -61,6 +61,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_verify_slot.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_trace.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_vif_irq.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_watchdog.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/warp_tool.h"
@@ -143,8 +144,10 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // Must follow the ELF load: it snapshots code ranges.
     TextWatch text_watch(knobs.watch ? knobs.watch->c_str() : nullptr, core.ram);
     LegPark park(host, knobs, core, devices, mtvu);
+    // The hook-table knobs: after the image (the dispatch table is live), before the census that writes them.
+    LegTrace trace(knobs, disc, title.serial);
     LegCensus census(LegCensus::Phases{cfg, host, title, core, gs, devices, mtvu, dma_ipu, interrupts, vif_irq, services, audio, play, saves,
-                                       iop, pad, image, text_watch, park});
+                                       iop, pad, image, text_watch, park, trace});
     LegParkSink park_sink(host, census, park, play, disc, iop);
     LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);
     if (verify.Failed()) return 2;
