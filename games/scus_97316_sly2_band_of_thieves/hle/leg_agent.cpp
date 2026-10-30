@@ -10,6 +10,7 @@
 #include "app/host/savestate_slots.h"
 #include "app/host/session_files.h"
 #include "engine/core/log/log.h"
+#include "engine/core/verify/memory_checkpointer.h"
 #include "engine/ee/cpu/dispatch_table.h"
 #include "engine/ee/recomp_abi/host_app/gs_hle.h"
 #include "engine/ee/hle/thread_manager.h"
@@ -68,6 +69,13 @@ LegAgent::LegAgent(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
     };
     b.knob_set = [this](const std::string& name, const AgentJson& value, std::string* err) { return KnobSet(name, value, err); };
     b.quit = [this] { verify_.EndLegFromAgent("agent_quit"); };
+    // Tier 2: the harness's lane rows (run.hashes) and the mem lane's hash on demand (mem.hash).
+    b.lane_rows = [this](std::vector<AgentServer::LaneRow>* out) {
+        std::vector<ps2r::verify::VerifyHost::LaneRow> rows;
+        host_.DrainRows(&rows);
+        for (const auto& r : rows) out->push_back(AgentServer::LaneRow{r.lane, r.key, r.hash});
+    };
+    b.mem_hash = [this] { return ps2r::verify::MemoryCheckpointer::Hash(verify_.verify_spans); };
     b.extra_info = [this](AgentJson* out) {
         out->Set("renderer", AgentJson::String(gs_.consumer ? "gl (hidden window; screen.grab available)" : "counting sink (no screen.grab)"));
         out->Set("engine_boundaries", AgentJson::UInt(core_.domain.BoundaryCount()));
