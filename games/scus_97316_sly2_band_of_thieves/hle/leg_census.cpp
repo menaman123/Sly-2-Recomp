@@ -1,5 +1,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_agent.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <string>
@@ -326,6 +328,7 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
     p_.dma_ipu.WriteVu0Trace();   // NATIVEEE_VU0_TRACE: same contract
     meta->Set("pad_record", pad.pad_recorder.Census());
     meta->Set("pad_script", pad.pad_script.Census());
+    meta->Set("agent", p_.agent ? p_.agent->Census() : "off");
     meta->Set("nav_probe", pad.nav_probe.Census());
     if (play.live_input) {
         meta->Set("pad_live", play.live_input->Census());

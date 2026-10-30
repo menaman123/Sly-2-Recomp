@@ -14,12 +14,14 @@
 #include "engine/title/title_play.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include "app/host/build_id.h"
 #include "app/host/first_run.h"
@@ -42,6 +44,7 @@
 #include "engine/platform/host/platform.h"
 #include "engine/platform/crash_handler.h"
 #include "engine/title/title_profile.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_agent.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
@@ -148,6 +151,11 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegParkSink park_sink(host, census, park, play, disc, iop);
     LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);
     if (verify.Failed()) return 2;
+    // The agent control plane (NATIVEEE_AGENT_SOCKET): after the Verify slot so it owns the completed-boundary
+    // consumer in headless runs; its state.load is a live restore supervised below.
+    LegAgent agent(cfg, host, title, knobs, core, gs, mtvu, services, audio, saves, pad, park, verify, g_build_id);
+    if (agent.Failed()) return 2;
+    census.SetAgent(&agent);
     LegWatchdog watchdog(host, knobs, core, park, census);
 
     // Play mode locks the frame boundary to the 60 Hz wall clock; NATIVEEE_UNPACED=1 ticks it inline.
@@ -188,6 +196,12 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             failure = std::make_exception_ptr(std::runtime_error(release_error));
         // An F8 restore unwound this thread; the session relaunches the restored threads.
         if (session && session->RestorePending() && !failure) return 0;
+        // The agent's state.load unwound this thread (headless): restore and relaunch here, then wait for
+        // the relaunched boundary owner like a cold restore does; another admitted load repeats the cycle.
+        while (!failure && agent.LoadPending()) {
+            if (!agent.SuperviseRestore()) break;
+            while (verify.session_workers.BoundaryAlive() && core.running.load()) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
         core.running.store(false);
         // In play mode the session joins the workers; headless, this thread does.
         if (!session) verify.JoinLadder();

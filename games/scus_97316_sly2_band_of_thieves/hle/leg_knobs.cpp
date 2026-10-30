@@ -81,6 +81,9 @@ LegKnobs LegKnobs::FromEnvironment() {
         k.tex_dump_from = static_cast<uint32_t>(std::strtoul(env, &end, 10));
         k.tex_dump_to = (end && *end == ',') ? static_cast<uint32_t>(std::strtoul(end + 1, nullptr, 10)) : k.tex_dump_from;
     }
+    k.agent_socket = Text(std::getenv("NATIVEEE_AGENT_SOCKET"));
+    if (const char* env = std::getenv("NATIVEEE_AGENT_TCP")) k.agent_tcp = static_cast<int>(std::strtol(env, nullptr, 10));
+    if (k.agent_socket) k.watchdog_s = 0;
     if (const char* env = std::getenv("NATIVEEE_WATCHDOG_S")) k.watchdog_s = std::strtoull(env, nullptr, 10);
     k.ram_dump = Text(std::getenv("NATIVEEE_RAM_DUMP"));
     k.nav = Text(std::getenv("NATIVEEE_NAV"));

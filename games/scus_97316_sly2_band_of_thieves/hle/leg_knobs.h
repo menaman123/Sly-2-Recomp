@@ -125,6 +125,12 @@ struct LegKnobs {
     bool unpaced = false;
     // NATIVEEE_WARP=<episode>[,<job>]: rewrite a private card's save1 so Resume Game loads that episode.
     std::optional<std::string> warp;
+    // NATIVEEE_AGENT_SOCKET=<path>: the agent control plane (leg_agent.h) on that UNIX socket; the game
+    // starts paused at the first boundary and advances on command. NATIVEEE_AGENT_TCP=<port> also
+    // listens on 127.0.0.1:<port>. With the socket set and NATIVEEE_WATCHDOG_S unset the watchdog is off
+    // (a paused game is not a hang).
+    std::optional<std::string> agent_socket;
+    int agent_tcp = 0;
 
     static LegKnobs FromEnvironment();
 };

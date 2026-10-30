@@ -27,6 +27,8 @@
 
 namespace ps2r::title::sly2 {
 
+class LegAgent;
+
 class LegCensus {
 public:
     struct Phases {
@@ -51,8 +53,11 @@ public:
         LegPark& park;
         // Set later by LegVerifySlot.
         const ps2r::app::DisplaySequence* verify_display_sequence = nullptr;
+        // Set later by RunLeg (the agent control plane, leg_agent.h; null = off).
+        const LegAgent* agent = nullptr;
     };
     void SetDisplaySequence(const ps2r::app::DisplaySequence* seq) { p_.verify_display_sequence = seq; }
+    void SetAgent(const LegAgent* agent) { p_.agent = agent; }
 
     explicit LegCensus(const Phases& p) : p_(p) {}
     LegCensus(const LegCensus&) = delete;

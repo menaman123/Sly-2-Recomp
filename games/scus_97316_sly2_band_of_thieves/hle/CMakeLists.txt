@@ -18,6 +18,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
     add_library(ps2r_title_play STATIC
         audio_dump.cpp
         boot_leg.cpp
+        leg_agent.cpp
         frame_dump.cpp
         gif_trace_sink.cpp
         leg_audio.cpp

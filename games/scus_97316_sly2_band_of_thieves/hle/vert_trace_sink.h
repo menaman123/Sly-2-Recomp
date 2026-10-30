@@ -20,6 +20,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "engine/gs/hle/ir/draw_ir_sink.h"
@@ -39,6 +40,10 @@ struct VertTraceSink : ps2r::gs::DrawIrSink {
     // `tbp=<hex>` -- drop every textured draw reading TEX0.TBP0 at that byte address (which object is it?).
     std::vector<uint32_t> skip_tbp;
     std::array<uint32_t, 512> page_written{}, page_sampled{}, page_target{};
+    // The agent control plane's draw list (leg_agent.h): every forwarded draw and the frame marker (the
+    // VSync job). Set once before the first frame or never; unset they cost one empty-function test.
+    std::function<void(const ps2r::gs::DrawIr&)> agent_draw;
+    std::function<void(uint32_t src_frame)> agent_frame;
 
     // Parses the NATIVEEE_GS_SKIP_CLASS list (nullptr = unset) into the skip_* flags.
     void SetSkipClasses(const char* list);
