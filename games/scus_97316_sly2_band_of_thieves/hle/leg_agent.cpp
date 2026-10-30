@@ -11,6 +11,7 @@
 #include "app/host/session_files.h"
 #include "engine/core/log/log.h"
 #include "engine/ee/cpu/dispatch_table.h"
+#include "engine/ee/recomp_abi/host_app/gs_hle.h"
 #include "engine/ee/hle/thread_manager.h"
 #include "engine/ee/sched/ee_event_queue.h"
 #include "engine/ee/sched/ee_run_token.h"
@@ -65,6 +66,7 @@ LegAgent::LegAgent(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
         return StateLoadPrepare(path, slot, resolved, err);
     };
     b.knob_set = [this](const std::string& name, const AgentJson& value, std::string* err) { return KnobSet(name, value, err); };
+    b.quit = [this] { verify_.EndLegFromAgent("agent_quit"); };
     b.extra_info = [this](AgentJson* out) {
         out->Set("renderer", AgentJson::String(gs_.consumer ? "gl (hidden window; screen.grab available)" : "counting sink (no screen.grab)"));
         out->Set("engine_boundaries", AgentJson::UInt(core_.domain.BoundaryCount()));
@@ -246,6 +248,8 @@ bool LegAgent::StateSave(const std::string& path, int slot, std::string* out_pat
         if (auto done = saves_.capture->Poll()) {
             if (done->phase != ps2r::app::SessionControls::Phase::Succeeded) { *err = done->detail; return false; }
             *out_path = done->path;
+            std::fprintf(stderr, "nativeee: state.save: frame %llu captured (engine boundary %llu) -> %s\n",
+                         static_cast<unsigned long long>(frame - 1), static_cast<unsigned long long>(frame), done->path.c_str());
             return true;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -388,6 +392,10 @@ ps2r::app::SessionRestart::Hooks LegAgent::RestartHooks() {
         audio_.audio_pumped_tick = core_.domain.DomainTick();
         saves_.restored_vsync_frame = static_cast<uint32_t>(incoming_clock_.domain.boundaries);
         saves_.restore_route = "live";
+        saves_.DeriveMcBound();   // libmc's Bound() from the restored RAM (the cold route does the same)
+        // The hook table's frame stamp (FnHooks::Call::frame = g_vsync_frame) follows the boundary count; the
+        // restored run's first boundary has not run yet, so seed it with the restored count.
+        g_vsync_frame.store(static_cast<uint32_t>(incoming_clock_.domain.boundaries), std::memory_order_relaxed);
         saves_.restore_sections.clear();
         for (const auto& blob : saves_.restorer.LastSections())
             saves_.restore_sections += (saves_.restore_sections.empty() ? "" : ",") + ps2r::savestate::TagName(blob.tag);
@@ -397,6 +405,7 @@ ps2r::app::SessionRestart::Hooks LegAgent::RestartHooks() {
             meta->Set("restored_vsync_frame", std::to_string(saves_.restored_vsync_frame));
             meta->Set("restore_route", saves_.restore_route);
             meta->Set("restore_sections", saves_.restore_sections);
+            meta->Set("restore_mc_bound", saves_.restore_mc_bound);
             meta->Set("restores", std::to_string(saves_.restores.load()));
             meta->Flush();
         }

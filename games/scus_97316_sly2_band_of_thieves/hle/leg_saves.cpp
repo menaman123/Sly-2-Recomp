@@ -175,6 +175,7 @@ void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionW
         audio.audio_pumped_tick = core_.domain.DomainTick();
         ++restores;
         restore_route = "live";
+        DeriveMcBound();   // play mode's F8 live route: the same gap the agent's live route had
         restore_sections.clear();
         for (const auto& blob : restorer.LastSections())
             restore_sections += (restore_sections.empty() ? "" : ",") + ps2r::savestate::TagName(blob.tag);
@@ -183,6 +184,7 @@ void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionW
             meta->Set("restored_vsync_frame", std::to_string(frame));
             meta->Set("restore_route", restore_route);
             meta->Set("restore_sections", restore_sections);
+            meta->Set("restore_mc_bound", restore_mc_bound);
             meta->Set("restores", std::to_string(restores.load()));
             meta->Flush();
         }
@@ -229,6 +231,15 @@ void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionW
              restorer.Registry().Specs().size());
 }
 
+void LegSaves::DeriveMcBound() {
+    if (title_mc_client_addr_ != 0) {
+        services_.mc_model.DeriveBound(memory::read<uint32_t>(title_mc_client_addr_ + SceSif::kClientServer));
+        restore_mc_bound = services_.mc_model.Bound() ? "derived=1" : "derived=0";
+    } else {
+        restore_mc_bound = "no_client_addr";
+    }
+}
+
 int LegSaves::ColdBoot(const std::string& path, const ColdDeps& deps) {
     cold_restore = std::make_unique<ps2r::app::ColdRestore>(restorer, thread_section, ThreadManager::Instance());
     ps2r::app::ColdRestore& cold = *cold_restore;
@@ -261,15 +272,7 @@ int LegSaves::ColdBoot(const std::string& path, const ColdDeps& deps) {
     if (play_.session) play_.session->RebaseFrame(boundaries);
     deps.audio.audio_pumped_tick = core_.domain.DomainTick();
     if (play_.live_input) play_.live_input->ResetPending();
-    // libmc's readiness is in the image: the bound-server word of its sceSifClientData (client_addr + 0x24),
-    // written by sceMcInit. mcserv's init never re-runs here, so derive Bound from it (0 = taken before
-    // sceMcInit; the rows answer -100 until a live init binds).
-    if (title_mc_client_addr_ != 0) {
-        services_.mc_model.DeriveBound(memory::read<uint32_t>(title_mc_client_addr_ + SceSif::kClientServer));
-        restore_mc_bound = services_.mc_model.Bound() ? "derived=1" : "derived=0";
-    } else {
-        restore_mc_bound = "no_client_addr";
-    }
+    DeriveMcBound();
     restored_vsync_frame = report.vsync_frame;
     restore_route = "cold";
     restore_sections = report.sections;
