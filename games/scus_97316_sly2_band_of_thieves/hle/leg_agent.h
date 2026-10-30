@@ -87,7 +87,7 @@ private:
     ps2r::verify::VerifyHost& host_;
     LegCore& core_;
     LegGs& gs_;
-    LegAudio& audio_;
+    [[maybe_unused]] LegAudio& audio_;   // kept for the restore hook (the audio tick reseed went with upstream's field pump)
     LegSaves& saves_;
     LegPark& park_;
     LegVerifySlot& verify_;
