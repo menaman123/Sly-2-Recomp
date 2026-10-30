@@ -162,6 +162,7 @@ jobs:
             Download `sly2-${{ env.RELEASE_TAG }}-windows-x64.zip`, unzip it, and open `sly2-windows-x64\launcher\sly2-launcher.exe`.
             Choose your own disc image of Sly 2: Band of Thieves (North America, SCUS-97316), choose where the game should live, and press Play.
             Nothing else to install. No game data is in this download: the game reads your disc.
+            The launcher keeps itself and the game up to date: each time it opens it looks for a newer release, installs it and restarts. Keep the unzipped folder somewhere you can write to (not Program Files).
           files: |
             dist/*.zip
             dist/*.zip.sha256
