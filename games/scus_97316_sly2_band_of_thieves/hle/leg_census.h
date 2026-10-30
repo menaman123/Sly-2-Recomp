@@ -59,6 +59,7 @@ public:
         // Set later by LegVerifySlot.
         const ps2r::app::DisplaySequence* verify_display_sequence = nullptr;
         // Set later by the composition: the frame-rate policy's row (frame_rate=).
+        std::function<std::string()> frame_rate = {};
         // Set later by RunLeg (the agent control plane, leg_agent.h; null = off).
         const LegAgent* agent = nullptr;
     };

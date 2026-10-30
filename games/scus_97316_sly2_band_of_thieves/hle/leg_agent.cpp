@@ -400,7 +400,6 @@ ps2r::app::SessionRestart::Hooks LegAgent::RestartHooks() {
         core_.game_boundary.ResetAfterRestore();
         verify_.session_workers.SetBoundary(incoming_boundary_);
         resume_gate_.store(true);
-        audio_.audio_pumped_tick = core_.domain.DomainTick();
         saves_.restored_vsync_frame = static_cast<uint32_t>(incoming_clock_.domain.boundaries);
         saves_.restore_route = "live";
         saves_.DeriveMcBound();   // libmc's Bound() from the restored RAM (the cold route does the same)
