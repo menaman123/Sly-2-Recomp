@@ -12,6 +12,7 @@
 #include "engine/ee/hle/syscall_table.h"
 #include "engine/ee/hle/thread_manager.h"
 #include "engine/ee/sched/ee_event_queue.h"
+#include "engine/ee/sched/ee_run_token.h"
 #include "engine/sif/hle/iop_rpc_server.h"
 #include "engine/sif/hle/sce_sif.h"
 #include "engine/vu/tiers/mtvu_sync.h"
@@ -141,6 +142,9 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
         // acquire and no boundary since the last trip); otherwise it fires only fields the pacer already
         // noted. Census ee_yield= spin_trips/sched_trips/due_fields.
         yd.spin_gate = knobs.yield_spin_gate_set ? knobs.yield_spin_gate_on : cfg.engine.ee_yield_spin_gate;
+        // engine.vblank_wake_sync: the vblank sleeper is readied by the holder at the trip's field (the
+        // last host-wake term of the deterministic lane; census vblank_waits= field_wakes).
+        EeRunToken::Instance().SetVblankWakeSync(cfg.engine.vblank_wake_sync);
         yd.fire_due_fields = core.protocol.FireDueFieldsHook();
         EeYieldPoint::Instance().Bind(std::move(yd));
     }

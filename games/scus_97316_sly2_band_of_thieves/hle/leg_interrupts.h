@@ -30,6 +30,7 @@ public:
     uint64_t syscall_entry_isrs = 0, syscall_entry_isrs_deferred = 0;              // census syscall_entry_isrs=
     uint64_t mtvu_idle_wait_entries = 0;                                           // census mtvu= idle_wait_entries
     uint64_t mtvu_idle_wait_skipped = 0;          // idle waits skipped: the wait would not have parked
+    uint64_t relaunch_quiet_syscalls = 0;         // syscall entries during a load's quiet re-park phase (no dispatch)
     uint64_t mtvu_idle_wait_vblank_skipped = 0;   // idle waits skipped: the block wakes a vblank sleeper
 
 private:

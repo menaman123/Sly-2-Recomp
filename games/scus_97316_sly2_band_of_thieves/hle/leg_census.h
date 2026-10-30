@@ -26,9 +26,12 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_play.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_trace.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/text_watch.h"
 
 namespace ps2r::title::sly2 {
+
+class LegAgent;
 
 class LegCensus {
 public:
@@ -52,13 +55,16 @@ public:
         LegImage& image;
         TextWatch& text_watch;
         LegPark& park;
+        LegTrace& trace;
         // Set later by LegVerifySlot.
         const ps2r::app::DisplaySequence* verify_display_sequence = nullptr;
         // Set later by the composition: the frame-rate policy's row (frame_rate=).
-        std::function<std::string()> frame_rate = {};
+        // Set later by RunLeg (the agent control plane, leg_agent.h; null = off).
+        const LegAgent* agent = nullptr;
     };
     void SetDisplaySequence(const ps2r::app::DisplaySequence* seq) { p_.verify_display_sequence = seq; }
     void SetFrameRateCensus(std::function<std::string()> row) { p_.frame_rate = std::move(row); }
+    void SetAgent(const LegAgent* agent) { p_.agent = agent; }
 
     explicit LegCensus(const Phases& p) : p_(p) {}
     LegCensus(const LegCensus&) = delete;

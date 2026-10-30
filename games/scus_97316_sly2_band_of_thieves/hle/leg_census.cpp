@@ -1,5 +1,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_agent.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <string>
@@ -100,8 +102,11 @@ void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
     meta->Set("ee_yield_budget", std::to_string(LegIop::kYieldBudget) + ":spin_gate=" +
                                      (EeYieldPoint::Instance().SpinGate() ? "on" : "off"));
     meta->Set("vblank_waits", std::to_string(EeRunToken::Instance().VblankWaits()) + ":idle=" +
-                                  std::to_string(EeRunToken::Instance().VblankWaitsIdle()));
-    meta->Set("syscall_entry_isrs", std::to_string(irq.syscall_entry_isrs) + ":deferred=" + std::to_string(irq.syscall_entry_isrs_deferred));
+                                  std::to_string(EeRunToken::Instance().VblankWaitsIdle()) + ":field_wakes=" +
+                                  std::to_string(EeRunToken::Instance().FieldWakes()) + ":wake_sync=" +
+                                  (EeRunToken::Instance().VblankWakeSync() ? "on" : "off"));
+    meta->Set("syscall_entry_isrs", std::to_string(irq.syscall_entry_isrs) + ":deferred=" + std::to_string(irq.syscall_entry_isrs_deferred) +
+                                        ":relaunch_quiet=" + std::to_string(irq.relaunch_quiet_syscalls));
     {
         // The VIFcode i-bit stall (leg_vif_irq.h): worker parks, handlers run in place / inside a sync
         // wait, and the refusals (no guest context; a wait inside an ISR; a stall seen before its cause).
@@ -324,9 +329,11 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
     meta->Set("pad_served", "active=" + std::to_string(pad.pad_served_active) + ":last=" + (pad.pad_served_last.empty() ? "none" : pad.pad_served_last));
     pad.pad_recorder.Close();   // every exit path: the open run + the header counts land before _Exit
     p_.image.WriteFnCensus();   // NATIVEEE_FN_CENSUS: same contract
+    p_.trace.Write(meta);   // the hook-table knobs (leg_trace.h): corpus stop, rings, census, attribution
     p_.dma_ipu.WriteVu0Trace();   // NATIVEEE_VU0_TRACE: same contract
     meta->Set("pad_record", pad.pad_recorder.Census());
     meta->Set("pad_script", pad.pad_script.Census());
+    meta->Set("agent", p_.agent ? p_.agent->Census() : "off");
     meta->Set("nav_probe", pad.nav_probe.Census());
     if (play.live_input) {
         meta->Set("pad_live", play.live_input->Census());

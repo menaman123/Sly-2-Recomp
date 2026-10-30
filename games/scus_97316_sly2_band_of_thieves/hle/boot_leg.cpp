@@ -14,12 +14,14 @@
 #include "engine/title/title_play.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include "app/host/build_id.h"
 #include "app/host/first_run.h"
@@ -45,6 +47,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/clock_tick.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/frame_limit.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/motion_blur.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_agent.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
@@ -64,6 +67,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_verify_slot.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_trace.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_vif_irq.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_watchdog.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/widescreen.h"
@@ -145,11 +149,18 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // Must follow the ELF load: it snapshots code ranges.
     TextWatch text_watch(knobs.watch ? knobs.watch->c_str() : nullptr, core.ram);
     LegPark park(host, knobs, core, devices, mtvu);
+    // The hook-table knobs: after the image (the dispatch table is live), before the census that writes them.
+    LegTrace trace(knobs, disc, title.serial);
     LegCensus census(LegCensus::Phases{cfg, host, title, core, gs, devices, mtvu, dma_ipu, interrupts, vif_irq, services, audio, play, saves,
-                                       iop, pad, image, text_watch, park});
+                                       iop, pad, image, text_watch, park, trace});
     LegParkSink park_sink(host, census, park, play, disc, iop);
     LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);
     if (verify.Failed()) return 2;
+    // The agent control plane (NATIVEEE_AGENT_SOCKET): after the Verify slot so it owns the completed-boundary
+    // consumer in headless runs; its state.load is a live restore supervised below.
+    LegAgent agent(cfg, host, title, knobs, core, gs, mtvu, services, audio, saves, pad, park, verify, g_build_id);
+    if (agent.Failed()) return 2;
+    census.SetAgent(&agent);
     LegWatchdog watchdog(host, knobs, core, park, census);
 
     // Play mode locks the frame boundary to the 60 Hz wall clock; NATIVEEE_UNPACED=1 ticks it inline.
@@ -224,6 +235,12 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
             failure = std::make_exception_ptr(std::runtime_error(release_error));
         // An F8 restore unwound this thread; the session relaunches the restored threads.
         if (session && session->RestorePending() && !failure) return 0;
+        // The agent's state.load unwound this thread (headless): restore and relaunch here, then wait for
+        // the relaunched boundary owner like a cold restore does; another admitted load repeats the cycle.
+        while (!failure && agent.LoadPending()) {
+            if (!agent.SuperviseRestore()) break;
+            while (verify.session_workers.BoundaryAlive() && core.running.load()) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
         core.running.store(false);
         // In play mode the session joins the workers; headless, this thread does.
         if (!session) verify.JoinLadder();

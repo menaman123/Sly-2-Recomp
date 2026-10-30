@@ -19,6 +19,7 @@
 #include "engine/vif/vif.h"
 #include "engine/sif/hle/sce_sif.h"
 #include "engine/ee/sched/ee_event_queue.h"
+#include "engine/ee/sched/ee_yield_point.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_text.h"
@@ -39,6 +40,7 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
       kernel_sections(Semaphores::Instance(), EventFlags::Instance()),
       intc_section(core.intc, SyscallTable::Instance()),
       timer_section(core.timers, title.quirks.boot_t0_mode),
+      yield_section(EeYieldPoint::Instance()),
       vifs_section(devices.vif),
       gs_sections(gs.gs_state),
       gifs_section(devices.gif_regs),
@@ -76,6 +78,7 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
         registry.Register(dmac_spec);
     }
     timer_section.Register(registry);
+    yield_section.Register(registry);   // staged here, seated by ThreadRelauncher before the boundary thread resumes
     vifs_section.Register(registry);
     // With a split image, the VRAM section reads the pipeline's copy (after draining it).
     if (gs.gs_queue && gs.pipeline_vram) {
@@ -173,6 +176,7 @@ void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionW
         restored_vsync_frame = frame;
         ++restores;
         restore_route = "live";
+        DeriveMcBound();   // play mode's F8 live route: the same gap the agent's live route had
         restore_sections.clear();
         for (const auto& blob : restorer.LastSections())
             restore_sections += (restore_sections.empty() ? "" : ",") + ps2r::savestate::TagName(blob.tag);
@@ -181,6 +185,7 @@ void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionW
             meta->Set("restored_vsync_frame", std::to_string(frame));
             meta->Set("restore_route", restore_route);
             meta->Set("restore_sections", restore_sections);
+            meta->Set("restore_mc_bound", restore_mc_bound);
             meta->Set("restores", std::to_string(restores.load()));
             meta->Flush();
         }
@@ -227,6 +232,15 @@ void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionW
              restorer.Registry().Specs().size());
 }
 
+void LegSaves::DeriveMcBound() {
+    if (title_mc_client_addr_ != 0) {
+        services_.mc_model.DeriveBound(memory::read<uint32_t>(title_mc_client_addr_ + SceSif::kClientServer));
+        restore_mc_bound = services_.mc_model.Bound() ? "derived=1" : "derived=0";
+    } else {
+        restore_mc_bound = "no_client_addr";
+    }
+}
+
 int LegSaves::ColdBoot(const std::string& path, const ColdDeps& deps) {
     cold_restore = std::make_unique<ps2r::app::ColdRestore>(restorer, thread_section, ThreadManager::Instance());
     ps2r::app::ColdRestore& cold = *cold_restore;
@@ -258,15 +272,7 @@ int LegSaves::ColdBoot(const std::string& path, const ColdDeps& deps) {
     const uint64_t boundaries = core_.domain.BoundaryCount();
     if (play_.session) play_.session->RebaseFrame(boundaries);
     if (play_.live_input) play_.live_input->ResetPending();
-    // libmc's readiness is in the image: the bound-server word of its sceSifClientData (client_addr + 0x24),
-    // written by sceMcInit. mcserv's init never re-runs here, so derive Bound from it (0 = taken before
-    // sceMcInit; the rows answer -100 until a live init binds).
-    if (title_mc_client_addr_ != 0) {
-        services_.mc_model.DeriveBound(memory::read<uint32_t>(title_mc_client_addr_ + SceSif::kClientServer));
-        restore_mc_bound = services_.mc_model.Bound() ? "derived=1" : "derived=0";
-    } else {
-        restore_mc_bound = "no_client_addr";
-    }
+    DeriveMcBound();
     restored_vsync_frame = report.vsync_frame;
     restore_route = "cold";
     restore_sections = report.sections;

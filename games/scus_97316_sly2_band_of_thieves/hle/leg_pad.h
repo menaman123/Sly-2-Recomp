@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -52,6 +53,8 @@ public:
     PadScript pad_script;
     PadRecorder pad_recorder;
     std::vector<KeyScriptStep> key_script;
+    // The agent control plane's overlay (leg_agent.h), applied after the script at every stamp; unset = none.
+    std::function<void(uint64_t stamp, PadProtocol::Input* in)> agent_overlay;
 
 private:
     // NATIVEEE_LAT_PULSE's thread (play mode only).

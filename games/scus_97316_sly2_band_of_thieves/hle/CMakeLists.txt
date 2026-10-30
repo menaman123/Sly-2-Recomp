@@ -19,6 +19,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         audio_dump.cpp
         boot_leg.cpp
         clock_tick.cpp
+        leg_agent.cpp
         frame_dump.cpp
         frame_limit.cpp
         gif_trace_sink.cpp
@@ -42,6 +43,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         leg_saves.cpp
         leg_services.cpp
         leg_text.cpp
+        leg_trace.cpp
         leg_verify_slot.cpp
         leg_vif_irq.cpp
         leg_watchdog.cpp

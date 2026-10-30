@@ -66,6 +66,9 @@ public:
     // The motion blur switch (bound by the composition after the ELF load; the session's setting at each boundary).
     MotionBlur* motion_blur = nullptr;
 
+    // The agent control plane's session.quit: end the leg from the completed boundary (census written).
+    [[noreturn]] void EndLegFromAgent(const char* detail) { EndLegFromBoundary(detail); }
+
 private:
     [[noreturn]] void EndLegFromBoundary(const char* detail);
     void HarnessVerbs(uint64_t at_boundary);
