@@ -14,6 +14,12 @@ target_include_directories(ps2r_title_hle PUBLIC ${CMAKE_SOURCE_DIR})
 target_compile_options(ps2r_title_hle PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ps2r_title_hle PUBLIC ps2r_title_api)   # the TitleProfile contract
 
+# STAGE NATIVE: the title's native paths (../native: ps2r_title_native -- the title.native.* knobs, the per-unit
+# census, the portable SIMD surface, and the per-unit native paths). Always configured so a no-disc build (CI,
+# the Windows lane) compiles the portable core; the per-unit TUs that need the recompiled code / build-time
+# generated data are guarded inside native/CMakeLists.txt. Linked into the play composition below.
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../native ${CMAKE_CURRENT_BINARY_DIR}/../native)
+
 if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
     add_library(ps2r_title_play STATIC
         audio_dump.cpp
@@ -75,7 +81,8 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         PS2R_SLY2_SHA_SPIOP="${PS2R_TITLE_EMBEDDED_spiop_SHA256}")
     target_link_libraries(ps2r_title_play PUBLIC
         ps2r_app_host ps2r_title_hle ps2r_title_recomp ps2r_sif ps2r_gs_sync ps2r_title_iop
-        ps2r_gs_state ps2r_gif ps2r_gif_hle ps2r_vu ps2r_vif ps2r_dmac ps2r_ipu_model ps2r_gs_hle_capture)
+        ps2r_gs_state ps2r_gif ps2r_gif_hle ps2r_vu ps2r_vif ps2r_dmac ps2r_ipu_model ps2r_gs_hle_capture
+        ps2r_title_native)
     # The generated dispatch table is only reached through DispatchTable, so force the whole archive in.
     add_dependencies(ps2r_title_play ps2r_title_recomp)
 
