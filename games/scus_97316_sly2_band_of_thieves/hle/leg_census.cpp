@@ -38,6 +38,7 @@ void LegCensus::Write() {
     WriteKernel(meta);
     WriteGs(meta);
     WritePlay(meta);
+    if (p_.frame_rate) meta->Set("frame_rate", p_.frame_rate());
     WriteDevices(meta);
     WriteVu1(meta);
     p_.text_watch.Report(p_.host);   // text_watch= / text_watch_pages= (NATIVEEE_WATCH=text only)
@@ -367,7 +368,7 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
                                         ":pulled=" + std::to_string(audio.audio_ring.pulled()) + ":underruns=" + std::to_string(audio.audio_ring.underruns()) +
                                         ":padded=" + std::to_string(audio.audio_ring.padded()) + ":relatches=" + std::to_string(audio.audio_ring.relatches()) +
                                         ":trimmed=" + std::to_string(audio.audio_ring.trimmed()) +
-                                        ":field_pumps=" + std::to_string(audio.audio_field_pumps) +
+                                        ":stretch=" + std::to_string(audio.stretch.FramesIn()) + "/" + std::to_string(audio.stretch.FramesOut()) +
                                         ":lead=" + std::to_string(audio.audio_ring.LeadQuanta())
                                   : std::string("none"));
     meta->Set("audio_mixed", "pumps=" + std::to_string(p_.services.mixer.Pumps()) + ":frames=" + std::to_string(p_.services.mixer.FramesMixed()) +

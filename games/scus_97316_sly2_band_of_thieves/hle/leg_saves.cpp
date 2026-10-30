@@ -131,8 +131,7 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
     });
 }
 
-void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionWorkers& workers, TickThread& tick_thread,
-                    LegAudio& audio) {
+void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionWorkers& workers, TickThread& tick_thread) {
     ps2r::app::SessionRuntime* session = play_.session.get();
     if (!session) return;
     capture->Bind(hooks);
@@ -170,9 +169,8 @@ void LegSaves::Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionW
         return true;
     };
     const bool paced = core_.play_mode && gs_.video_live;
-    lifecycle.resumed = [this, &tick_thread, &audio, paced](uint32_t frame, std::string&) {
+    lifecycle.resumed = [this, &tick_thread, paced](uint32_t frame, std::string&) {
         restored_vsync_frame = frame;
-        audio.audio_pumped_tick = core_.domain.DomainTick();
         ++restores;
         restore_route = "live";
         restore_sections.clear();
@@ -259,7 +257,6 @@ int LegSaves::ColdBoot(const std::string& path, const ColdDeps& deps) {
     core_.game_boundary.ResetAfterRestore();
     const uint64_t boundaries = core_.domain.BoundaryCount();
     if (play_.session) play_.session->RebaseFrame(boundaries);
-    deps.audio.audio_pumped_tick = core_.domain.DomainTick();
     if (play_.live_input) play_.live_input->ResetPending();
     // libmc's readiness is in the image: the bound-server word of its sceSifClientData (client_addr + 0x24),
     // written by sceMcInit. mcserv's init never re-runs here, so derive Bound from it (0 = taken before

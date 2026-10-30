@@ -72,6 +72,9 @@ public:
     const char* Renderer() const { return metal_active_ ? renderer_name_.c_str() : ctx_.Renderer(); }
     const char* GlVersion() const { return metal_active_ ? "Metal" : ctx_.Version(); }
     int Scale() const { return scale_factor_; }
+    // A live internal-scale change (1..4), on the backend owner between frames: render targets are re-created
+    // at the new factor on their next use, their content carried over through the VRAM image.
+    void ApplyScale(int scale);
 
     // The context on the calling thread (a no-op when it already is); the release on
     // the thread that holds it (main, before the consumer thread takes it).

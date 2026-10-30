@@ -21,7 +21,8 @@ ps2r::gs::AspectSelection::Shape ShapeOf(ps2r::AspectSel a) {
                   static_cast<int>(ps2r::gs::AspectSelection::Shape::Narrow) == static_cast<int>(ps2r::AspectSel::R4_3) &&
                   static_cast<int>(ps2r::gs::AspectSelection::Shape::Wide16_9) == static_cast<int>(ps2r::AspectSel::R16_9) &&
                   static_cast<int>(ps2r::gs::AspectSelection::Shape::Wide16_10) == static_cast<int>(ps2r::AspectSel::R16_10) &&
-                  static_cast<int>(ps2r::gs::AspectSelection::Shape::Wide21_9) == static_cast<int>(ps2r::AspectSel::R21_9));
+                  static_cast<int>(ps2r::gs::AspectSelection::Shape::Wide21_9) == static_cast<int>(ps2r::AspectSel::R21_9) &&
+                  static_cast<int>(ps2r::gs::AspectSelection::Shape::Wide32_9) == static_cast<int>(ps2r::AspectSel::R32_9));
     return static_cast<ps2r::gs::AspectSelection::Shape>(a);
 }
 
@@ -43,6 +44,7 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         const size_t slash = exe.find_last_of('/');
         const std::string exe_dir = slash == std::string::npos ? std::string(".") : exe.substr(0, slash);
         live_input = std::make_unique<PlatformInput>(PlatformInput::SettingsFrom(cfg, exe_dir));
+        live_input->SetCameraInvert(cfg.input.invert_camera_x, cfg.input.invert_camera_y);
         session = std::make_unique<ps2r::app::SessionRuntime>(live_input.get());
         std::string err;
         if (!session->Open(cfg.audio.volume, audio.audio_sink.Running(), /*recording=*/false, std::string(), err, cfg.paths.mc_dir)) {
@@ -66,8 +68,7 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
                 std::fprintf(stderr, "nativeee: settings: %s=%s not saved: %s\n", key.c_str(), value.c_str(), err.c_str());
             }
         }, [] { return ps2r::ConfigStore::ReadAll(); });
-        // Display page rows are seeded from video.*. video.scale takes effect at the next start, since the
-        // video stack builds its scale policy once.
+        // Display page rows are seeded from video.*; the internal scale applies live (LegGs::scale_request).
         static_assert(static_cast<int>(ps2r::FrameCap::Off) == 0 && static_cast<int>(ps2r::FrameCap::Hz30) == 1 &&
                       static_cast<int>(ps2r::FrameCap::Hz60) == 2);
         session->ConfigureDisplayRows({cfg.video.scale, static_cast<int>(cfg.video.aspect), static_cast<int>(cfg.video.render_rate),

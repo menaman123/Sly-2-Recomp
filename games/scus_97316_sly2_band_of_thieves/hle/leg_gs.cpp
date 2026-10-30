@@ -62,6 +62,14 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         }
         hooks.window_resized = [this](int w, int h) { video.OnWindowResized(w, h); };
         hooks.grab_wanted = [this] { return grab_wanted.load(std::memory_order_relaxed); };
+        hooks.owned_frame = [this](bool, ps2r::gs::DrawPipeline::Frame*) {
+            if (const int scale = scale_request.exchange(0, std::memory_order_relaxed)) {
+                video.ApplyScale(scale);
+                if (consumer) consumer->SetFrameHashScale(video.Scale());
+                PS2R_LOG(HOST, Info, "video: internal scale %dx", video.Scale());
+            }
+            return false;
+        };
         consumer = std::make_unique<ps2r::gs::DrawIrQueueConsumer>(*video.Pipe(), std::move(hooks));
         latency_tap.next = consumer.get();
         // Play hashes the grab on the consumer thread; the boundary reads only the header and hash.

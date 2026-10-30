@@ -18,7 +18,9 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
     add_library(ps2r_title_play STATIC
         audio_dump.cpp
         boot_leg.cpp
+        clock_tick.cpp
         frame_dump.cpp
+        frame_limit.cpp
         gif_trace_sink.cpp
         leg_audio.cpp
         leg_census.cpp
@@ -43,6 +45,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         leg_verify_slot.cpp
         leg_vif_irq.cpp
         leg_watchdog.cpp
+        motion_blur.cpp
         nav_json.cpp
         nav_probe.cpp
         pad_recorder.cpp
@@ -54,6 +57,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         video_stack.cpp
         vu1_probe.cpp
         warp_tool.cpp
+        widescreen.cpp
     )
     target_include_directories(ps2r_title_play PRIVATE ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/.. ${PS2R_IOP_GEN_ROOT})
     target_compile_options(ps2r_title_play PRIVATE -Wall -Wextra -Werror)

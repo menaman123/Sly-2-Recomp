@@ -131,6 +131,12 @@ void VideoStack::BuildScene(int scale, gs::VramImage& vram) {
     scanout_->SetScanoutFbp(gs::DrawPipeline::kNoFbp);
 }
 
+void VideoStack::ApplyScale(int scale) {
+    if (!scale_) return;
+    scale_->SetFactor(scale);
+    scale_factor_ = scale_->Factor();
+}
+
 void VideoStack::EnsureCurrent() {
     if (!ctx_.IsCreated()) return;   // Metal: no context to bind
     const std::thread::id me = std::this_thread::get_id();

@@ -27,10 +27,13 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_mtvu.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/frame_limit.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_play.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/text_watch.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/motion_blur.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/widescreen.h"
 
 namespace ps2r::title::sly2 {
 
@@ -56,6 +59,12 @@ public:
     ps2r::app::DisplaySequence display_sequence;
     bool close_pushed = false;
     uint64_t pauses = 0;   // census: pause hook calls (pause + resume)
+    // The play session's frame-rate policy (bound by the composition once the pacing is known).
+    FrameLimit* frame_limit = nullptr;
+    // The camera's widening for the display aspect (bound by the composition after the ELF load).
+    Widescreen* widescreen = nullptr;
+    // The motion blur switch (bound by the composition after the ELF load; the session's setting at each boundary).
+    MotionBlur* motion_blur = nullptr;
 
 private:
     [[noreturn]] void EndLegFromBoundary(const char* detail);

@@ -42,6 +42,9 @@
 #include "engine/platform/host/platform.h"
 #include "engine/platform/crash_handler.h"
 #include "engine/title/title_profile.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/clock_tick.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/frame_limit.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/motion_blur.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
@@ -63,6 +66,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_verify_slot.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_vif_irq.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_watchdog.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/widescreen.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/warp_tool.h"
 
 namespace {
@@ -134,8 +138,6 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegPlay play(cfg, title, core, gs, audio);
     if (play.Failed()) return 2;
     LegIop iop(cfg, knobs, core, devices, mtvu, interrupts, disc, services);
-    // One IOP quantum per catch-up field, interleaved with the SPU quanta (play mode only).
-    audio.field_quantum = [&iop](CpuContext& ctx) { iop.PumpFieldQuantum(ctx); };
     LegSaves saves(cfg, host, title, core, gs, devices, mtvu, services, iop, play, g_build_id);
     LegPad pad(cfg, title_dir, knobs, core, services, play);
     LegImage image(cfg, host, title, elf_path, title_dir, knobs, core, disc, services, iop);
@@ -156,6 +158,40 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         verify.tick_thread.Start();
         core.sequencer.BindPacer(&core.protocol);
     }
+    // The Display page's Frame rate: Sly's frame clock (the guest's Count, the dt floor) and the pacing policy.
+    ClockTick clock_tick(core.ram);
+    if (!clock_tick.Install())
+        std::fprintf(stderr, "nativeee: clock tick 0x%08x is not a generated function start\n", ClockTick::kMarkClockTick);
+    if (cfg.engine.cop0_count)
+        SyscallTable::Instance().SetCop0CountClock([&clock_tick, &clocks = core.clocks] { return clock_tick.Count(clocks.Cop0Count()); });
+    FrameLimit frame_limit(core, clock_tick, paced);
+    frame_limit.SetMovieProbe([&ipu = dma_ipu.ipu] { return ipu.CommandCount(1) + ipu.CommandCount(2); });
+    if (mtvu.mtvu) frame_limit.SetVu1Backlog([&stack = *mtvu.mtvu] { return stack.worker().PipelineBytes(); });
+    verify.frame_limit = &frame_limit;
+    iop.quantum_gate = [&frame_limit] { return frame_limit.TakeQuantum(); };
+    if (paced && play.session) {
+        play.session->ConfigureFrameLimit(cfg.video.frame_limit);
+        frame_limit.Apply(cfg.video.frame_limit);
+    }
+    // The display aspect beyond 4:3 widens the game's camera (the presenter shows the frame at that ratio).
+    Widescreen widescreen(core.ram, play.aspect);
+    if (!widescreen.Install()) std::fprintf(stderr, "nativeee: widescreen: the camera functions are not generated function starts\n");
+    verify.widescreen = &widescreen;
+    // The Display page's Motion blur (the game's previous-picture blend).
+    MotionBlur motion_blur;
+    if (!motion_blur.Install()) std::fprintf(stderr, "nativeee: motion blur 0x%08x is not a generated function start\n", MotionBlur::kBlend);
+    motion_blur.Set(cfg.video.motion_blur);
+    verify.motion_blur = &motion_blur;
+    if (play.session) play.session->ConfigureMotionBlur(cfg.video.motion_blur);
+    census.SetFrameRateCensus([&frame_limit, &clock_tick, &widescreen, &motion_blur] {
+        return "limit=" + std::to_string(frame_limit.Limit()) + ":switches=" + std::to_string(frame_limit.Switches()) +
+               ":k=" + std::to_string(frame_limit.K()) + ":uncapped_now=" + std::to_string(frame_limit.Uncapped()) +
+               ":vu1_throttles=" + std::to_string(frame_limit.Vu1Throttles()) + ":vu1_throttled=" +
+               std::to_string(frame_limit.Vu1Throttled()) + ":vu1_backlog_kb=" + std::to_string(frame_limit.Vu1Backlog() >> 10) +
+               ":widescreen_" + widescreen.Census() + ":motion_blur=" + std::to_string(motion_blur.On()) + "/" +
+               std::to_string(motion_blur.Skipped()) + ":" +
+               clock_tick.Census();
+    });
     if (auto* meta = host.Meta()) meta->Set("play_mode", core.play_mode ? (paced ? "paced" : "unpaced") : "headless");
     int result = 0;
     uint32_t fault_pc = 0;
@@ -163,7 +199,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     std::unique_ptr<ps2r::app::SessionRuntime>& session = play.session;
     auto cold_boot = [&]() {
         if (!cfg.harness.load_state.empty()) {
-            LegSaves::ColdDeps deps{verify.session_workers, audio, park, census, [&verify] { verify.JoinLadder(); }};
+            LegSaves::ColdDeps deps{verify.session_workers, park, census, [&verify] { verify.JoinLadder(); }};
             return saves.ColdBoot(cfg.harness.load_state, deps);
         }
         CpuContext ctx;

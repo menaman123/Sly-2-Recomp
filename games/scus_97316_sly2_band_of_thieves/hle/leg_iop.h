@@ -1,8 +1,8 @@
 // LegIop: the IOP host (iop_host.h) and the SIF wiring around it.
 //
 //   * The padman model follows the padman.irx this disc loads (4.10: the SDK-3 command table).
-//   * Each boundary pumps the IOP one frame quantum and delivers its SIF commands; in play mode each
-//     catch-up field pumps once more, so 989snd's stream refills keep pace below 60 boundaries/s.
+//   * Each boundary pumps the IOP one frame quantum and delivers its SIF commands, in step with the
+//     SPU's one quantum per boundary (LegVerifySlot), so 989snd's refills follow the voices they feed.
 //   * IOP -> EE SIF commands land in libkernl's command buffer and run the EE's handler as a guest call.
 //   * Back-edge yield (recomp --yield-backedges): a guest loop that makes no kernel call trips EeYieldPoint
 //     every kYieldBudget back-edges, which advances a field and delivers timers, ISRs, events, the IOP
@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 
 #include "engine/core/config/config.h"
 #include "engine/ee/sched/ee_yield_point.h"
@@ -33,9 +34,10 @@ public:
     LegIop(const LegIop&) = delete;
     LegIop& operator=(const LegIop&) = delete;
 
-    // One IOP frame quantum plus delivery of the SIF commands it sent. Runs once per boundary and once
-    // per catch-up field, before that field's SPU quantum, so IOP time follows SPU time at any frame rate.
-    void PumpFieldQuantum(CpuContext& ctx);
+    // One IOP frame quantum plus delivery of the SIF commands it sent; once per boundary.
+    void PumpQuantum(CpuContext& ctx);
+    // Whether this boundary advances the IOP (FrameLimit::TakeQuantum); unset = every boundary.
+    std::function<bool()> quantum_gate;
 
     IopHost iop_host;
     struct YieldUnbind {

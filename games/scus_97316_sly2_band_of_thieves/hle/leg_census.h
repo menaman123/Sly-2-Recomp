@@ -3,6 +3,9 @@
 // RunMeta::Set replaces keys in place, so a repeated Write keeps the first write's order.
 #pragma once
 
+#include <functional>
+#include <string>
+
 #include "engine/core/config/config.h"
 #include "engine/core/verify/run_meta.h"
 #include "engine/core/verify/verify_host.h"
@@ -51,8 +54,11 @@ public:
         LegPark& park;
         // Set later by LegVerifySlot.
         const ps2r::app::DisplaySequence* verify_display_sequence = nullptr;
+        // Set later by the composition: the frame-rate policy's row (frame_rate=).
+        std::function<std::string()> frame_rate = {};
     };
     void SetDisplaySequence(const ps2r::app::DisplaySequence* seq) { p_.verify_display_sequence = seq; }
+    void SetFrameRateCensus(std::function<std::string()> row) { p_.frame_rate = std::move(row); }
 
     explicit LegCensus(const Phases& p) : p_(p) {}
     LegCensus(const LegCensus&) = delete;

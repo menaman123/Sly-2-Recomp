@@ -83,6 +83,9 @@ public:
     // Whether anything reads the display grab (harness lanes, F5, frame dumps). A player's session
     // needs none, so the grab and its hash are skipped. Set before the first frame.
     std::atomic<bool> grab_wanted{true};
+    // The internal scale the Display page asked for (1..4; 0 = none), taken by the Verify slot at a boundary
+    // and applied by the consumer at its next frame end.
+    std::atomic<int> scale_request{0};
     uint64_t grab_local_memory = 0, grab_fallback = 0, grabs = 0;   // census gs_grab_sources=
     uint32_t dump_every = 1, dump_from = 0;
     // NATIVEEE_GS_RT_DUMP (headless lockstep): the target at <fbp>, alpha included, before and after the

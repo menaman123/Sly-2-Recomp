@@ -33,17 +33,35 @@ void LegAudio::TapMixer(const float* out) {
 
 void LegAudio::PushRing(const float* out, int volume) {
     if (!audio_sink.Running()) return;
+    constexpr int kFrames = ps2r::sound::Mixer::kFramesPerVsync;
+    constexpr double kFieldsPerSecond = static_cast<double>(ps2r::sound::Mixer::kSampleRate) / kFrames;
+    // Smoothing of the push interval (per push), its ceiling (a pause or a long stall is not a rate), and
+    // the fill correction's gain.
+    constexpr double kSmoothing = 0.1, kMaxIntervalS = 0.1, kFillGain = 0.5;
     const float gain = static_cast<float>(std::clamp(volume, 0, 100)) / 100.0f;
     ++audio_device_quanta;
-    for (int i = 0; i < ps2r::sound::Mixer::kFramesPerVsync * 2; ++i)
+    for (int i = 0; i < kFrames * 2; ++i)
         if (out[i] != 0.0f) { ++audio_device_nonsilent; break; }
-    if (gain == 1.0f) {
-        audio_ring.Push(out, ps2r::sound::Mixer::kFramesPerVsync);
-    } else {
-        audio_gain_buf.assign(out, out + ps2r::sound::Mixer::kFramesPerVsync * 2);
+    const float* src = out;
+    if (gain != 1.0f) {
+        audio_gain_buf.assign(out, out + kFrames * 2);
         for (float& v : audio_gain_buf) v *= gain;
-        audio_ring.Push(audio_gain_buf.data(), ps2r::sound::Mixer::kFramesPerVsync);
+        src = audio_gain_buf.data();
     }
+    const auto now = std::chrono::steady_clock::now();
+    if (last_push != std::chrono::steady_clock::time_point{}) {
+        const double dt = std::min(std::chrono::duration<double>(now - last_push).count(), kMaxIntervalS);
+        push_interval_s += kSmoothing * (dt - push_interval_s);
+    }
+    last_push = now;
+    // The ring's mean fill is its level now plus half of what this push adds; hold it at the standing lead.
+    const double lead = static_cast<double>(audio_ring.LeadQuanta()) * kFrames;
+    const double err = std::clamp((lead - (audio_ring.Available() + 0.5 * kFrames * stretch_ratio)) / lead, -1.0, 1.0);
+    stretch_ratio = std::clamp(push_interval_s * kFieldsPerSecond * (1.0 + kFillGain * err), ps2r::sound::TimeStretch::kMinRatio,
+                               ps2r::sound::TimeStretch::kMaxRatio);
+    stretched.clear();
+    stretch.Process(src, kFrames, stretch_ratio, stretched);
+    if (!stretched.empty()) audio_ring.Push(stretched.data(), static_cast<int>(stretched.size() / 2));
 }
 
 }  // namespace ps2r::title::sly2

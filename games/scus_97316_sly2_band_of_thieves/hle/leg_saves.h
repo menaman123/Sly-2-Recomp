@@ -46,7 +46,6 @@
 #include "engine/vif/savestate/vifs_section.h"
 #include "engine/vu/savestate/vu1_register_section.h"
 #include "engine/vu/savestate/vu_memory_section.h"
-#include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_devices.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_gs.h"
@@ -68,13 +67,11 @@ public:
     LegSaves& operator=(const LegSaves&) = delete;
 
     // Binds the F5 / F8 hooks; must run before SessionRuntime::SetHooks. Play mode only.
-    void Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionWorkers& workers, TickThread& tick_thread,
-              LegAudio& audio);
+    void Bind(ps2r::app::SessionRuntime::Hooks& hooks, ps2r::app::SessionWorkers& workers, TickThread& tick_thread);
     // --load-state, on the game thread before any guest instruction. Returns 0, or 2 if the preflight
     // refused (nothing has been touched yet).
     struct ColdDeps {
         ps2r::app::SessionWorkers& workers;
-        LegAudio& audio;
         LegPark& park;
         LegCensus& census;
         std::function<void()> join_ladder;   // headless: run after the workers end

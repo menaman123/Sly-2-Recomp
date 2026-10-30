@@ -86,7 +86,7 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
         }
     }
     core.sequencer.SetStep(BoundarySequencer::Step::IopDispatch, [this](CpuContext& ctx) {
-        PumpFieldQuantum(ctx);   // the boundary's own field; catch-up fields are pumped by the Verify slot
+        if (!quantum_gate || quantum_gate()) PumpQuantum(ctx);
         return true;
     });
     // IOP -> EE: sceSifSendCmd lands in libkernl's command buffer and runs the EE's sceSifAddCmdHandler
@@ -146,7 +146,7 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
     }
 }
 
-void LegIop::PumpFieldQuantum(CpuContext& ctx) {
+void LegIop::PumpQuantum(CpuContext& ctx) {
     iop_host.Table().PumpAtBoundary();
     SceSif::DeliverPendingCommands(ctx);   // SIF commands the IOP sent since the last quantum
 }

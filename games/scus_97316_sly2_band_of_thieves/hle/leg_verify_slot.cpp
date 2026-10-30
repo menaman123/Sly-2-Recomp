@@ -98,7 +98,7 @@ LegVerifySlot::LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& 
             std::fflush(stdout);
         };
         // F5 / F8 must be bound before the hooks are set.
-        saves.Bind(hooks, session_workers, tick_thread, audio);
+        saves.Bind(hooks, session_workers, tick_thread);
         play.session->SetHooks(std::move(hooks));
         // The session's boundary work (pause, step, F5, F8, close) runs in the completed-boundary consumer,
         // after the vblank wait's body has returned: the F5 capture needs the completed caller chain. False
@@ -166,25 +166,23 @@ void LegVerifySlot::VerifyStep(CpuContext& ctx) {
     using ps2r::ringlog::RingLog;
     ps2r::sound::Mixer& mixer = services_.mixer;
     HarnessVerbs(park_.boundaries);
-    // Play-mode field pump: catch the mixer up to one quantum per domain tick, on the device ring only; the
-    // boundary's own quantum below is the hashed one (exactly 800 frames per boundary). Each catch-up field
-    // also runs one IOP quantum, so 989snd refills a stream half within one field. With only one IOP
-    // quantum per boundary, audio corrupted below 60 boundaries/s.
-    if (audio_.audio_sink.Running()) {
-        const uint64_t now = core_.domain.DomainTick();
-        if (audio_.audio_pumped_tick == 0) audio_.audio_pumped_tick = now;
-        while (audio_.audio_pumped_tick + 1 < now) {
-            mixer.Pump();
-            play_.PushAudioRing(mixer.Output());
-            ++audio_.audio_pumped_tick;
-            ++audio_.audio_field_pumps;
-            if (audio_.field_quantum) audio_.field_quantum(ctx);
-        }
-        audio_.audio_pumped_tick = now;
+    if (play_.session) {
+        if (const int scale = play_.session->TakeScaleRequest()) gs_.scale_request.store(scale, std::memory_order_relaxed);
+        if (frame_limit) frame_limit->Apply(play_.session->FrameLimitSetting());
+        if (motion_blur) motion_blur->Set(play_.session->MotionBlurSetting());
     }
-    mixer.Pump();
-    play_.PushAudioRing(mixer.Output());
-    audio_.TapMixer(mixer.Output());
+    if (widescreen) widescreen->OnBoundary(ctx);
+    // At most one SPU quantum per boundary, on the same clock as the IOP's (IopDispatch step). The game
+    // feeds some of its audio once per frame (989snd streams written from the EE, movie audio), so SPU time
+    // must not run ahead of the frames the EE has completed: mixing extra quanta for a late boundary plays
+    // those streams' ring buffers past what the game has refilled. The device side stretches the audio when
+    // boundaries arrive slower than 60 a second (LegAudio::PushRing); above 60 (an uncapped frame rate)
+    // FrameLimit lets one quantum through per 16.7 ms of wall time.
+    if (!frame_limit || frame_limit->QuantumThisBoundary()) {
+        mixer.Pump();
+        play_.PushAudioRing(mixer.Output());
+        audio_.TapMixer(mixer.Output());
+    }
     const uint64_t boundary = host_.OnBoundary(mixer.Output(), ps2r::sound::Mixer::kFramesPerVsync, verify_spans);
     park_.boundaries = boundary + 1;
     text_watch_.OnBoundary(park_.boundaries);
