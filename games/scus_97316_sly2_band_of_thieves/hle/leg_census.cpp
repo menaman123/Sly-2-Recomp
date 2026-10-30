@@ -24,6 +24,7 @@
 #include "engine/vu/tiers/vu_lockstep.h"
 #include "engine/vu/tiers/vu_tier_dispatch.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_text.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/native_census.h"
 
 namespace ps2r::title::sly2 {
 namespace {
@@ -43,6 +44,9 @@ void LegCensus::Write() {
     if (p_.frame_rate) meta->Set("frame_rate", p_.frame_rate());
     WriteDevices(meta);
     WriteVu1(meta);
+    // STAGE NATIVE: which title.native.* paths are on and what each served natively / fell back
+    // (native/native_census.h grammar).
+    meta->Set("native", NativeCensus::Instance().Row(p_.native));
     p_.text_watch.Report(p_.host);   // text_watch= / text_watch_pages= (NATIVEEE_WATCH=text only)
 }
 
