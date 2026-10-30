@@ -131,6 +131,16 @@ struct LegKnobs {
     // (a paused game is not a hang).
     std::optional<std::string> agent_socket;
     int agent_tcp = 0;
+    // The hook-table knobs (leg_trace.h): NATIVEEE_CORPUS=<file>[;fns=<hex,...>][;max=<n>] (tracing build),
+    // NATIVEEE_FN_RING=<hex,...>[;n=<N>][;file=<path>], NATIVEEE_HOOK_CENSUS=<file>, NATIVEEE_DISC_ATTR=<file>,
+    // NATIVEEE_DRAW_ATTR=<file>, NATIVEEE_ALLOC_CENSUS=<file>, NATIVEEE_ALLOC_LOG=<file>[;alloc=<hex>][;free=<hex>].
+    std::optional<std::string> corpus;
+    std::optional<std::string> fn_ring;
+    std::optional<std::string> hook_census;
+    std::optional<std::string> disc_attr;
+    std::optional<std::string> draw_attr;
+    std::optional<std::string> alloc_census;
+    std::optional<std::string> alloc_log;
 
     static LegKnobs FromEnvironment();
 };

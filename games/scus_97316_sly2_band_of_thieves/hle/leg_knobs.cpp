@@ -89,6 +89,13 @@ LegKnobs LegKnobs::FromEnvironment() {
     k.nav = Text(std::getenv("NATIVEEE_NAV"));
     k.warp = Text(std::getenv("NATIVEEE_WARP"));
     k.unpaced = std::getenv("NATIVEEE_UNPACED") != nullptr;
+    k.corpus = Text(std::getenv("NATIVEEE_CORPUS"));
+    k.fn_ring = Text(std::getenv("NATIVEEE_FN_RING"));
+    k.hook_census = Text(std::getenv("NATIVEEE_HOOK_CENSUS"));
+    k.disc_attr = Text(std::getenv("NATIVEEE_DISC_ATTR"));
+    k.draw_attr = Text(std::getenv("NATIVEEE_DRAW_ATTR"));
+    k.alloc_census = Text(std::getenv("NATIVEEE_ALLOC_CENSUS"));
+    k.alloc_log = Text(std::getenv("NATIVEEE_ALLOC_LOG"));
     return k;
 }
 

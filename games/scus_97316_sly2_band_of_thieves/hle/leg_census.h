@@ -23,6 +23,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_play.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/leg_trace.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/text_watch.h"
 
 namespace ps2r::title::sly2 {
@@ -51,6 +52,7 @@ public:
         LegImage& image;
         TextWatch& text_watch;
         LegPark& park;
+        LegTrace& trace;
         // Set later by LegVerifySlot.
         const ps2r::app::DisplaySequence* verify_display_sequence = nullptr;
         // Set later by RunLeg (the agent control plane, leg_agent.h; null = off).
