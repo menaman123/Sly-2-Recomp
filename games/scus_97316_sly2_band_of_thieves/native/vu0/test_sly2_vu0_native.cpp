@@ -160,6 +160,7 @@ int main(int argc, char** argv) {
     for (uint32_t pi = 0; pi < count; ++pi) {
         const uint32_t entry = vu0_native::kImage.programs[pi].entry;
         int bad = 0;
+        std::vector<std::pair<uint64_t, int>> paths;   // (clock delta, count): one delta per control-flow path
         for (int it = 0; it < iterations && bad < 3; ++it) {
             VUregs r;
             RandomRegs(r);
@@ -175,6 +176,12 @@ int main(int argc, char** argv) {
             const bool same_clock = (cached.flags().cycle() - c0) == (nat.flags().cycle() - n0) &&
                                     (cached.flags().cycle() - c0) == (interp.flags().cycle() - i0);
             const bool same_data = std::memcmp(cached.state().data, nat.state().data, Vu1State::kMemSize) == 0;
+            {
+                const uint64_t d = cached.flags().cycle() - c0;
+                bool found = false;
+                for (auto& pc : paths) if (pc.first == d) { ++pc.second; found = true; }
+                if (!found) paths.emplace_back(d, 1);
+            }
             if (!same_cn || !same_ci || !same_clock || !same_data) {
                 ++bad;
                 ++g_fail;
@@ -186,7 +193,9 @@ int main(int argc, char** argv) {
                 Diff("cached|native", cached.regs(), nat.regs());
             }
         }
-        std::printf("  entry 0x%x: %s (%d files)\n", entry, bad == 0 ? "identical" : "DIVERGES", iterations);
+        std::printf("  entry 0x%x: %s (%d files; paths by clock delta:", entry, bad == 0 ? "identical" : "DIVERGES", iterations);
+        for (const auto& pc : paths) std::printf(" %llu cycles x%d", static_cast<unsigned long long>(pc.first), pc.second);
+        std::printf(")\n");
     }
     // Back-to-back runs with the register file carried (the second run sees the first's flags / Q / clock).
     for (uint32_t pi = 0; pi < count && g_fail == 0; ++pi) {

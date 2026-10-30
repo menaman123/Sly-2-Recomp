@@ -206,7 +206,7 @@ bool EmitUpper(std::ostringstream& o, const Bundle& b, std::string& why) {
         o << "            VuFloat::ClampStoreACC(regs.ACC);\n";
         o << "            const VR_reg result = " << FmacResultExpr(k, s.u_bc, "s1", ft) << ";\n";
         if (s.u_fd != 0) o << "            VuFloat::WriteMaskClamp(" << fd << ", result.I, " << dest << ");\n";
-        o << "            FOLD_MAC(result, " << dest << ");\n";
+        o << "            FOLD_MAC(result, " << dest << ", MAC_SLOT);\n";
         o << "        }\n";
         return true;
     }
@@ -223,7 +223,7 @@ bool EmitUpper(std::ostringstream& o, const Bundle& b, std::string& why) {
         for (int lane = 0; lane < 4; ++lane) {
             if (!(dest & (8u >> lane))) o << "            acc.I[" << lane << "] = acc_in.I[" << lane << "];\n";
         }
-        o << "            FOLD_MAC(acc, " << dest << ");\n";
+        o << "            FOLD_MAC(acc, " << dest << ", MAC_SLOT);\n";
         o << "            VuFloat::WriteMaskClamp(regs.ACC, acc.I, " << dest << ");\n";
         o << "        }\n";
         return true;
@@ -319,123 +319,330 @@ bool EmitLower(std::ostringstream& o, const Bundle& b, std::string& why) {
     }
 }
 
-struct Program {
-    uint32_t entry = 0;
-    std::vector<Bundle> bundles;
-    uint32_t tpc = 0;
-    uint64_t cycles = 0;
-    bool q_commit_at_end = false;  // DrainAll's FlushQPipe commits a still-pending Q (with its clock jump folded in `cycles`)
-    std::string body;
-    std::string refused;  // non-empty = not emitted
+// ---- the path walker -----------------------------------------------------------------
+// A program is emitted as the tree of its FORWARD-branch paths: the shared prefix once,
+// then each arm of a conditional branch (the delay slot executes on both) as its own
+// straight-line tail down to the E bit. Along every path the schedule is static, so the
+// pipelines fold as in the straight-line case; a reader of the MAC / STATUS flags in the
+// middle of a path (FMAND / FSAND / FMEQ ...) retires exactly the FMAC entries whose
+// retire cycle (issue + 4) the schedule has reached. Backward branches, JR/JALR/BAL, the
+// EFU, XGKICK / XTOP, LQ / SQ / ILW / ISW and any kind without a body here refuse the
+// entry.
+
+struct MacEntry {
+    uint64_t retire;  // issue cycle + 4
+    int index;        // the m[] slot in the emitted function
 };
 
-// Decode the straight-line run from `entry`, plan the pipelines, emit the body.
-Program Generate(const std::vector<uint8_t>& image, uint32_t entry) {
-    Program p;
-    p.entry = entry;
+struct PathState {
+    StallModel sm;
+    FlagPipeline fp;
+    VUregs scratch{};
+    uint64_t c0 = 0;
+    std::vector<MacEntry> pending;  // issued, not yet retired into STATUS (static)
+    int mac_count = 0;              // m[] slots used so far (shared across arms: the prefix's)
+};
+
+struct Emit {
+    std::ostringstream o;
+    std::string refused;
+    int max_mac = 0;
+    int branch_id = 0;
+    int bundles = 0;
+    int paths = 0;
+};
+
+constexpr int kMaxDepth = 6;
+constexpr int kMaxBundles = 256;
+
+std::string Ind(int d) { return std::string(static_cast<size_t>(4 + 4 * d), ' '); }
+
+// The fold of entries [first..last] of m[] into MAC / STATUS (ApplyMacToStatus in issue order).
+void EmitApplyMac(std::ostringstream& o, const std::string& ind, int first, int last) {
+    o << ind << "{ uint16_t or_ = 0;";
+    for (int i = first; i <= last; ++i) o << " or_ |= m[" << i << "];";
+    o << "\n" << ind << "  regs.mac_flag = m[" << last << "];\n";
+    o << ind << "  uint16_t st = static_cast<uint16_t>(regs.status_flag & 0xFF0u);\n";
+    o << ind << "  if (m[" << last << "] & 0x000Fu) st |= vu_status::Z; if (m[" << last << "] & 0x00F0u) st |= vu_status::S;\n";
+    o << ind << "  if (m[" << last << "] & 0x0F00u) st |= vu_status::U; if (m[" << last << "] & 0xF000u) st |= vu_status::O;\n";
+    o << ind << "  if (or_ & 0x000Fu) st |= vu_status::ZS; if (or_ & 0x00F0u) st |= vu_status::SS;\n";
+    o << ind << "  if (or_ & 0x0F00u) st |= vu_status::US; if (or_ & 0xF000u) st |= vu_status::OS;\n";
+    o << ind << "  regs.status_flag = st; }\n";
+}
+
+// Retire the pending entries due at `cycle` (RetireMacStatus); all of them when `all`.
+void RetireDue(Emit& e, PathState& st, const std::string& ind, bool all) {
+    int last = -1, first = -1;
+    size_t n = 0;
+    for (; n < st.pending.size(); ++n) {
+        if (!all && st.pending[n].retire > st.fp.cycle()) break;
+        if (first < 0) first = st.pending[n].index;
+        last = st.pending[n].index;
+    }
+    if (n == 0) return;
+    st.pending.erase(st.pending.begin(), st.pending.begin() + static_cast<long>(n));
+    EmitApplyMac(e.o, ind, first, last);
+}
+
+bool IsQReader(uint32_t upper, const VuDecodedSlot& s) {
+    if (s.upper_kind == VUK_U_MULQ) return true;
+    const uint32_t func = upper & 0x3Fu;
+    return s.upper_kind == VUK_U_GENERIC && (func == 0x20 || func == 0x21 || func == 0x24 || func == 0x25);
+}
+
+// The generic Q-form FMAC uppers (ADDq / MADDq / SUBq / MSUBq): the interpreter's body.
+bool EmitGenericUpper(std::ostringstream& o, const Bundle& b, const std::string& ind, std::string& why) {
+    const uint32_t u = b.upper, func = u & 0x3Fu;
+    const uint32_t fd = (u >> 6) & 0x1Fu, fs = (u >> 11) & 0x1Fu;
+    const unsigned dest = (u >> 21) & 0xFu;
+    const char* kernel = func == 0x20 ? "VuFloat::Add4(s1, q4)" : func == 0x24 ? "VuFloat::Sub4(s1, q4)"
+                       : func == 0x21 ? "VuFloat::Fma4(s1, q4, regs.ACC)" : func == 0x25 ? "VuFloat::Fms4(s1, q4, regs.ACC)" : nullptr;
+    if (kernel == nullptr) { why = "generic upper func " + Hex(func) + " (word " + Hex(u) + ") has no body here"; return false; }
+    o << ind << "{\n";
+    o << ind << "    const VR_reg s1 = VuFloat::ClampVec(regs.VF[" << fs << "]);\n";
+    o << ind << "    VuFloat::ClampStoreACC(regs.ACC);\n";
+    o << ind << "    const VR_reg q4 = VuFloat::Splat4(VuFloat::ClampFloat(regs.Q));\n";
+    o << ind << "    const VR_reg result = " << kernel << ";\n";
+    if (fd != 0) o << ind << "    VuFloat::WriteMaskClamp(regs.VF[" << fd << "], result.I, " << dest << ");\n";
+    o << ind << "    FOLD_MAC(result, " << dest << ", MAC_SLOT);\n";
+    o << ind << "}\n";
+    return true;
+}
+
+bool UpperWritesMac(const VuDecodedSlot& s, uint32_t upper) {
+    if (IsFmacKind(s.upper_kind) || IsAccKind(s.upper_kind)) return true;
+    if (s.upper_kind == VUK_U_GENERIC) {
+        const uint32_t func = upper & 0x3Fu;
+        return func == 0x20 || func == 0x21 || func == 0x24 || func == 0x25;
+    }
+    return false;
+}
+
+// Re-indent the straight-line bodies of EmitUpper / EmitLower (written at depth 0).
+std::string Reindent(const std::string& text, const std::string& ind) {
+    std::string out;
+    size_t i = 0;
+    while (i < text.size()) {
+        size_t j = text.find('\n', i);
+        if (j == std::string::npos) j = text.size();
+        std::string line = text.substr(i, j - i);
+        if (line.rfind("        ", 0) == 0) line = ind + line.substr(8);
+        out += line + "\n";
+        i = j + 1;
+    }
+    return out;
+}
+
+// The lower words the straight-line emitter does not cover: the IALU / flag / branch set.
+bool EmitLowerPath(Emit& e, PathState& st, const Bundle& b, const std::string& ind, bool& is_branch, std::string& cond, uint32_t& target,
+                   std::string& why) {
+    const VuDecodedSlot& s = b.slot;
+    is_branch = false;
+    const uint32_t vit = s.l_ft & 0xFu, vis = s.l_fs & 0xFu, vid = s.l_fd & 0xFu;
+    auto set_vi = [&](uint32_t idx, const std::string& v) {
+        if (idx != 0) e.o << ind << "regs.VI[" << idx << "] = static_cast<uint16_t>(" << v << ");\n";
+    };
+    switch (s.lower_kind) {
+        case VUK_L_IADDIU: set_vi(vit, "regs.VI[" + std::to_string(vis) + "] + " + std::to_string(s.l_imm15u) + "u"); return true;
+        case VUK_L_ISUBIU: set_vi(vit, "regs.VI[" + std::to_string(vis) + "] - " + std::to_string(s.l_imm15u) + "u"); return true;
+        case VUK_L_IADD: set_vi(vid, "regs.VI[" + std::to_string(vis) + "] + regs.VI[" + std::to_string(vit) + "]"); return true;
+        case VUK_L_ISUB: set_vi(vid, "regs.VI[" + std::to_string(vis) + "] - regs.VI[" + std::to_string(vit) + "]"); return true;
+        case VUK_L_IAND: set_vi(vid, "regs.VI[" + std::to_string(vis) + "] & regs.VI[" + std::to_string(vit) + "]"); return true;
+        case VUK_L_IOR: set_vi(vid, "regs.VI[" + std::to_string(vis) + "] | regs.VI[" + std::to_string(vit) + "]"); return true;
+        case VUK_L_FMAND:
+            RetireDue(e, st, ind, false);
+            set_vi(vit, "regs.mac_flag & regs.VI[" + std::to_string(vis) + "]");
+            return true;
+        case VUK_L_FMEQ:
+            RetireDue(e, st, ind, false);
+            set_vi(vit, "(regs.mac_flag == regs.VI[" + std::to_string(vis) + "]) ? 1 : 0");
+            return true;
+        case VUK_L_FMOR:
+            RetireDue(e, st, ind, false);
+            set_vi(vit, "regs.mac_flag | regs.VI[" + std::to_string(vis) + "]");
+            return true;
+        case VUK_L_FSAND:
+            RetireDue(e, st, ind, false);
+            set_vi(vit, "(regs.status_flag & 0xFFFu) & " + std::to_string(((b.lower >> 10) & 0x800u) | (b.lower & 0x7FFu)) + "u");
+            return true;
+        case VUK_L_IBEQ: case VUK_L_IBNE: case VUK_L_IBLTZ: case VUK_L_IBGTZ: case VUK_L_IBLEZ: case VUK_L_IBGEZ: {
+            is_branch = true;
+            target = static_cast<uint32_t>(static_cast<int32_t>(b.pc + 8) + s.l_imm11 * 8) & 0x3FFFu;
+            const std::string a = "regs.VI[" + std::to_string(vis) + "]", c = "regs.VI[" + std::to_string(vit) + "]";
+            const std::string sa = "static_cast<int16_t>(" + a + ")";
+            switch (s.lower_kind) {
+                case VUK_L_IBEQ: cond = a + " == " + c; break;
+                case VUK_L_IBNE: cond = a + " != " + c; break;
+                case VUK_L_IBLTZ: cond = sa + " < 0"; break;
+                case VUK_L_IBGTZ: cond = sa + " > 0"; break;
+                case VUK_L_IBLEZ: cond = sa + " <= 0"; break;
+                default: cond = sa + " >= 0"; break;
+            }
+            return true;
+        }
+        default:
+            break;
+    }
+    std::ostringstream tmp;
+    if (!EmitLower(tmp, b, why)) return false;
+    e.o << Reindent(tmp.str(), ind);
+    return true;
+}
+
+struct ProgramOut {
+    uint32_t entry = 0;
+    std::string body;
+    std::string refused;
+    int bundles = 0, paths = 0;
+};
+
+// One path from `pc` with the state `st` (by value: each arm continues its own copy).
+void EmitPath(Emit& e, const std::vector<uint8_t>& image, uint32_t pc, PathState st, int depth, bool in_delay, bool end_pending,
+              uint32_t branch_target, bool branch_cond_pending, const std::string& cond_name) {
     const uint32_t size = static_cast<uint32_t>(image.size());
-    uint32_t pc = entry;
-    bool end_pending = false;
-    while (true) {
-        if (pc + 8 > size) { p.refused = "runs past the image (no E bit)"; return p; }
+    const std::string ind = Ind(depth);
+    for (int guard = 0; guard < kMaxBundles; ++guard) {
+        if (pc + 8 > size) { e.refused = "runs past the image (no E bit) at " + Hex(pc); return; }
         Bundle b;
         b.pc = pc;
         b.lower = Le32(&image[pc]);
         b.upper = Le32(&image[pc + 4]);
         b.slot = VuDecoder::DecodeVuSlot(b.lower, b.upper);
-        if (b.slot.i_bit) { p.refused = "I-bit bundle at " + Hex(pc); return p; }
-        if (VuDecoder::IsBranchKind(b.slot.lower_kind) || VuDecoder::IsRunTerminalLowerKind(b.slot.lower_kind)) {
-            if (b.slot.lower_kind != VUK_L_GENERIC || ClassifyFdiv(b.lower) == FdivKind::None) {
-                p.refused = "branch / run-terminal lower at " + Hex(pc) + " (word " + Hex(b.lower) + ")";
-                return p;
+        const VuDecodedSlot& s = b.slot;
+        if (s.discard_lower || s.hide_upper) { e.refused = "same-bundle VF hazard at " + Hex(pc); return; }
+        if (s.efu_pipe_op) { e.refused = "EFU op at " + Hex(pc); return; }
+        if (!s.i_bit && s.lower_kind == VUK_L_GENERIC && ClassifyFdiv(b.lower) == FdivKind::None) {
+            e.refused = "generic lower at " + Hex(pc) + " (word " + Hex(b.lower) + ")";
+            return;
+        }
+        if (!s.i_bit && (s.lower_kind == VUK_L_JR || s.lower_kind == VUK_L_JALR || s.lower_kind == VUK_L_BAL || s.lower_kind == VUK_L_B ||
+            s.lower_kind == VUK_L_XGKICK || s.lower_kind == VUK_L_XTOP || s.lower_kind == VUK_L_XITOP || s.lower_kind == VUK_L_LQ ||
+            s.lower_kind == VUK_L_SQ || s.lower_kind == VUK_L_ILW || s.lower_kind == VUK_L_ISW || s.lower_kind == VUK_L_LQI ||
+            s.lower_kind == VUK_L_SQI)) {
+            e.refused = "lower kind " + std::to_string(s.lower_kind) + " at " + Hex(pc) + " not folded here";
+            return;
+        }
+        ++e.bundles;
+
+        // the loop's step: clock, stalls (a WAITQ / second FDIV op commits the pending Q)
+        ++st.fp.cycle();
+        const bool q_was_pending = st.fp.q_pending();
+        st.sm.Apply(s, st.scratch, st.fp);
+        e.o << ind << "// " << Hex(pc) << "  upper " << Hex(b.upper) << " lower " << Hex(b.lower) << "  dest " << DestName(s.u_dest)
+            << (s.i_bit ? "  [I]" : "") << (s.e_bit ? "  [E]" : "") << "\n";
+        e.o << ind << "{\n";
+        if (q_was_pending && !st.fp.q_pending()) e.o << ind << "    Q_COMMIT();   // the stall step's FlushQPipe\n";
+        if (IsQReader(b.upper, s) && st.fp.q_pending() && st.fp.q_pending_retire() <= st.fp.cycle()) {
+            e.o << ind << "    Q_COMMIT();   // VisibleQ: the latch retired before this bundle\n";
+            st.fp.VisibleQ(st.scratch);
+        }
+        // the upper (I-bit: the upper reads the OLD I, then I = the lower word)
+        {
+            std::ostringstream tmp;
+            std::string why;
+            bool ok;
+            if (s.upper_kind == VUK_U_GENERIC) ok = EmitGenericUpper(tmp, b, "        ", why);
+            else ok = EmitUpper(tmp, b, why);
+            if (!ok) { e.refused = why; return; }
+            std::string text = tmp.str();
+            for (size_t at = text.find("MAC_SLOT"); at != std::string::npos; at = text.find("MAC_SLOT"))
+                text.replace(at, 8, std::to_string(st.mac_count));
+            e.o << Reindent(text, ind + "    ");
+            if (UpperWritesMac(s, b.upper)) {
+                st.pending.push_back({st.fp.cycle() + FlagPipeline::kMacDelay, st.mac_count});
+                if (st.mac_count + 1 > e.max_mac) e.max_mac = st.mac_count + 1;
+                ++st.mac_count;
             }
         }
-        if (b.slot.discard_lower || b.slot.hide_upper) { p.refused = "same-bundle VF hazard at " + Hex(pc); return p; }
-        if (b.slot.efu_pipe_op) { p.refused = "EFU op at " + Hex(pc); return p; }
-        p.bundles.push_back(b);
-        if (end_pending) break;                 // the bundle after the E bit ran: the program ends
-        if (b.slot.e_bit) end_pending = true;
-        pc += 8;
-        if (p.bundles.size() > 512) { p.refused = "no E bit within 512 bundles"; return p; }
-    }
-    p.tpc = (pc + 8) & 0x3FFFu;
-
-    // ---- the static plan: the interpreter loop's order over a scratch unit ----
-    // ++cycle; stalls.Apply (FMAC read stalls, FDIV wait = FlushQPipe); upper (VisibleQ for a Q
-    // reader); lower (PushQ for an FDIV op); ... DrainAll at the end.
-    StallModel sm;
-    FlagPipeline fp;
-    VUregs scratch{};
-    const uint64_t c0 = fp.cycle();
-    for (Bundle& b : p.bundles) {
-        ++fp.cycle();
-        const bool q_was_pending = fp.q_pending();
-        sm.Apply(b.slot, scratch, fp);           // a WAITQ / second FDIV op commits the pending Q here (clock jump)
-        b.fdiv_wait = q_was_pending && !fp.q_pending();
-        if (b.slot.upper_kind == VUK_U_MULQ) {   // the upper's VisibleQ: commit if retired
-            if (fp.q_pending() && fp.q_pending_retire() <= fp.cycle()) {
-                b.q_commit_before_upper = true;
-                fp.VisibleQ(scratch);
-            }
+        bool is_branch = false;
+        std::string this_cond;
+        uint32_t this_target = 0;
+        if (s.i_bit) {
+            e.o << ind << "    regs.I = " << Hex(b.lower) << "u;\n";
         } else {
-            // a GENERIC upper Q reader (ADDq/SUBq/MADDq/...) would be refused by EmitUpper below
+            std::string why;
+            if (!EmitLowerPath(e, st, b, ind + "    ", is_branch, this_cond, this_target, why)) { e.refused = why; return; }
+            const FdivKind fk = ClassifyFdiv(b.lower);
+            if (fk == FdivKind::Div || fk == FdivKind::Sqrt || fk == FdivKind::Rsqrt) {
+                st.fp.PushQ(st.scratch, 0.0f, fk == FdivKind::Rsqrt ? FlagPipeline::kRsqrtDelay : FlagPipeline::kDivDelay, 0);
+            }
         }
-        const FdivKind fk = ClassifyFdiv(b.lower);
-        if (fk == FdivKind::Div || fk == FdivKind::Sqrt || fk == FdivKind::Rsqrt) {
-            b.q_push_after = true;
-            b.q_push_delay = fk == FdivKind::Rsqrt ? FlagPipeline::kRsqrtDelay : FlagPipeline::kDivDelay;
-            fp.PushQ(scratch, 0.0f, b.q_push_delay, 0);
-        }
-    }
-    // DrainAll: FlushQPipe (clock jump to the retire), the FMAC writebacks pass.
-    if (fp.q_pending()) {
-        p.q_commit_at_end = true;
-        fp.FlushQPipe(scratch);
-    }
-    sm.FlushFmacWb(fp);
-    p.cycles = fp.cycle() - c0;
+        e.o << ind << "}\n";
 
-    // ---- the text ----
+        // the loop's control: delay slot / E bit / a taken branch
+        if (in_delay) {
+            if (end_pending) break;  // the bundle after the E bit ran
+            // the delay slot of a conditional branch: fork
+            if (depth + 1 > kMaxDepth) { e.refused = "branch nesting deeper than " + std::to_string(kMaxDepth); return; }
+            e.o << ind << "if (" << cond_name << ") {\n";
+            EmitPath(e, image, branch_target, st, depth + 1, false, false, 0, false, "");
+            if (!e.refused.empty()) return;
+            e.o << ind << "} else {\n";
+            EmitPath(e, image, (pc + 8) & 0x3FFFu, st, depth + 1, false, false, 0, false, "");
+            if (!e.refused.empty()) return;
+            e.o << ind << "}\n";
+            return;  // both arms ended the run
+        }
+        if (s.e_bit) {
+            if (is_branch) { e.refused = "branch in an E-bit bundle at " + Hex(pc); return; }
+            end_pending = true;
+            in_delay = true;
+            pc += 8;
+            continue;
+        }
+        if (is_branch) {
+            if (this_target <= pc) { e.refused = "backward branch at " + Hex(pc) + " -> " + Hex(this_target); return; }
+            const std::string name = "taken_" + std::to_string(e.branch_id++);
+            e.o << ind << "const bool " << name << " = (" << this_cond << ");\n";
+            in_delay = true;
+            branch_target = this_target;
+            branch_cond_pending = true;
+            (void)branch_cond_pending;
+            pc += 8;
+            // the delay slot runs in THIS loop iteration's successor with in_delay set; the fork happens after it
+            // (recursion carries the cond name)
+            EmitPath(e, image, pc, st, depth, true, false, branch_target, true, name);
+            return;
+        }
+        pc = (pc + 8) & 0x3FFFu;
+    }
+    // ---- end of run (DrainAll): retire every pending MAC entry, commit a pending Q, pin, TPC, the clock
+    const uint32_t tpc = (pc + 8) & 0x3FFFu;
+    if (st.fp.q_pending()) {
+        e.o << ind << "Q_COMMIT();   // DrainAll\n";
+        st.fp.FlushQPipe(st.scratch);
+    }
+    RetireDue(e, st, ind, true);
+    st.sm.FlushFmacWb(st.fp);
+    e.o << ind << "regs.VF[0].x = 0.0f; regs.VF[0].y = 0.0f; regs.VF[0].z = 0.0f; regs.VF[0].w = 1.0f; regs.VI[0] = 0;\n";
+    e.o << ind << "regs.TPC = " << Hex(tpc) << "u;\n";
+    e.o << ind << "pipes.cycle() += " << (st.fp.cycle() - st.c0) << "u;\n";
+    e.o << ind << "return;\n";
+    ++e.paths;
+}
+
+ProgramOut Generate(const std::vector<uint8_t>& image, uint32_t entry) {
+    ProgramOut p;
+    p.entry = entry;
+    Emit e;
+    PathState st;
+    st.c0 = st.fp.cycle();
+    EmitPath(e, image, entry, st, 0, false, false, 0, false, "");
+    if (!e.refused.empty()) { p.refused = e.refused; return p; }
     std::ostringstream o;
-    o << "// VU0 program at micro " << Hex(entry) << ": " << p.bundles.size() << " bundles, TPC " << Hex(p.tpc) << ", "
-      << p.cycles << " cycles\n";
+    o << "// VU0 program at micro " << Hex(entry) << ": " << e.bundles << " bundles emitted over " << e.paths << " path(s)\n";
     o << "static void Prog_" << std::hex << entry << std::dec << "(VuUnit& unit) {\n";
     o << "    VUregs& regs = unit.regs();\n";
     o << "    FlagPipeline& pipes = unit.flags();\n";
-    o << "    uint16_t mac_last = 0, mac_or = 0; bool any_mac = false;\n";
+    o << "    uint16_t m[" << (e.max_mac > 0 ? e.max_mac : 1) << "]; (void)m;\n";
     o << "    bool q_pending = false; float q_value = 0.0f; uint16_t q_status = 0;\n";
     o << "    (void)q_pending; (void)q_value; (void)q_status;\n";
     o << "    regs.VF[0].x = 0.0f; regs.VF[0].y = 0.0f; regs.VF[0].z = 0.0f; regs.VF[0].w = 1.0f;\n";
-    for (const Bundle& b : p.bundles) {
-        o << "    // " << Hex(b.pc) << "  upper " << Hex(b.upper) << " lower " << Hex(b.lower) << "  dest " << DestName(b.slot.u_dest) << "\n";
-        o << "    {\n";
-        if (b.fdiv_wait) o << "        Q_COMMIT();   // the stall step's FlushQPipe (WAITQ / second FDIV op)\n";
-        if (b.q_commit_before_upper) o << "        Q_COMMIT();   // VisibleQ: the latch retired before this bundle\n";
-        std::string why;
-        if (!EmitUpper(o, b, why)) { p.refused = why; return p; }
-        if (!EmitLower(o, b, why)) { p.refused = why; return p; }
-        o << "    }\n";
-    }
-    o << "    // end of run (DrainAll): the MAC ring folds, a pending Q commits, VF0/VI0 pinned, TPC, the clock\n";
-    if (p.q_commit_at_end) o << "    Q_COMMIT();\n";
-    o << "    if (any_mac) {\n";
-    o << "        regs.mac_flag = mac_last;\n";
-    o << "        uint16_t status = static_cast<uint16_t>(regs.status_flag & 0xFF0u);\n";
-    o << "        if (mac_last & 0x000Fu) status |= vu_status::Z;\n";
-    o << "        if (mac_last & 0x00F0u) status |= vu_status::S;\n";
-    o << "        if (mac_last & 0x0F00u) status |= vu_status::U;\n";
-    o << "        if (mac_last & 0xF000u) status |= vu_status::O;\n";
-    o << "        if (mac_or & 0x000Fu) status |= vu_status::ZS;\n";
-    o << "        if (mac_or & 0x00F0u) status |= vu_status::SS;\n";
-    o << "        if (mac_or & 0x0F00u) status |= vu_status::US;\n";
-    o << "        if (mac_or & 0xF000u) status |= vu_status::OS;\n";
-    o << "        regs.status_flag = status;\n";
-    o << "    }\n";
-    o << "    regs.VF[0].x = 0.0f; regs.VF[0].y = 0.0f; regs.VF[0].z = 0.0f; regs.VF[0].w = 1.0f; regs.VI[0] = 0;\n";
-    o << "    regs.TPC = " << Hex(p.tpc) << "u;\n";
-    o << "    pipes.cycle() += " << p.cycles << "u;\n";
+    o << e.o.str();
     o << "}\n\n";
     p.body = o.str();
+    p.bundles = e.bundles;
+    p.paths = e.paths;
     return p;
 }
 
@@ -490,22 +697,21 @@ int main(int argc, char** argv) {
     tu << "#include \"games/scus_97316_sly2_band_of_thieves/native/vu0/vu0_native_programs.h\"\n\n";
     tu << "namespace ps2r::title::sly2::vu0_native {\nnamespace {\n\n";
     tu << "// The fold step of one FMAC result (the ring entry the tier would push: pack of the raw result over the dest lanes).\n";
-    tu << "#define FOLD_MAC(res, dest) do { const uint16_t m_ = VuFloat::PackMacBits((res).I, static_cast<uint8_t>(dest)); mac_last = m_; mac_or = static_cast<uint16_t>(mac_or | m_); any_mac = true; } while (0)\n";
+    tu << "#define FOLD_MAC(res, dest, slot) (m[slot] = VuFloat::PackMacBits((res).I, static_cast<uint8_t>(dest)))\n";
     tu << "// The FDIV unit: PushQ clamps the value; a still-pending Q is committed first (back-to-back FDIV).\n";
     tu << "#define Q_PUSH(val, st) do { if (q_pending) Q_COMMIT(); q_pending = true; q_value = VuFloat::ClampFloat(val); q_status = (st); } while (0)\n";
     tu << "#define Q_COMMIT() do { if (q_pending) { regs.Q = q_value; VuFloat::CommitQStatus(regs, q_status); q_pending = false; } } while (0)\n\n";
     int emitted = 0;
     std::vector<std::pair<uint32_t, bool>> table;
     for (uint32_t e : entries) {
-        Program p = Generate(image, e);
+        ProgramOut p = Generate(image, e);
         if (!p.refused.empty()) {
             rep << "refused 0x" << std::hex << e << std::dec << ": " << p.refused << "\n";
             tu << "// entry 0x" << std::hex << e << std::dec << " REFUSED (left to the cached tier): " << p.refused << "\n\n";
             table.emplace_back(e, false);
             continue;
         }
-        rep << "emitted 0x" << std::hex << e << std::dec << ": " << p.bundles.size() << " bundles, tpc 0x" << std::hex << p.tpc << std::dec
-            << ", " << p.cycles << " cycles" << (p.q_commit_at_end ? ", Q commits at the end" : "") << "\n";
+        rep << "emitted 0x" << std::hex << e << std::dec << ": " << p.bundles << " bundles over " << p.paths << " path(s)\n";
         tu << p.body;
         table.emplace_back(e, true);
         ++emitted;
