@@ -493,6 +493,9 @@ void LegCensus::WriteVu1(ps2r::verify::RunMeta* meta) {
     // Under MTVU the worker's unit is the live VU1 (the inline unit's counters stay 0).
     const bool worker = static_cast<bool>(p_.mtvu.mtvu);
     VuUnit& live_vu1 = p_.mtvu.LiveVu1();
+    // STAGE NATIVE: the native VU1 counters into the `native=` row (served = kicks run through the generated
+    // code's registry, fallback = kicks of an image the table does not hold).
+    if (p_.mtvu.native_vu1) p_.mtvu.native_vu1->Publish(live_vu1);
     // block_ns= / block_ns_per_bundle= : the block tier's wall time inside its runs (the AOT tier's native
     // path runs there too), the per-frame VU1 cost the gameplay fps is bounded by.
     const VuBlockTier::Stats& bs = live_vu1.dispatch().block().stats();

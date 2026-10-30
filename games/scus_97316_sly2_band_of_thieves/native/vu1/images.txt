@@ -1,0 +1,16 @@
+# games/scus_97316_sly2_band_of_thieves/native/vu1/images.txt -- the AUTHORITATIVE list of Sly 2's VU1
+# microprogram images (STAGE NATIVE). One row per image: <VuImageHash::Fast, 16 hex> then facts.
+# Hashes, counts and entry addresses only -- never the image bytes (game data; the corpus under
+# ~/recomp-agent-data/scus_97316/corpora/vu1/ carries them for the build-time generator).
+# Source: the VU1 AOT census of the boot + Paris legs (engine vu1_aot= row), the kick corpus
+# (vp_cases_all 721 cases + ud_jitfix 90 cases), the user's pack_int6/pack.txt. Per-run kick counts: nat-vu1.md.
+#
+# hash              blocks ops   role / notes
+29679015777598ee    352   2264  (to be named from the census)
+3326286ecab9d6f6    328   2302  the main image (720 of the 721 vp_cases_all cases)
+55c3d2c682bf6fc1      1      2  a 2-op stub image
+67658fd6db08e764    315   2199
+73186dffb4c76bef     45    395
+7e5686216fd46a10    164   1243
+980abf796e0b0e23    305   2238
+f35598e56b90e6ae     49    419

@@ -13,6 +13,11 @@
 // AOT tier, on the live VU1 unit: a manifest under <user_data>/vu1_aot/<build>/ seeds the verdicts, new
 // microprograms are verified in the background, then compiled to native code and installed. The builder
 // is declared before the cache so it outlives it.
+//
+// STAGE NATIVE (title.native.vu1): NativeVu1 (native/vu1/native_vu1.h) fills the live unit's AOT registry
+// from the table generated at build time -- the title's microprograms run as code compiled into the
+// binary; no cache, no builder, no compiler. LegDevices selected the AOT tier for it before the worker
+// copied the settings; the registry is filled before the worker starts.
 #pragma once
 
 #include <memory>
@@ -27,6 +32,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_devices.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_gs.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/vu1/native_vu1.h"
 
 namespace ps2r::title::sly2 {
 
@@ -46,6 +52,7 @@ public:
     bool deferred_boundary = false;    // no terminal sync at the boundary (paced play only)
     std::unique_ptr<ps2r::app::Vu1AotBuilder> vu1_aot_builder;
     std::unique_ptr<ps2r::app::Vu1AotCache> vu1_aot_cache;
+    std::unique_ptr<NativeVu1> native_vu1;   // title.native.vu1 on: the build-time generated microprograms (null = off)
 
 private:
     LegDevices& devices_;
