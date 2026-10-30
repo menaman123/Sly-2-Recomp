@@ -1,0 +1,4 @@
+# SHA-256 of the file ps2r_sly2_vu0_native_gen generates into ${PS2R_TITLE_GEN_ROOT}/games/<title>/native/vu0 from the
+# title ELF's VU0 program image (vaddr 0x259e00, 0x2a0 bytes); see CMakeLists.txt. Never committed: game-derived.
+# cmake/ps2r_verify_manifest.cmake checks each build against this row.
+15f5454144be2e88b6293fd1b457fc9155e4b6b06cefc28e209aac0a2caa08f4  vu0_programs_gen.cpp
