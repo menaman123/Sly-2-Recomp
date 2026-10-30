@@ -50,6 +50,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_agent.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/native_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_devices.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_disc.h"
@@ -153,6 +154,11 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegTrace trace(knobs, disc, title.serial);
     LegCensus census(LegCensus::Phases{cfg, host, title, core, gs, devices, mtvu, dma_ipu, interrupts, vif_irq, services, audio, play, saves,
                                        iop, pad, image, text_watch, park, trace});
+    // STAGE NATIVE: the title.native.* switches (native/README.md). Each native path's installer takes
+    // `native_knobs` and its seam's owner here, after the devices exist and before the census; off (the
+    // default) = the engine's modelled path everywhere. The census row names what is on and what served.
+    const NativeKnobs native_knobs = NativeKnobs::From(cfg);
+    census.SetNativeKnobs(native_knobs);
     LegParkSink park_sink(host, census, park, play, disc, iop);
     LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);
     if (verify.Failed()) return 2;

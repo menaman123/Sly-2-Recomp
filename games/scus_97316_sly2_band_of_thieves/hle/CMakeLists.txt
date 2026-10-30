@@ -15,6 +15,9 @@ target_compile_options(ps2r_title_hle PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ps2r_title_hle PUBLIC ps2r_title_api)   # the TitleProfile contract
 
 if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
+    # STAGE NATIVE: the title's native paths (../native: ps2r_title_native, the title.native.* knobs,
+    # the per-unit census) -- title-tree code outside the engine, linked into the play composition.
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../native ${CMAKE_CURRENT_BINARY_DIR}/../native)
     add_library(ps2r_title_play STATIC
         audio_dump.cpp
         boot_leg.cpp
@@ -75,7 +78,8 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
         PS2R_SLY2_SHA_SPIOP="${PS2R_TITLE_EMBEDDED_spiop_SHA256}")
     target_link_libraries(ps2r_title_play PUBLIC
         ps2r_app_host ps2r_title_hle ps2r_title_recomp ps2r_sif ps2r_gs_sync ps2r_title_iop
-        ps2r_gs_state ps2r_gif ps2r_gif_hle ps2r_vu ps2r_vif ps2r_dmac ps2r_ipu_model ps2r_gs_hle_capture)
+        ps2r_gs_state ps2r_gif ps2r_gif_hle ps2r_vu ps2r_vif ps2r_dmac ps2r_ipu_model ps2r_gs_hle_capture
+        ps2r_title_native)
     # The generated dispatch table is only reached through DispatchTable, so force the whole archive in.
     add_dependencies(ps2r_title_play ps2r_title_recomp)
 
