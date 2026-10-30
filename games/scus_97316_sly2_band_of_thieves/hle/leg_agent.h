@@ -9,7 +9,9 @@
 //                                 this (boundary) thread unwinds; RunLeg's supervisor restores
 //   LegPad::agent_overlay         the agent's pad on the sample served at every stamp
 //   VertTraceSink::agent_*        the draw list of the frame in flight -> gs.frame (the last completed)
-//   LegSaves                      state.save = SessionCapture on the completed boundary, the writer awaited;
+//   LegSaves                      state.save = SessionCapture on the completed boundary, the writer awaited
+//                                 (StateSaveAdmissible = the capture's admission without a write: the server
+//                                 drives the game to the next admissible boundary when refused);
 //                                 state.load = a HEADLESS LIVE RESTORE over SessionRestart (the F8 machinery
 //                                 without a window): preflight here, unwind, SuperviseRestore on the boot
 //                                 thread (restore + relaunch), OnRestored before the first instruction.
@@ -69,9 +71,11 @@ private:
         bool tex;
         uint32_t tbp, psm, w, h;
         float x0, y0, x1, y1;
+        uint32_t fn;   // DrawAttribution's submitting function (0 = unknown)
     };
     ps2r::app::AgentJson Draws();
     bool StateSave(const std::string& path, int slot, std::string* out_path, std::string* err);
+    bool StateSaveAdmissible(std::string* why);
     bool StateLoadPrepare(const std::string& path, int slot, std::string* resolved, std::string* err);
     bool KnobSet(const std::string& name, const ps2r::app::AgentJson& value, std::string* err);
     ps2r::app::SessionRestart::Sources RestartSources();
@@ -100,7 +104,7 @@ private:
     ps2r::app::SessionClock::Snapshot incoming_clock_;
     int incoming_boundary_ = 0;
     std::atomic<bool> resume_gate_{false};
-    uint64_t restores_ = 0, restore_failures_ = 0;
+    uint64_t restores_ = 0, restore_failures_ = 0, settle_waits_ = 0;
 };
 
 }  // namespace ps2r::title::sly2

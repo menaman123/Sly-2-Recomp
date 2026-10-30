@@ -15,6 +15,7 @@
 #include "engine/ee/sched/ee_event_queue.h"
 #include "engine/ee/sched/ee_run_token.h"
 #include "engine/ee/savestate/thread_section.h"
+#include "engine/gif/draw_attribution.h"
 #include "engine/gs/vram/vram_image.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_text.h"
 
@@ -59,6 +60,7 @@ LegAgent::LegAgent(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
     };
     b.draws = [this] { return Draws(); };
     b.state_save = [this](const std::string& path, int slot, std::string* out, std::string* err) { return StateSave(path, slot, out, err); };
+    b.state_save_admissible = [this](std::string* why) { return StateSaveAdmissible(why); };
     b.state_load_prepare = [this](const std::string& path, int slot, std::string* resolved, std::string* err) {
         return StateLoadPrepare(path, slot, resolved, err);
     };
@@ -112,6 +114,9 @@ LegAgent::LegAgent(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
         dr.psm = d.tex.psm;
         dr.w = d.tex.tw < 16 ? (1u << d.tex.tw) : 0;
         dr.h = d.tex.th < 16 ? (1u << d.tex.th) : 0;
+        // The issuing function: DrawAttribution::CurrentFn() is the drain owner's thread-local for the GIF
+        // packet being delivered; the DrawIR chain (this sink at its head) runs on the drain owner.
+        dr.fn = DrawAttribution::CurrentFn();
         // The screen box: the vertices' x/y range (GS primitive space, pixels) minus XYOFFSET.
         if (!d.verts.empty()) {
             float x0 = d.verts[0].x, y0 = d.verts[0].y, x1 = x0, y1 = y0;
@@ -187,10 +192,37 @@ AgentJson LegAgent::Draws() {
         box.Push(AgentJson::Number(d.x1));
         box.Push(AgentJson::Number(d.y1));
         o.Set("box", box);
-        o.Set("fn", AgentJson::Null());
+        o.Set("fn", d.fn ? AgentJson::UInt(d.fn) : AgentJson::Null());
         arr.Push(o);
     }
     return arr;
+}
+
+bool LegAgent::StateSaveAdmissible(std::string* why) {
+    // The capture's own admission, without a write: the composition's quiescence owners (MTVU, ...) and
+    // the thread table (every worker parked at an immutable, restartable kernel wait: ThreadCapture::
+    // CollectBoundary). Must run inside the completed-boundary consumer (GameBoundary::FreshThreads).
+    if (!saves_.capture) { *why = "no savestate capture owner"; return false; }
+    // Settle first: a queued wake (EeEventQueue) whose target has not become READY yet is a transition in
+    // flight on another host thread; probing during it makes the verdict depend on host timing (the thread
+    // reads "parked" now and "READY, not parked" a moment later). Bounded: 20 ms.
+    EeRunToken& token = EeRunToken::Instance();
+    const int me = token.CurrentTid();
+    int settle_us = 0;
+    while (settle_us < 20000 && EeEventQueue::Instance().HasPending() && !token.AnyReadyBesides(me)) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+        settle_us += 100;
+    }
+    if (settle_us) ++settle_waits_;
+    std::string owner, reason;
+    if (!saves_.capture->Conditions().Check(&owner, &reason)) { *why = owner + ": " + reason; return false; }
+    ThreadCapture::Records records;
+    std::string error;
+    if (!core_.game_boundary.FreshThreads(records, error)) {
+        *why = error + (settle_us ? " [settled " + std::to_string(settle_us) + " us]" : "");
+        return false;
+    }
+    return true;
 }
 
 bool LegAgent::StateSave(const std::string& path, int slot, std::string* out_path, std::string* err) {
@@ -393,7 +425,8 @@ bool LegAgent::SuperviseRestore() {
 
 std::string LegAgent::Census() const {
     if (!server_) return failed_ ? "failed" : "off";
-    return server_->Census() + ":restores=" + std::to_string(restores_) + ":restore_failures=" + std::to_string(restore_failures_);
+    return server_->Census() + ":restores=" + std::to_string(restores_) + ":restore_failures=" + std::to_string(restore_failures_) +
+           ":settle_waits=" + std::to_string(settle_waits_);
 }
 
 }  // namespace ps2r::title::sly2

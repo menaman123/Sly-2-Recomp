@@ -101,7 +101,9 @@ void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
     meta->Set("ee_yield_budget", std::to_string(LegIop::kYieldBudget) + ":spin_gate=" +
                                      (EeYieldPoint::Instance().SpinGate() ? "on" : "off"));
     meta->Set("vblank_waits", std::to_string(EeRunToken::Instance().VblankWaits()) + ":idle=" +
-                                  std::to_string(EeRunToken::Instance().VblankWaitsIdle()));
+                                  std::to_string(EeRunToken::Instance().VblankWaitsIdle()) + ":field_wakes=" +
+                                  std::to_string(EeRunToken::Instance().FieldWakes()) + ":wake_sync=" +
+                                  (EeRunToken::Instance().VblankWakeSync() ? "on" : "off"));
     meta->Set("syscall_entry_isrs", std::to_string(irq.syscall_entry_isrs) + ":deferred=" + std::to_string(irq.syscall_entry_isrs_deferred));
     {
         // The VIFcode i-bit stall (leg_vif_irq.h): worker parks, handlers run in place / inside a sync
