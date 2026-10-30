@@ -57,6 +57,9 @@ public:
     bool close_pushed = false;
     uint64_t pauses = 0;   // census: pause hook calls (pause + resume)
 
+    // The agent control plane's session.quit: end the leg from the completed boundary (census written).
+    [[noreturn]] void EndLegFromAgent(const char* detail) { EndLegFromBoundary(detail); }
+
 private:
     [[noreturn]] void EndLegFromBoundary(const char* detail);
     void HarnessVerbs(uint64_t at_boundary);

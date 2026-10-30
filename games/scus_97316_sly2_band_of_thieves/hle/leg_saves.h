@@ -108,7 +108,12 @@ public:
     uint32_t restored_vsync_frame = 0;
     std::string restore_sections;   // section tags of the last restored image, in file order
     std::string restore_route;      // "live" | "cold"
-    std::string restore_mc_bound;   // cold restore: libmc readiness read from the image
+    std::string restore_mc_bound;   // after a restore: libmc readiness read from the image (DeriveMcBound)
+    // libmc's readiness is in the image: the bound-server word of its sceSifClientData (client_addr + 0x24),
+    // written by sceMcInit. mcserv's init never re-runs after a restore (cold or live), so Bound() is derived
+    // from the restored RAM; without this the rows answer -100 (NotReady) and the title's card state machine
+    // takes another path than the saved run's (the savestate proof found it at the 9th frame after a load).
+    void DeriveMcBound();
     std::string f8_route = "none";
     ps2r::app::LiveRestoreGate::Census live_refusals;   // run.meta live_restore_refusals=
     ps2r::app::LiveRestoreGate::Probes live_probes;
