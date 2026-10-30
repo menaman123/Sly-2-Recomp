@@ -29,6 +29,9 @@ struct LegKnobs {
     // NATIVEEE_DUMP_EVERY=N (>= 1) / NATIVEEE_DUMP_FROM=M: which present keys --dump-frames writes.
     uint32_t dump_every = 1;
     uint32_t dump_from = 0;
+    // NATIVEEE_VIF_CENSUS=<file>: histogram every VIF1 DMA chain (tags, VIF codes, chain templates) and write the
+    // table there at shutdown (native/vif/vif_census.h; counts and shapes only).
+    std::optional<std::string> vif_census;
     // NATIVEEE_GIF_TRACE=1 | tbp:<hex>: every GIF tag / register write to stderr (gif_trace_sink.h).
     bool gif_trace = false;
     std::optional<std::string> gif_trace_value;
