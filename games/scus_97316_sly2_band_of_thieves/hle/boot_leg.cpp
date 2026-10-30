@@ -164,7 +164,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // title.native.gif: the packet-shape builder on the arbiter's interceptor seam (native/gif/native_gif.h);
     // the parser stays the fallback for every packet it declines.
     std::unique_ptr<NativeGif> native_gif;
-    if (native_knobs.gif) native_gif = std::make_unique<NativeGif>(&devices.gif_arbiter, gs.gs_state);
+    if (native_knobs.gif) native_gif = std::make_unique<NativeGif>(&devices.gif_arbiter, gs.gs_state, &devices.gif_regs);
     auto native_detail = [&]() {   // the census detail strings, written once the game stopped
         if (native_gif) NativeCensus::Instance().SetDetail(NativeUnit::Gif, native_gif->Detail());
     };
