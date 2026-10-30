@@ -72,6 +72,8 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_vif_irq.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_watchdog.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/widescreen.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/gif/native_gif.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/native_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/warp_tool.h"
 
 namespace {
@@ -159,6 +161,13 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     // default) = the engine's modelled path everywhere. The census row names what is on and what served.
     const NativeKnobs native_knobs = NativeKnobs::From(cfg);
     census.SetNativeKnobs(native_knobs);
+    // title.native.gif: the packet-shape builder on the arbiter's interceptor seam (native/gif/native_gif.h);
+    // the parser stays the fallback for every packet it declines.
+    std::unique_ptr<NativeGif> native_gif;
+    if (native_knobs.gif) native_gif = std::make_unique<NativeGif>(&devices.gif_arbiter, gs.gs_state);
+    auto native_detail = [&]() {   // the census detail strings, written once the game stopped
+        if (native_gif) NativeCensus::Instance().SetDetail(NativeUnit::Gif, native_gif->Detail());
+    };
     LegParkSink park_sink(host, census, park, play, disc, iop);
     LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);
     if (verify.Failed()) return 2;
@@ -250,6 +259,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         core.running.store(false);
         // In play mode the session joins the workers; headless, this thread does.
         if (!session) verify.JoinLadder();
+        native_detail();
         census.Write();
         if (failure) {
             std::string what = "guest fault";
@@ -263,6 +273,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     if (session) {
         // The game runs on the session's worker thread while main pumps the window.
         result = session->Run(cold_boot, static_cast<unsigned>(cfg.engine.shutdown_wait_s));
+        native_detail();
         census.Write();
         closer.Close("none", fault_pc, fault_pc ? 1 : 0, "session_closed");
     } else {

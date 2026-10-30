@@ -15,6 +15,9 @@ add_library(ps2r_title_native STATIC
     native_census.cpp
     native_knobs.cpp
     native_simd.cpp
+    # track gif (gif/README.md): the packet-shape census and the native builder on the arbiter's interceptor seam
+    gif/gif_shape_census.cpp
+    gif/native_gif.cpp
 )
 target_include_directories(ps2r_title_native PUBLIC ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/..)
 # -ffp-contract=off: the float contract spelled for every compiler (the engine's rule for GNU; Clang's
@@ -24,4 +27,6 @@ if(PS2R_SIMD)
     target_compile_definitions(ps2r_title_native PRIVATE PS2R_SIMD=1)
 endif()
 # ps2r_core: Config (title.native.*); ps2r_host: engine/platform (the only host surface allowed here).
-target_link_libraries(ps2r_title_native PUBLIC ps2r_core ps2r_host)
+# The seams the tracks plug into: ps2r_gif (GifArbiter, GsSink, DrawAttribution), ps2r_vu (the VU1
+# program identity for the census), ps2r_gs_state (GsState, the builders' target).
+target_link_libraries(ps2r_title_native PUBLIC ps2r_core ps2r_host ps2r_gif ps2r_vu ps2r_gs_state)

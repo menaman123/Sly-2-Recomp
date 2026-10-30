@@ -27,6 +27,8 @@ LegKnobs LegKnobs::FromEnvironment() {
     if (const char* env = std::getenv("NATIVEEE_DUMP_FROM")) k.dump_from = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
     k.gif_trace = std::getenv("NATIVEEE_GIF_TRACE") != nullptr;
     k.gif_trace_value = Text(std::getenv("NATIVEEE_GIF_TRACE"));
+    k.gif_census = Text(std::getenv("NATIVEEE_GIF_CENSUS"));
+    k.gif_pkt_capture = Text(std::getenv("NATIVEEE_GIF_PKT_CAPTURE"));
     k.vu1_mode = Text(std::getenv("NATIVEEE_VU1_MODE"));
     if (const char* env = std::getenv("NATIVEEE_MTVU")) {
         k.mtvu_set = true;

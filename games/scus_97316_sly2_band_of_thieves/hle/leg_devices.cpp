@@ -1,5 +1,6 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_devices.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -22,6 +23,16 @@ LegDevices::LegDevices(const ps2r::Config& cfg, const TitleProfile& title, const
     if (knobs.gif_trace) {
         gif_trace.SetFilter(knobs.gif_trace_value ? knobs.gif_trace_value->c_str() : nullptr);
         gif_sink.Add(&gif_trace);
+    }
+    if (knobs.gif_census && !knobs.vu1_cap) {   // the probe owns the arbiter's submit tap
+        gif_census = std::make_unique<GifShapeCensus>(*knobs.gif_census, &gif_arbiter, &vu1);
+        gif_sink.Add(gif_census.get());
+        if (knobs.gif_pkt_capture) {   // <file>:<max MiB>
+            const std::string& spec = *knobs.gif_pkt_capture;
+            const size_t colon = spec.rfind(':');
+            const uint64_t mib = colon == std::string::npos ? 64 : std::strtoull(spec.c_str() + colon + 1, nullptr, 10);
+            gif_census->StartPacketCapture(spec.substr(0, colon), mib << 20);
+        }
     }
     // VU1 tier: engine.vu1_mode, overridden by NATIVEEE_VU1_MODE=interp|cached|block|aot.
     //   hle     (no VU1 library in this title: behaves as cached)

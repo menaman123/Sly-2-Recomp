@@ -114,3 +114,16 @@ endif()
 add_test(NAME Sly2_SceneMatrixSelftest
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scene_matrix.py --selftest)
 set_tests_properties(Sly2_SceneMatrixSelftest PROPERTIES TIMEOUT 60)
+
+# --- the native GIF builder's equivalence test (native/gif/native_gif.h) --------------------------
+# Synthetic packets of every shape class through the engine parser and through the builder (with the
+# parser as fallback), the DrawIr record sequences compared (gif_equiv.cpp). Recorded corpora
+# (NATIVEEE_GIF_PKT_CAPTURE, game data, outside the repository) run through the same binary by hand.
+if(TARGET ps2r_title_native)
+    add_executable(sly2_gif_equiv ${CMAKE_CURRENT_SOURCE_DIR}/gif_equiv.cpp)
+    target_include_directories(sly2_gif_equiv PRIVATE ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/..)
+    target_compile_options(sly2_gif_equiv PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(sly2_gif_equiv PRIVATE ps2r_title_native ps2r_gif ps2r_gif_hle ps2r_gs_state)
+    add_test(NAME Sly2_GifEquivSelftest COMMAND sly2_gif_equiv --selftest)
+    set_tests_properties(Sly2_GifEquivSelftest PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+endif()
