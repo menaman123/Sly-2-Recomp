@@ -89,6 +89,10 @@ public:
 
     iop::IopModuleTable& Table() { return table_; }
     iop::IopMemory& Memory() { return mem_; }
+    // The libsd face the hosted 989snd drives (its op tap is the census / the native-path oracle).
+    iop::hle::LibsdModule& Libsd() { return libsd_; }
+    // The EE-facing server of a hosted module's sceSifRegisterRpc record, by server id (nullptr = none).
+    IopRpcServer* HostedServer(uint32_t sid);
     // The IOPH save-state section: IOP RAM, kernel tables, hosted module rows, libraries, RPC servers
     // and timers. Restoring re-arms each hosted thread and re-registers each RPC server.
     iop::IopHostSection& Section() { return *section_; }

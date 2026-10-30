@@ -467,6 +467,12 @@ void IopHost::OnServerRegistered(const iop::hle::SifcmdModule::ServerRecord& r) 
              r.buff, r.tid);
 }
 
+IopRpcServer* IopHost::HostedServer(uint32_t sid) {
+    for (auto& s : servers_)
+        if (s->Record().sid == sid) return s.get();
+    return nullptr;
+}
+
 void IopHost::OnServerRemoved(uint32_t sid) {
     rpc_servers_census_ += (rpc_servers_census_.empty() ? "" : ",") + Hex(sid) + "->removed";
 }

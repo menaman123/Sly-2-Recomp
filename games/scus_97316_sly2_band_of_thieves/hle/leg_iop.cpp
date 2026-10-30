@@ -68,16 +68,25 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
     if (knobs.rpc_trace) {
         if (FILE* f = std::fopen(knobs.rpc_trace->c_str(), "w")) {
             std::fprintf(f, "# rpc trace: iop_frame sid fno ssize send_hex -> reply rsize recv_hex (first 64 bytes each)\n");
+            std::fprintf(f, "# iop_frame RPC< sid fno = the request is dispatched; iop_frame SD ord a0 a1 a2 a3 extra -> v0 = a libsd entry the IOP code reached\n");
             IopRpcServer::SetTracer([this, f](const IopRpcServer::TraceEvent& ev) {
                 auto hex = [f](const uint8_t* p, uint32_t n) {
                     if (!p) { std::fputs("-", f); return; }
                     for (uint32_t i = 0; i < n && i < 64; ++i) std::fprintf(f, "%02x", p[i]);
                 };
+                if (ev.begin) {
+                    std::fprintf(f, "%llu RPC< %08x %u\n", (unsigned long long)iop_host.Table().Kernel().Clock().Frames(), ev.sid, ev.fno);
+                    return;
+                }
                 std::fprintf(f, "%llu %08x %u %u ", (unsigned long long)iop_host.Table().Kernel().Clock().Frames(), ev.sid, ev.fno, ev.send_size);
                 hex(ev.send, ev.send_size);
                 std::fprintf(f, " -> %08x %u ", ev.reply, ev.recv_size);
                 hex(ev.recv, ev.recv_size);
                 std::fputc('\n', f);
+            });
+            iop_host.Libsd().SetOpTracer([this, f](const iop::hle::LibsdModule::OpEvent& ev) {
+                std::fprintf(f, "%llu SD %d %x %x %x %x %x -> %x\n", (unsigned long long)iop_host.Table().Kernel().Clock().Frames(), ev.ordinal,
+                             ev.a0, ev.a1, ev.a2, ev.a3, ev.extra, ev.v0);
             });
             iop_host.EeSink().SetTracer([this, f](uint32_t ee_addr, const uint8_t* src, size_t size) {
                 std::fprintf(f, "%llu DMA> %08x %zu ", (unsigned long long)iop_host.Table().Kernel().Clock().Frames(), ee_addr, size);
