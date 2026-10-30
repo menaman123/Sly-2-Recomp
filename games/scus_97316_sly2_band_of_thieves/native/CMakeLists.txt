@@ -25,3 +25,7 @@ if(PS2R_SIMD)
 endif()
 # ps2r_core: Config (title.native.*); ps2r_host: engine/platform (the only host surface allowed here).
 target_link_libraries(ps2r_title_native PUBLIC ps2r_core ps2r_host)
+
+# The per-unit native paths with their own build step (generated code): vu1/ -> ps2r_title_native_vu1
+# (the title's VU1 microprograms generated at build time from the kick corpus; native/vu1/CMakeLists.txt).
+add_subdirectory(vu1)

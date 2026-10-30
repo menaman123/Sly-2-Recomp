@@ -79,7 +79,7 @@ if(TARGET ps2r_title_recomp AND TARGET ps2r_title_iop)
     target_link_libraries(ps2r_title_play PUBLIC
         ps2r_app_host ps2r_title_hle ps2r_title_recomp ps2r_sif ps2r_gs_sync ps2r_title_iop
         ps2r_gs_state ps2r_gif ps2r_gif_hle ps2r_vu ps2r_vif ps2r_dmac ps2r_ipu_model ps2r_gs_hle_capture
-        ps2r_title_native)
+        ps2r_title_native ps2r_title_native_vu1)
     # The generated dispatch table is only reached through DispatchTable, so force the whole archive in.
     add_dependencies(ps2r_title_play ps2r_title_recomp)
 
