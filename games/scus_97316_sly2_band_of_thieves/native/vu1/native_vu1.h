@@ -55,8 +55,10 @@ public:
     bool Install(VuUnit& unit, std::string* note);
 
     // Publish the counters into NativeCensus (served = native kicks, fallback = misses) with the detail
-    // "images=N:native_blocks=N:refused=N:misses=<hash>:<count>,...". Call once at the census write.
-    void Publish(const VuUnit& live) const;
+    // "images=N.native_bundles=N.native_blocks=N.installs=N.refused=N.progs=<hash16>x<kicks>/<bundles><n|m>|..."
+    // (every image the live unit's block table decoded: n = its generated code is installed, m = modelled)
+    // and ".misses=<hash16>x<count>|...". Call once at the census write, after the unit stopped.
+    void Publish(VuUnit& live) const;
 
     uint64_t misses() const;
 

@@ -3,6 +3,7 @@
 
 #include <cstdio>
 
+#include "engine/vu/tiers/vu_block_tier.h"
 #include "engine/vu/tiers/vu_tier_dispatch.h"
 #include "engine/vu/vu1_aot/vu1_aot_emitter.h"
 #include "engine/vu/vu1_aot/vu1_aot_exports.h"
@@ -62,19 +63,33 @@ uint64_t NativeVu1::misses() const {
     return misses_;
 }
 
-void NativeVu1::Publish(const VuUnit& live) const {
+void NativeVu1::Publish(VuUnit& live) const {
     const Vu1AotTier& tier = live.dispatch().aot();
     const Vu1AotTier::Stats& s = tier.stats();
     NativeCensus& census = NativeCensus::Instance();
     census.Served(NativeUnit::Vu1, s.native_kicks);
     census.Fallback(NativeUnit::Vu1, s.fallback_kicks);
-    std::string detail = "images=" + std::to_string(installed_) + ":native_bundles=" + std::to_string(s.native_bundles) +
-                         ":native_blocks=" + std::to_string(s.native_blocks) + ":installs=" + std::to_string(s.native_installs) +
-                         ":refused=" + std::to_string(tier.native_refused());
+    std::string detail = "images=" + std::to_string(installed_) + ".native_bundles=" + std::to_string(s.native_bundles) +
+                         ".native_blocks=" + std::to_string(s.native_blocks) + ".installs=" + std::to_string(s.native_installs) +
+                         ".refused=" + std::to_string(tier.native_refused());
+    // The per-image census from the block table (every image the unit decoded: kicks, bundles, native or modelled).
+    struct Acc {
+        std::string text;
+        bool first = true;
+    } acc;
+    live.dispatch().block().ForEachProgram(
+        +[](void* user, const VuBlockProgram& prog) {
+            Acc* a = static_cast<Acc*>(user);
+            a->text += (a->first ? "" : "|") + Vu1AotEmitter::Hex16(prog.hash) + "x" + std::to_string(prog.exec_count) + "/" +
+                       std::to_string(prog.bundles) + (prog.native != nullptr ? "n" : "m");
+            a->first = false;
+        },
+        &acc);
+    if (!acc.text.empty()) detail += ".progs=" + acc.text;
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (!miss_by_image_.empty()) {
-            detail += ":misses=";
+            detail += ".misses=";
             bool first = true;
             for (const auto& kv : miss_by_image_) {
                 detail += (first ? "" : "|") + Vu1AotEmitter::Hex16(kv.first) + "x" + std::to_string(kv.second);
