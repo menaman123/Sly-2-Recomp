@@ -37,6 +37,7 @@
 #include "engine/ee/savestate/state_restorer.h"
 #include "engine/ee/savestate/thread_section.h"
 #include "engine/ee/savestate/timer_section.h"
+#include "engine/ee/savestate/yield_section.h"
 #include "engine/gif/savestate/gifs_section.h"
 #include "engine/gs/savestate/gs_sections.h"
 #include "engine/mc/savestate/mchl_section.h"
@@ -92,6 +93,7 @@ public:
     KernelSections kernel_sections;
     IntcSection intc_section;
     TimerSection timer_section;
+    YieldSection yield_section;   // YLDP: the back-edge budget remaining at the boundary (an exact splice)
     VifsSection vifs_section;
     ps2r::gs::GsSections gs_sections;
     GifsSection gifs_section;

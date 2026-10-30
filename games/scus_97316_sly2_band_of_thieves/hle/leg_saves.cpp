@@ -19,6 +19,7 @@
 #include "engine/vif/vif.h"
 #include "engine/sif/hle/sce_sif.h"
 #include "engine/ee/sched/ee_event_queue.h"
+#include "engine/ee/sched/ee_yield_point.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_park.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_text.h"
@@ -39,6 +40,7 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
       kernel_sections(Semaphores::Instance(), EventFlags::Instance()),
       intc_section(core.intc, SyscallTable::Instance()),
       timer_section(core.timers, title.quirks.boot_t0_mode),
+      yield_section(EeYieldPoint::Instance()),
       vifs_section(devices.vif),
       gs_sections(gs.gs_state),
       gifs_section(devices.gif_regs),
@@ -76,6 +78,7 @@ LegSaves::LegSaves(const ps2r::Config& cfg, ps2r::verify::VerifyHost& host, cons
         registry.Register(dmac_spec);
     }
     timer_section.Register(registry);
+    yield_section.Register(registry);   // staged here, seated by ThreadRelauncher before the boundary thread resumes
     vifs_section.Register(registry);
     // With a split image, the VRAM section reads the pipeline's copy (after draining it).
     if (gs.gs_queue && gs.pipeline_vram) {

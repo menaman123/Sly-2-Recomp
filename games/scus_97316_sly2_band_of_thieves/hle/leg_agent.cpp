@@ -16,6 +16,7 @@
 #include "engine/ee/hle/thread_manager.h"
 #include "engine/ee/sched/ee_event_queue.h"
 #include "engine/ee/sched/ee_run_token.h"
+#include "engine/ee/sched/ee_yield_point.h"
 #include "engine/ee/savestate/thread_section.h"
 #include "engine/gif/draw_attribution.h"
 #include "engine/gs/vram/vram_image.h"
@@ -256,8 +257,10 @@ bool LegAgent::StateSave(const std::string& path, int slot, std::string* out_pat
         if (auto done = saves_.capture->Poll()) {
             if (done->phase != ps2r::app::SessionControls::Phase::Succeeded) { *err = done->detail; return false; }
             *out_path = done->path;
-            std::fprintf(stderr, "nativeee: state.save: frame %llu captured (engine boundary %llu) -> %s\n",
-                         static_cast<unsigned long long>(frame - 1), static_cast<unsigned long long>(frame), done->path.c_str());
+            // yield_remaining: the back-edge budget the image carries (YLDP); a derived count, no game bytes.
+            std::fprintf(stderr, "nativeee: state.save: frame %llu captured (engine boundary %llu; yield_remaining=%u) -> %s\n",
+                         static_cast<unsigned long long>(frame - 1), static_cast<unsigned long long>(frame),
+                         EeYieldPoint::Instance().BudgetRemaining(), done->path.c_str());
             return true;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -417,8 +420,10 @@ ps2r::app::SessionRestart::Hooks LegAgent::RestartHooks() {
             meta->Set("restores", std::to_string(saves_.restores.load()));
             meta->Flush();
         }
-        std::fprintf(stderr, "nativeee: state.load: frame %u restored live (mhash %s; sections %s)\n", saves_.restored_vsync_frame,
-                     Hex(saves_.restorer.RestoredMemoryHash()).c_str(), saves_.restore_sections.c_str());
+        std::fprintf(stderr, "nativeee: state.load: frame %u restored live (mhash %s; sections %s; yield_restores=%llu remaining=%u)\n",
+                     saves_.restored_vsync_frame, Hex(saves_.restorer.RestoredMemoryHash()).c_str(), saves_.restore_sections.c_str(),
+                     static_cast<unsigned long long>(EeYieldPoint::Instance().Stats().budget_restores),
+                     EeYieldPoint::Instance().Stats().last_restored_remaining);
         core_.running.store(true);
         return true;
     };
