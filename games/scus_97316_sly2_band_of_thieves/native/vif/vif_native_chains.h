@@ -51,6 +51,7 @@ public:
 private:
     // One span (a whole-quadword VIF stream) is executed here only when admitted:
     // every payload inside the span, no DIRECT; else the engine's feed takes it whole.
+    ChainWalker::NativeChainStep Walk(DmacChannelRegs& regs, DmacVifWalkResult& res);
     bool Admit(const uint8_t* data, size_t bytes, uint32_t cycle) const;
     void Execute(const uint8_t* data, size_t bytes);
 
@@ -69,7 +70,8 @@ private:
     uint64_t tte_quadwords_ = 0;
     uint64_t unpack_typed_ = 0;      // UNPACKs through the typed loops
     uint64_t unpack_engine_ = 0;     // UNPACKs replayed through Vif::ExecuteCommand
-    uint64_t codes_engine_ = 0;      // non-UNPACK codes replayed through Vif::ExecuteCommand
+    uint64_t codes_native_ = 0;      // NOP / STCYCL / STMOD / STMASK written here
+    uint64_t codes_engine_ = 0;      // other non-UNPACK codes replayed through Vif::ExecuteCommand
     uint64_t ibit_raised_ = 0;
     uint64_t rewritten_ = 0;         // a code word the admission did not see (changed under the i-bit handler)
     uint64_t rewritten_misaligned_ = 0;  // ... and the hand-back started off a quadword edge (framing not exact)

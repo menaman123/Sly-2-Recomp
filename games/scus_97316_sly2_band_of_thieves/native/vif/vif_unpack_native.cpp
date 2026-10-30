@@ -3,7 +3,6 @@
 #include <cstring>
 
 #include "engine/vif/vif_regs.h"
-#include "engine/vif/vif_unpack.h"
 
 namespace {
 
@@ -87,6 +86,62 @@ struct DecodeV4_5 {
     }
 };
 
+// The MASK decoded once per command: the 2-bit action of every (write cycle row, field).
+struct MaskPlan {
+    uint8_t act[4][4];
+    bool plain_rows;   // every row is Write / NoWrite only (no ROW / COL substitution)
+    bool same_rows;    // the four rows agree
+    uint8_t write_set; // plain_rows && same_rows: bit f set = field f written
+};
+inline MaskPlan PlanMask(uint32_t mask) {
+    MaskPlan m{};
+    m.plain_rows = true;
+    m.same_rows = true;
+    for (uint32_t row = 0; row < 4; row++) {
+        for (uint32_t f = 0; f < 4; f++) {
+            const uint8_t a = static_cast<uint8_t>((mask >> (row * 8 + f * 2)) & 3u);
+            m.act[row][f] = a;
+            if (a == 1 || a == 2) m.plain_rows = false;
+            if (a != m.act[0][f]) m.same_rows = false;
+        }
+    }
+    m.write_set = 0;
+    if (m.plain_rows && m.same_rows)
+        for (uint32_t f = 0; f < 4; f++)
+            if (m.act[0][f] == 0) m.write_set |= static_cast<uint8_t>(1u << f);
+    return m;
+}
+
+// One destination quadword: MODE, then the MASK's per-field action.
+template <bool kMasked, bool kMode>
+inline void Store(uint8_t* dst, uint32_t* vec, const VifRegs& regs, uint32_t mode, uint32_t write_cycle, const MaskPlan& mp) {
+    if (kMode) {
+        const uint32_t col = write_cycle & 3u;
+        for (int f = 0; f < 4; f++) {
+            uint32_t add = 0;
+            if (mode == 1 || mode == 3) add += regs.row[f];
+            if (mode == 2 || mode == 3) add += regs.col[col];
+            vec[f] += add;
+        }
+    }
+    if (kMasked) {
+        const uint32_t row = write_cycle & 3u;
+        uint32_t out[4];
+        std::memcpy(out, dst, 16);  // the existing quadword (kept where the mask says 3)
+        for (int f = 0; f < 4; f++) {
+            switch (mp.act[row][f]) {
+                case 0: out[f] = vec[f]; break;
+                case 1: out[f] = regs.row[f]; break;
+                case 2: out[f] = regs.col[row]; break;
+                default: break;
+            }
+        }
+        std::memcpy(dst, out, 16);
+    } else {
+        std::memcpy(dst, vec, 16);
+    }
+}
+
 // The skipping-write loop over the destination: `n` vectors from `src`, WL
 // written then CL-WL skipped per cycle, MODE and MASK applied per field, the
 // destination wrapping at 1024 quadwords. The write cycle counts the written
@@ -97,6 +152,35 @@ void Loop(const VifUnpackNative::Command& c, const VifRegs& regs, uint8_t* dmem)
     const uint8_t* src = c.src;
     const uint8_t* end = c.src + c.src_bytes;
     uint32_t addr = c.addr_qw & kQwMask;
+    const MaskPlan mp = kMasked ? PlanMask(regs.mask) : MaskPlan{};
+
+    if (c.wl == 1) {
+        // One vector per CL period (the title's CL 4 / WL 1 vertex stride, and CL 1 / WL 1 streams).
+        if (kMasked && !kMode && mp.plain_rows && mp.same_rows) {
+            // Write / keep per field, the same for every vector: store only the written fields (the
+            // S-8 alpha overlay under STMASK 3f3f3f3f writes W alone).
+            const uint8_t ws = mp.write_set;
+            for (uint32_t i = 0; i < c.n; i++) {
+                uint32_t vec[4];
+                D::Read(src, end, c.usn, i, c.phase, vec);
+                src += step;
+                uint8_t* dst = dmem + static_cast<size_t>(addr) * 16;
+                for (int f = 0; f < 4; f++)
+                    if (ws & (1u << f)) std::memcpy(dst + f * 4, &vec[f], 4);
+                addr = (addr + c.cl) & kQwMask;
+            }
+            return;
+        }
+        for (uint32_t i = 0; i < c.n; i++) {
+            uint32_t vec[4];
+            D::Read(src, end, c.usn, i, c.phase, vec);
+            src += step;
+            Store<kMasked, kMode>(dmem + static_cast<size_t>(addr) * 16, vec, regs, c.mode, 0, mp);
+            addr = (addr + c.cl) & kQwMask;
+        }
+        return;
+    }
+
     uint32_t written = 0;
     uint32_t write_cycle = 0;
     uint32_t cycle_pos = 0;
@@ -110,32 +194,7 @@ void Loop(const VifUnpackNative::Command& c, const VifRegs& regs, uint8_t* dmem)
         uint32_t vec[4];
         D::Read(src, end, c.usn, written, c.phase, vec);
         src += step;
-        if (kMode) {
-            const uint32_t col = write_cycle & 3u;
-            for (int f = 0; f < 4; f++) {
-                uint32_t add = 0;
-                if (c.mode == 1 || c.mode == 3) add += regs.row[f];
-                if (c.mode == 2 || c.mode == 3) add += regs.col[col];
-                vec[f] += add;
-            }
-        }
-        uint8_t* dst = dmem + static_cast<size_t>(addr) * 16;
-        if (kMasked) {
-            const uint32_t row = write_cycle & 3u;
-            uint32_t out[4];
-            std::memcpy(out, dst, 16);  // the existing quadword (kept where the mask says 3)
-            for (int f = 0; f < 4; f++) {
-                switch (VifUnpack::MaskActionFor(regs.mask, f, row)) {
-                    case MaskAction::Write: out[f] = vec[f]; break;
-                    case MaskAction::NoWrite: break;
-                    case MaskAction::Row: out[f] = regs.row[f]; break;
-                    case MaskAction::Col: out[f] = regs.col[row]; break;
-                }
-            }
-            std::memcpy(dst, out, 16);
-        } else {
-            std::memcpy(dst, vec, 16);
-        }
+        Store<kMasked, kMode>(dmem + static_cast<size_t>(addr) * 16, vec, regs, c.mode, write_cycle, mp);
         written++;
         if (++write_cycle >= c.wl) write_cycle = 0;
         addr = (addr + 1) & kQwMask;

@@ -26,6 +26,24 @@ constexpr uint32_t kCmdMpg = 0x4A;
 constexpr uint32_t kCmdDirect = 0x50;
 constexpr uint32_t kCmdDirecthl = 0x51;
 
+// Payload words of an UNPACK (engine/vif/vif_unpack.cpp GetUnpackSize restated for the
+// skipping write; the filling write's count comes from the engine's function).
+constexpr uint8_t kElems[16] = {1, 1, 1, 0, 2, 2, 2, 0, 3, 3, 3, 0, 4, 4, 4, 1};
+constexpr uint8_t kBits[16] = {32, 16, 8, 0, 32, 16, 8, 0, 32, 16, 8, 0, 32, 16, 8, 16};
+inline uint32_t UnpackWords(uint32_t cmd, uint32_t num, uint32_t cl, uint32_t wl) {
+    const uint32_t fmt = cmd & 0xF;
+    if (kBits[fmt] == 0) return 0;
+    if (cl >= wl || cl == 0 || wl == 0) {
+        const uint32_t n = num == 0 ? 256 : num;
+        const uint32_t bytes = (n * kElems[fmt] * kBits[fmt] + 7) / 8;
+        return (bytes + 3) / 4;
+    }
+    return (VifUnpack::GetUnpackSize(cmd, num, cl, wl) + 3) / 4;
+}
+
+constexpr uint32_t kCmdNop = 0x00;
+constexpr uint32_t kCmdStmod = 0x05;
+
 inline uint32_t Word(const uint8_t* data, size_t w) {
     uint32_t x;
     std::memcpy(&x, data + w * 4, 4);
@@ -61,7 +79,7 @@ bool VifNativeChains::Admit(const uint8_t* data, size_t bytes, uint32_t cycle) c
         if (cmd == kCmdDirect || cmd == kCmdDirecthl) return false;
         size_t words = 0;
         if (VifUnpack::IsUnpackCmd(cmd)) {
-            words = (VifUnpack::GetUnpackSize(cmd, num, cl, wl) + 3) / 4;
+            words = UnpackWords(cmd, num, cl, wl);
         } else if (cmd == kCmdStcycl) {
             cl = imm & 0xFFu;
             wl = (imm >> 8) & 0xFFu;
@@ -106,7 +124,7 @@ void VifNativeChains::Execute(const uint8_t* data, size_t bytes) {
         if (VifUnpack::IsUnpackCmd(cmd)) {
             const bool use_mask = (cmd & 0x10) != 0;
             uint32_t cl = VifRegsCl(r), wl = VifRegsWl(r);
-            const uint32_t size = VifUnpack::GetUnpackSize(cmd, num, cl, wl);
+            const uint32_t size = UnpackWords(cmd, num, cl, wl) * 4;
             if (size == 0) {
                 // An undefined format: the engine's executor ignores it (and raises the i bit).
                 r.code = code;
@@ -160,7 +178,6 @@ void VifNativeChains::Execute(const uint8_t* data, size_t bytes) {
             if (typed_unpack_ && VifUnpackNative::Supports(c)) {
                 VifUnpackNative::Run(c, r, dmem);
                 unpack_typed_++;
-                NativeCensus::Instance().Served(NativeUnit::Vif);
                 if (irq) {
                     ibit_raised_++;
                     vif_.RaiseIBit(1);
@@ -168,8 +185,31 @@ void VifNativeChains::Execute(const uint8_t* data, size_t bytes) {
             } else {
                 vif_.ExecuteCommand(1, cmd, imm, num, payload, psize, irq, use_mask);
                 unpack_engine_++;
-                NativeCensus::Instance().Fallback(NativeUnit::Vif);
                 if (irq) ibit_raised_++;
+            }
+            w = s + words;
+            continue;
+        }
+
+        // The register-only codes the title writes itself (engine/vif/vif.cpp ExecuteCommand's
+        // cases restated): NOP, STCYCL (CYCLE := imm), STMOD (MODE := imm & 3), STMASK (MASK := the
+        // payload word). The i bit follows the command, as there.
+        if (cmd == kCmdNop || cmd == kCmdStcycl || cmd == kCmdStmod || (cmd == kCmdStmask && s < nwords)) {
+            r.code = code;
+            size_t words = 0;
+            if (cmd == kCmdStcycl) {
+                r.cycle = imm;
+            } else if (cmd == kCmdStmod) {
+                r.mode = imm & 3u;
+            } else if (cmd == kCmdStmask) {
+                vif_.SetUnpackPhase(1, static_cast<uint8_t>(s & 1));
+                std::memcpy(&r.mask, data + s * 4, 4);
+                words = 1;
+            }
+            codes_native_++;
+            if (irq) {
+                ibit_raised_++;
+                vif_.RaiseIBit(1);
             }
             w = s + words;
             continue;
@@ -195,9 +235,21 @@ void VifNativeChains::Execute(const uint8_t* data, size_t bytes) {
 }
 
 ChainWalker::NativeChainStep VifNativeChains::Step(int ch, DmacChannelRegs& regs, DmacVifWalkResult& res) {
+    if (ch != kVif1) return ChainWalker::NativeChainStep{};
+    const uint64_t sn = spans_native_, se = spans_engine_, ut = unpack_typed_, ue = unpack_engine_;
+    const ChainWalker::NativeChainStep step = Walk(regs, res);
+    // The per-unit census once per chain (the counters are shared atomics).
+    NativeCensus& census = NativeCensus::Instance();
+    census.Served(NativeUnit::Dmac, spans_native_ - sn);
+    census.Fallback(NativeUnit::Dmac, spans_engine_ - se);
+    census.Served(NativeUnit::Vif, unpack_typed_ - ut);
+    census.Fallback(NativeUnit::Vif, unpack_engine_ - ue);
+    return step;
+}
+
+ChainWalker::NativeChainStep VifNativeChains::Walk(DmacChannelRegs& regs, DmacVifWalkResult& res) {
     using namespace DmacChcr;
     ChainWalker::NativeChainStep step;
-    if (ch != kVif1) return step;
     chains_++;
     const bool tte = (regs.chcr & kTte) != 0;
     const bool tie = (regs.chcr & kTie) != 0;
@@ -277,11 +329,9 @@ ChainWalker::NativeChainStep VifNativeChains::Step(int ch, DmacChannelRegs& regs
                 if (UnitClean(vif_) && Admit(span, bytes, vif_.regs(1).cycle)) {
                     Execute(span, bytes);
                     spans_native_++;
-                    NativeCensus::Instance().Served(NativeUnit::Dmac);
                 } else {
                     // The engine's feed takes the whole span (the walker's own call).
                     spans_engine_++;
-                    NativeCensus::Instance().Fallback(NativeUnit::Dmac);
                     vif_.ProcessData(1, span, bytes);
                 }
                 regs.madr += static_cast<uint32_t>(bytes);
@@ -314,7 +364,7 @@ ChainWalker::NativeChainStep VifNativeChains::Step(int ch, DmacChannelRegs& regs
 std::string VifNativeChains::Row() const {
     return "chains=" + std::to_string(chains_) + ":full=" + std::to_string(chains_full_) + ":tags=" + std::to_string(tags_) + ":spans=" +
            std::to_string(spans_native_) + "/" + std::to_string(spans_engine_) + "/" + std::to_string(spans_unreadable_) + ":tte_qw=" +
-           std::to_string(tte_quadwords_) + ":unpack=" + std::to_string(unpack_typed_) + "/" + std::to_string(unpack_engine_) + ":codes_engine=" +
+           std::to_string(tte_quadwords_) + ":unpack=" + std::to_string(unpack_typed_) + "/" + std::to_string(unpack_engine_) + ":codes=" + std::to_string(codes_native_) + "/" +
            std::to_string(codes_engine_) + ":ibit=" + std::to_string(ibit_raised_) + ":rewritten=" + std::to_string(rewritten_) + "/" +
            std::to_string(rewritten_misaligned_);
 }
