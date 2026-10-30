@@ -64,7 +64,7 @@ public:
         // Set later by RunLeg (the agent control plane, leg_agent.h; null = off).
         const LegAgent* agent = nullptr;
         // Set by RunLeg: the title.native.* switches in force (the `native=` row, native/README.md).
-        NativeKnobs native;
+        NativeKnobs native = {};
     };
     void SetNativeKnobs(const NativeKnobs& k) { p_.native = k; }
     void SetDisplaySequence(const ps2r::app::DisplaySequence* seq) { p_.verify_display_sequence = seq; }
