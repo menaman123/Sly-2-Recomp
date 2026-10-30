@@ -84,6 +84,7 @@ void GifShapeCensus::OnArbiterSubmit(void* user, GifPath path, const uint8_t*, s
     auto* self = static_cast<GifShapeCensus*>(user);
     if (path != GifPath::Path1) return;
     const VuCachedProgram* prog = self->vu1_->dispatch().cached().current();
+    std::lock_guard<std::mutex> lock(self->vu1_mtx_);
     self->vu1_fifo_.push_back(prog ? prog->hash : 0);
 }
 
@@ -116,6 +117,7 @@ void GifShapeCensus::OnArbiterDeliver(void* user, const GifArbiterPacket& pkt) {
         self->vu1_current_ = 0;
         return;
     }
+    std::lock_guard<std::mutex> lock(self->vu1_mtx_);
     if (self->vu1_fifo_.empty()) {
         ++self->fifo_underflows_;
         self->vu1_current_ = 0;

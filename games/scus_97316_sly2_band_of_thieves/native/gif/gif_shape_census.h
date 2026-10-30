@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -112,6 +113,7 @@ private:
     std::string path_;
     GifArbiter* arbiter_ = nullptr;
     VuUnit* vu1_ = nullptr;
+    std::mutex vu1_mtx_;          // the submit tap may run on the MTVU worker; the drain tap on the drain owner
     std::deque<uint64_t> vu1_fifo_;
     uint64_t vu1_current_ = 0;
     uint64_t fifo_underflows_ = 0;
