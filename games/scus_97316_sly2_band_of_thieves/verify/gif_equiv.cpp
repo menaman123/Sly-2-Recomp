@@ -23,6 +23,7 @@
 
 #include "engine/gif/gif_parser.h"
 #include "engine/gif/gif_regs.h"
+#include "engine/gif/gif_tag.h"
 #include "engine/gif/hle/gs_sink_fanout.h"
 #include "engine/gif/hle/gs_state_sink.h"
 #include "engine/gs/hle/ir/draw_ir_sink.h"
@@ -81,7 +82,7 @@ struct Side {
 
     explicit Side(bool with_native) {
         gs.SetSink(&rec);
-        if (with_native) native = std::make_unique<ps2r::title::sly2::NativeGif>(nullptr, gs);
+        if (with_native) native = std::make_unique<ps2r::title::sly2::NativeGif>(nullptr, gs, &regs);
     }
     void Feed(const Packet& p) {
         bool lowered = false;
@@ -92,13 +93,27 @@ struct Side {
         if (!lowered) parser.ReceiveData(p.path, p.bytes.data(), p.bytes.size());
         if (p.path == GifPath::Path3) parser.FinishPath3();
     }
+    // The GIF register file's transfer view (GIF_TAG0-3 / CNT / STAT.OPH readback) after the packet.
+    uint64_t TransferHash() const {
+        const GifTransferState& t = regs.Transfer();
+        uint64_t h = Fnv(&t.tag, sizeof t.tag);
+        h = Fnv(&t.loop, sizeof t.loop, h);
+        h = Fnv(&t.reg, sizeof t.reg, h);
+        const uint8_t it = t.in_transfer ? 1 : 0;
+        return Fnv(&it, 1, h);
+    }
 };
 
 int Compare(const std::vector<Packet>& packets, const char* label) {
     Side a(false), b(true);
-    for (const Packet& p : packets) {
-        a.Feed(p);
-        b.Feed(p);
+    size_t xfer_diffs = 0, first_xfer_diff = 0;
+    for (size_t i = 0; i < packets.size(); ++i) {
+        a.Feed(packets[i]);
+        b.Feed(packets[i]);
+        if (a.TransferHash() != b.TransferHash()) {
+            if (xfer_diffs == 0) first_xfer_diff = i;
+            ++xfer_diffs;
+        }
     }
     const auto& ra = a.rec.records;
     const auto& rb = b.rec.records;
@@ -110,11 +125,12 @@ int Compare(const std::vector<Packet>& packets, const char* label) {
             break;
         }
     }
-    const bool same = ra.size() == rb.size() && first_diff == ra.size();
+    const bool same = ra.size() == rb.size() && first_diff == ra.size() && xfer_diffs == 0;
     const auto& c = b.native->counters();
-    std::printf("%s: packets=%zu served=%llu declined=%llu records A=%zu B=%zu %s\n", label, packets.size(),
-                static_cast<unsigned long long>(b.served), static_cast<unsigned long long>(b.declined), ra.size(), rb.size(),
-                same ? "IDENTICAL" : "DIFFER");
+    std::printf("%s: packets=%zu served=%llu declined=%llu records A=%zu B=%zu transfer_view_diffs=%zu %s\n", label,
+                packets.size(), static_cast<unsigned long long>(b.served), static_cast<unsigned long long>(b.declined), ra.size(),
+                rb.size(), xfer_diffs, same ? "IDENTICAL" : "DIFFER");
+    if (xfer_diffs) std::printf("  first transfer-view difference after packet #%zu\n", first_xfer_diff);
     std::printf("  builder: %s\n", b.native->Detail().c_str());
     (void)c;
     if (!same) {
@@ -123,7 +139,7 @@ int Compare(const std::vector<Packet>& packets, const char* label) {
                         first_diff, ra[first_diff].kind, ra[first_diff].seq, ra[first_diff].verts,
                         static_cast<unsigned long long>(ra[first_diff].hash), rb[first_diff].kind, rb[first_diff].seq,
                         rb[first_diff].verts, static_cast<unsigned long long>(rb[first_diff].hash));
-        else
+        else if (ra.size() != rb.size())
             std::printf("  record counts differ after %zu identical records\n", n);
         return 1;
     }
