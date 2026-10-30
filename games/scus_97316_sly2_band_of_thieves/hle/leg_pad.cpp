@@ -103,6 +103,7 @@ LegPad::LegPad(const ps2r::Config& cfg, const std::string& title_dir, const LegK
         }
         nav_probe.Read(pad_stamps);
         pad_script.Apply(pad_stamps, nav_probe, &in);
+        if (agent_overlay) agent_overlay(pad_stamps, &in);
         pad_recorder.Record(pad_stamps, in);
         if (in.buttons || in.lx != 0x80 || in.ly != 0x80 || in.rx != 0x80 || in.ry != 0x80) {
             ++pad_served_active;

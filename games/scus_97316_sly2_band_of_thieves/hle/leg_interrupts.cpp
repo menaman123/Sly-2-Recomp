@@ -106,6 +106,13 @@ LegInterrupts::LegInterrupts(const LegKnobs& knobs, LegCore& core, LegGs& gs, Le
                          ThreadManager::Instance().CurrentTid(), ctx.cpuRegs.GPR.r[4].UL[0], ctx.cpuRegs.GPR.r[31].UL[0],
                          f0.func_addr, f0.ra, f1.func_addr, f2.func_addr);
         }
+        // A savestate load's quiet re-park phase (ThreadRelauncher): the restored waiters re-execute their
+        // wait syscalls to park again; nothing else happened in the saved run at that point, so no wake,
+        // no DMAC observation, no interrupt dispatch here. The boundary thread resumes after the phase.
+        if (EeRunToken::Instance().RelaunchQuiet()) {
+            ++relaunch_quiet_syscalls;
+            return;
+        }
         const bool blocking = SyscallTable::IsBlockingWait(num);
         // A wall field is due and a thread sleeps on the vblank: ready it now. As the higher-priority vsync
         // thread it runs its boundary, so the next frame's VIF1 kick overlaps this thread's logic tick, as the

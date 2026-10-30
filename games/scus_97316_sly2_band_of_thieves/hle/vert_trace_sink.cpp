@@ -53,6 +53,7 @@ void VertTraceSink::OnDrawOwned(ps2r::gs::DrawIr&& d) {
 
 bool VertTraceSink::Observe(const ps2r::gs::DrawIr& d) {
     if (Skipped(d)) return false;
+    if (agent_draw) agent_draw(d);
     const uint32_t rows = static_cast<uint32_t>(d.raster.scissor.y1) + 1u;
     MarkTarget(d.raster.frame.fbp, d.raster.frame.fbw, d.raster.frame.psm, rows);
     if (!d.raster.zbuf.zmsk) MarkTarget(d.raster.zbuf.zbp, d.raster.frame.fbw, d.raster.zbuf.psm, rows);
@@ -91,6 +92,9 @@ void VertTraceSink::OnJob(const ps2r::gs::JobRec& j) {
     if (next) next->OnJob(j);
 }
 
-void VertTraceSink::OnFrame(const ps2r::gs::JobRec& v) { if (next) next->OnFrame(v); }
+void VertTraceSink::OnFrame(const ps2r::gs::JobRec& v) {
+    if (agent_frame && v.arg1 == 1) agent_frame(v.src_frame);
+    if (next) next->OnFrame(v);
+}
 
 }  // namespace ps2r::title::sly2
