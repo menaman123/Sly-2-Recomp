@@ -2,6 +2,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/native/vu0/native_vu0.h"
 
 #include <cstddef>
+#include <string>
 
 #include "engine/vu/tiers/vu_tier_dispatch.h"
 #include "engine/vu/vu_chop_round_guard.h"

@@ -3,7 +3,7 @@
 # vu0_native_gen (built here, links the engine's ps2r_vu for the ONE decoder + the stall / flag
 # pipelines it folds) reads the title ELF's VU0 program image -- the bytes the game uploads to VU0
 # micro memory: vaddr 0x259e00 (.vutext + 0x10, after the VIF header), 0x2a0 bytes = the six
-# VCALLMS entries 0x10 / 0x60 / 0xf0 / 0x120 / 0x150 / 0x1c0 -- and emits one body per straight-line
+# VCALLMS entries 0x0 (the E-bit sync) / 0x10 / 0x60 / 0xf0 / 0x120 / 0x150 / 0x1c0 -- and emits one body per straight-line
 # program into ${PS2R_TITLE_GEN_ROOT}/games/<title>/native/vu0/vu0_programs_gen.cpp (game-derived:
 # never committed; MANIFEST.sha256 here pins it the way recomp/ pins the shards). native_vu0.cpp is
 # the installer + the VuTierDispatch::SetVu0Hook body behind title.native.vu0.
@@ -11,7 +11,7 @@ set(_gen "${PS2R_TITLE_GEN_ROOT}/games/${PS2R_TITLE}/native/vu0")
 file(MAKE_DIRECTORY "${_gen}")
 set(PS2R_SLY2_VU0_IMAGE_VADDR 259e00 CACHE STRING "VU0 program image vaddr in the ELF (hex)")
 set(PS2R_SLY2_VU0_IMAGE_SIZE 2a0 CACHE STRING "VU0 program image size (hex)")
-set(PS2R_SLY2_VU0_ENTRIES "10,60,f0,120,150,1c0" CACHE STRING "VCALLMS entries (hex, comma-separated)")
+set(PS2R_SLY2_VU0_ENTRIES "0,10,60,f0,120,150,1c0" CACHE STRING "VCALLMS entries (hex, comma-separated); 0 = the SDK's two-bundle E-bit sync program the game also calls")
 
 add_executable(ps2r_sly2_vu0_native_gen vu0_native_gen.cpp)
 target_include_directories(ps2r_sly2_vu0_native_gen PRIVATE ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/..)
