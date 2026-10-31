@@ -55,6 +55,10 @@ IMPORT_ARITY = {
     'cdvdman:4': 1, 'cdvdman:6': 4, 'cdvdman:8': 0, 'cdvdman:10': 2, 'cdvdman:11': 1, 'cdvdman:12': 0, 'cdvdman:13': 1,
     'cdvdman:14': 2, 'cdvdman:15': 0, 'cdvdman:37': 1, 'cdvdman:39': 0, 'cdvdman:75': 1,
     'modload:17': 2, 'modload:18': 3,
+    # sysclib (SysclibModule::OrdinalTable): tolower 1, memcpy 3, memmove 3, memset 3, bcopy 3, bzero 2, strcat 2,
+    # strcmp 2, strcpy 2, strlen 1, strncmp 3, strstr 2, strtol 3, wmemcopy 3
+    'sysclib:7': 1, 'sysclib:12': 3, 'sysclib:13': 3, 'sysclib:14': 3, 'sysclib:16': 3, 'sysclib:17': 2, 'sysclib:20': 2,
+    'sysclib:22': 2, 'sysclib:23': 2, 'sysclib:27': 1, 'sysclib:29': 3, 'sysclib:34': 2, 'sysclib:36': 3, 'sysclib:40': 3,
     # libsd (export index): Init 1, SetParam 2, GetParam 1, SetSwitch 2, GetSwitch 1, SetAddr 2, GetAddr 1,
     # SetCoreAttr 2, Note2Pitch 1, ProcBatch 3, VoiceTrans 4, BlockTrans 4, VoiceTransStatus 2, BlockTransStatus 2,
     # SetTransCallback 2, SetEffectAttr 2, GetEffectAttr 2
@@ -80,8 +84,10 @@ def parse(path):
 guest_arity = {}
 
 
-def key(row, opts, ignore_regs, ignore_imports):
-    """The comparable tuple of a row (the body column dropped; ignored columns blanked)."""
+def key(row, opts, ignore_regs, ignore_imports, next_row=None):
+    """The comparable tuple of a row (the body column dropped; ignored columns blanked). `next_row`: the row
+    after this one -- an import of a HOSTED module's export (snd989:93, lgaud:18 ...) is masked by the guest
+    arity of the export it enters (the E row that follows), since the stock table cannot know it."""
     kind = row[0]
     if kind == 'E':
         # E seq mod addr body a0 a1 a2 a3 sp ra t tid depth
@@ -104,7 +110,11 @@ def key(row, opts, ignore_regs, ignore_imports):
         if imp in ignore_imports:
             regs = ['-'] * 4
         elif not opts.all_import_regs:
-            arity = IMPORT_ARITY.get(imp, 4)
+            arity = IMPORT_ARITY.get(imp)
+            if arity is None and next_row is not None and next_row[0] == 'E' and len(next_row) > 3:
+                arity = guest_arity.get(next_row[3].lower())
+            if arity is None:
+                arity = 4
             regs = regs[:arity] + ['-'] * (4 - arity)
         return ('I', imp, regs[0], regs[1], regs[2], regs[3], t if opts.time else '-', depth)
     if kind == 'J':
@@ -193,8 +203,8 @@ def main():
         summary(b, opts.on)
     n = min(len(a), len(b))
     for i in range(n):
-        ka = key(a[i], opts, ignore_regs, ignore_imports)
-        kb = key(b[i], opts, ignore_regs, ignore_imports)
+        ka = key(a[i], opts, ignore_regs, ignore_imports, a[i + 1] if i + 1 < len(a) else None)
+        kb = key(b[i], opts, ignore_regs, ignore_imports, b[i + 1] if i + 1 < len(b) else None)
         if ka == kb:
             continue
         print(f"DIVERGE at row {i} (seq OFF={a[i][1]} ON={b[i][1]})")

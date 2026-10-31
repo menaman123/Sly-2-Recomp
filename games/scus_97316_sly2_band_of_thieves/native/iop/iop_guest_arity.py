@@ -13,6 +13,18 @@ place), or passes it unwritten to a callee that reads it (fixpoint over the dire
 read set is the stock library's arity, unknown imports read all four). Over-approximate on branches (a
 register written on one path and read on another counts as read): the output is conservative -- it never
 hides a real argument. Output: `<addr-hex> <n>` where n = 1 + the highest argument register read (0 = none).
+
+    --exports TRACE             learn which guest function each hosted module's export is (an `I lib:idx` row
+                                immediately followed by the `E mod addr` row it entered: snd989:93 -> 33000 ...)
+                                so an import of another hosted module takes that function's arity instead of
+                                the unknown-import default of four.
+    --exports-map FILE          the same map given statically: `lib:idx=addr-hex` lines (read off the hosted
+                                modules' export tables -- the 0x41c00000 library headers in the IOP RAM image).
+    --variadic ADDR[,ADDR...]   printf-like guest functions (a format + arguments the body only spills and
+                                prints: 989snd's fn_35140 report): their arity is pinned to 1 and they stop the
+                                fixpoint -- otherwise every caller that passes fewer arguments than four (the
+                                deadlock reports in the lock) is pulled to 4 and the compare judges leftovers
+                                that only ever became text. stdio:4 (printf) is treated the same way.
 """
 import re
 import sys
@@ -35,6 +47,9 @@ IMPORT_ARITY = {
     'cdvdman:4': 1, 'cdvdman:6': 4, 'cdvdman:8': 0, 'cdvdman:10': 2, 'cdvdman:11': 1, 'cdvdman:12': 0, 'cdvdman:13': 1,
     'cdvdman:14': 2, 'cdvdman:15': 0, 'cdvdman:37': 1, 'cdvdman:39': 0, 'cdvdman:75': 1,
     'modload:17': 2, 'modload:18': 3,
+    'stdio:4': 1,   # printf: variadic -- the format; the arguments only become text
+    'sysclib:7': 1, 'sysclib:12': 3, 'sysclib:13': 3, 'sysclib:14': 3, 'sysclib:16': 3, 'sysclib:17': 2, 'sysclib:20': 2,
+    'sysclib:22': 2, 'sysclib:23': 2, 'sysclib:27': 1, 'sysclib:29': 3, 'sysclib:34': 2, 'sysclib:36': 3, 'sysclib:40': 3,
     'libsd:4': 1, 'libsd:5': 2, 'libsd:6': 1, 'libsd:7': 2, 'libsd:8': 1, 'libsd:9': 2, 'libsd:10': 1, 'libsd:11': 2,
     'libsd:13': 1, 'libsd:15': 3, 'libsd:17': 4, 'libsd:18': 4, 'libsd:19': 2, 'libsd:20': 2, 'libsd:23': 2,
     'libsd:25': 2, 'libsd:26': 2,
@@ -108,10 +123,18 @@ def analyse(funcs):
                 elif kind == 'w':
                     written.add(v)
                 elif kind == 'c':
-                    for r in reads.get(v, set(ARGS)):
+                    callee_reads = {ARGS[0]} if v in VARIADIC else reads.get(v, set(ARGS))
+                    for r in callee_reads:
                         if r not in written:
                             used.add(r)
                 elif kind == 'i':
+                    if v in EXPORTS:
+                        target = EXPORTS[v]
+                        callee_reads = {ARGS[0]} if target in VARIADIC else reads.get(target, set(ARGS))
+                        for r in callee_reads:
+                            if r not in written:
+                                used.add(r)
+                        continue
                     n = IMPORT_ARITY.get(v, 4)
                     for r in ARGS[:n]:
                         if r not in written:
@@ -122,17 +145,59 @@ def analyse(funcs):
     return reads
 
 
+VARIADIC = set()
+EXPORTS = {}   # 'lib:idx' -> guest address (from --exports)
+
+
+def learn_exports(path):
+    prev = None
+    with open(path, 'r', errors='replace') as f:
+        for line in f:
+            parts = line.split()
+            if not parts:
+                continue
+            if prev is not None and parts[0] == 'E' and len(parts) > 3:
+                EXPORTS.setdefault(prev, int(parts[3], 16))
+            prev = parts[2] if parts[0] == 'I' and len(parts) > 2 else None
+
+
 def main():
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    paths = []
+    while args:
+        a = args.pop(0)
+        if a == '--exports':
+            learn_exports(args.pop(0))
+        elif a == '--exports-map':
+            with open(args.pop(0)) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    k, _, v = line.partition('=')
+                    v = v.strip().lower()
+                    EXPORTS[k.strip()] = int(v[2:] if v.startswith('0x') else v, 16)
+        elif a == '--variadic':
+            for tok in args.pop(0).split(','):
+                tok = tok.strip().lower()
+                if tok.startswith('0x'):
+                    tok = tok[2:]
+                if tok:
+                    VARIADIC.add(int(tok, 16))
+        else:
+            paths.append(a)
+    if not paths:
         print(__doc__, file=sys.stderr)
         return 2
     funcs = {}
-    for path in sys.argv[1:]:
+    for path in paths:
         funcs.update(parse_functions(path))
     reads = analyse(funcs)
-    print('# guest arity (1 + highest a-register read before written; conservative) from', ' '.join(sys.argv[1:]))
+    print('# guest arity (1 + highest a-register read before written; conservative) from', ' '.join(paths),
+          ('variadic=' + ','.join('%x' % a for a in sorted(VARIADIC))) if VARIADIC else '',
+          ('exports=%d' % len(EXPORTS)) if EXPORTS else '')
     for addr in sorted(reads):
-        n = max((r - 3 for r in reads[addr]), default=0)
+        n = 1 if addr in VARIADIC else max((r - 3 for r in reads[addr]), default=0)
         print('%x %d' % (addr, n))
     return 0
 

@@ -488,6 +488,7 @@ void fn_5a8dc(Ctx& c) {
         Call(c, 0x5b810, 0x5a91c);
         Args(c, f.get(0x14));
         const uint32_t idx = Call(c, 0x5b72c, 0x5a928);
+        c.gpr[v0] = ctx + idx * 4;   // the original's leftover (sw zero, 0x38(v0))
         W32(ctx + CtxL::kHandles + idx * 4, 0);
     }
     const uint32_t sema = f.get(0x10);
@@ -635,6 +636,7 @@ void fn_5aca0(Ctx& c) {
         }
         ++i;
     }
+    c.gpr[v0] = 0;   // the original's leftover (slti v0, s3, 3 at the loop's end)
 }
 
 // fn_5ad80(ctx, slot, volume, flags): open the slot's single VAGp voice on the Logitech headset
@@ -1036,6 +1038,7 @@ void fn_5b658(Ctx& c) {   // (slot): stop, wait idle, delete the thread, the loc
     Args(c, R32(slot + Slot::kSema));
     Import(c, "thsemap", 5);
     const uint32_t ring = R32(slot + Slot::kRing);
+    c.gpr[v0] = minus1;   // the original's leftover when there is nothing to free
     W32(slot + Slot::kSema, minus1);
     W32(slot + Slot::kThread, minus1);
     if (ring) {
@@ -1109,21 +1112,25 @@ void PerVoiceOp(Ctx& c) {
     f.save(0x1c, ra);
     f.save(0x14, s1);
     f.save(0x10, s0);
+    c.gpr[v0] = 3;   // the leftovers below are the original's at each exit
     if (R32(slot + Slot::kState) != 3) return;
     if (R32(slot + Slot::kHeadset) != 0) {
         const uint32_t hs = R32(slot + Slot::kHeadsetStream);
+        c.gpr[v0] = static_cast<uint32_t>(-1);
         if (hs == static_cast<uint32_t>(-1)) return;
         Args(c, hs);
         Import(c, "lgaud", kLgaud);
         return;
     }
     const int32_t n = R32s(slot + Slot::kVoiceCount);
+    c.gpr[v0] = static_cast<uint32_t>(n);
     for (int32_t i = 0; i < n; ++i) {
         const uint32_t h = R32(Slot::Voice(slot, static_cast<uint32_t>(i)));
         if (h) {
             Args(c, h);
             Import(c, "snd989", kSnd);
         }
+        c.gpr[v0] = (i + 1 < R32s(slot + Slot::kVoiceCount)) ? 1u : 0u;
     }
 }
 void fn_5b834(Ctx& c) { PerVoiceOp<14, 27>(c); }
@@ -1142,11 +1149,14 @@ void fn_5b9a4(Ctx& c) {
     f.save(0x28, s4);
     f.save(0x20, s2);
     f.save(0x18, s0);
-    if (R32(slot + Slot::kState) != 3) return;
+    const uint32_t state = R32(slot + Slot::kState);
+    c.gpr[v0] = state;   // the leftovers below are the original's at each exit
+    if (state != 3) return;
     if (flags & 1) W32(slot + Slot::kVolume, c.gpr[a2]);
     if (flags & 4) W32(slot + Slot::kPan, c.gpr[a3]);
     if (R32(slot + Slot::kHeadset) != 0) {
         const uint32_t hs = R32(slot + Slot::kHeadsetStream);
+        c.gpr[v0] = static_cast<uint32_t>(-1);
         if (hs == static_cast<uint32_t>(-1) || !(flags & 1)) return;
         const int32_t level = static_cast<int32_t>(static_cast<uint32_t>(R32(slot + Slot::kVolume)) * 80u) / 1024;
         Args(c, hs, 0, static_cast<uint32_t>(level) & 0xff);
@@ -1154,18 +1164,21 @@ void fn_5b9a4(Ctx& c) {
         return;
     }
     const int32_t n = R32s(slot + Slot::kVoiceCount);
+    c.gpr[v0] = static_cast<uint32_t>(n);
     if (n <= 0) return;
     const int32_t x5 = static_cast<int16_t>(f.get(0x40));
     for (int32_t i = 0; i < n; ++i) {
         const uint32_t voice = Slot::Voice(slot, static_cast<uint32_t>(i));
         const uint32_t h = R32(voice + Voice::kHandle);
-        if (h == 0) continue;
-        const int32_t vol = MulDiv1024(R32s(voice + Voice::kVolume), R32s(slot + Slot::kVolume));
-        const int32_t pan = Mod360Positive(R32s(voice + Voice::kPan) + R32s(slot + Slot::kPan));
-        Args(c, h, flags, static_cast<uint32_t>(vol), static_cast<uint32_t>(pan));
-        f.put(0x10, static_cast<uint32_t>(x5));
-        f.put(0x14, 0);
-        Import(c, "snd989", 126);
+        if (h != 0) {
+            const int32_t vol = MulDiv1024(R32s(voice + Voice::kVolume), R32s(slot + Slot::kVolume));
+            const int32_t pan = Mod360Positive(R32s(voice + Voice::kPan) + R32s(slot + Slot::kPan));
+            Args(c, h, flags, static_cast<uint32_t>(vol), static_cast<uint32_t>(pan));
+            f.put(0x10, static_cast<uint32_t>(x5));
+            f.put(0x14, 0);
+            Import(c, "snd989", 126);
+        }
+        c.gpr[v0] = (i + 1 < R32s(slot + Slot::kVoiceCount)) ? 1u : 0u;
     }
 }
 
@@ -1184,18 +1197,25 @@ void fn_5bb38(Ctx& c) {
     f.save(0x28, ra);
     f.save(0x14, s1);
     f.save(0x10, s0);
-    if (R32(slot + Slot::kState) != 3 || R32(slot + Slot::kHeadset) != 0) return;
+    c.gpr[v0] = 3;   // the leftovers below are the original's at each exit
+    if (R32(slot + Slot::kState) != 3) return;
+    const uint32_t headset = R32(slot + Slot::kHeadset);
+    c.gpr[v0] = headset;
+    if (headset != 0) return;
     const int32_t n = R32s(slot + Slot::kVoiceCount);
+    c.gpr[v0] = static_cast<uint32_t>(n);
     for (int32_t i = 0; i < n; ++i) {
         const uint32_t voice = Slot::Voice(slot, static_cast<uint32_t>(i));
         const uint32_t h = R32(voice + Voice::kHandle);
-        if (h == 0 || R32(voice + Voice::kId) != id) continue;
-        W32(voice + Voice::kVolume, vol);
-        W32(voice + Voice::kPan, pan);
-        const int32_t evol = MulDiv1024(static_cast<int32_t>(vol), R32s(slot + Slot::kVolume));
-        const int32_t epan = Mod360Positive(static_cast<int32_t>(pan) + R32s(slot + Slot::kPan));
-        Args(c, h, static_cast<uint32_t>(evol), static_cast<uint32_t>(epan));
-        Import(c, "snd989", 32);
+        if (h != 0 && R32(voice + Voice::kId) == id) {
+            W32(voice + Voice::kVolume, vol);
+            W32(voice + Voice::kPan, pan);
+            const int32_t evol = MulDiv1024(static_cast<int32_t>(vol), R32s(slot + Slot::kVolume));
+            const int32_t epan = Mod360Positive(static_cast<int32_t>(pan) + R32s(slot + Slot::kPan));
+            Args(c, h, static_cast<uint32_t>(evol), static_cast<uint32_t>(epan));
+            Import(c, "snd989", 32);
+        }
+        c.gpr[v0] = (i + 1 < R32s(slot + Slot::kVoiceCount)) ? 1u : 0u;
     }
 }
 
@@ -1210,7 +1230,9 @@ void fn_5bca8(Ctx& c) {   // (slot, int16* read, int16* write): the ring cursors
     const uint32_t slot = c.gpr[a0];
     const int32_t ring = R32s(slot + Slot::kRing);
     W16(c.gpr[a1], static_cast<uint16_t>((R32s(Slot::Voice(slot, 0) + Voice::kDescReadCursor) - ring) / 16));
-    W16(c.gpr[a2], static_cast<uint16_t>((R32s(slot + Slot::kWriteCursor) - ring) / 16));
+    const int32_t w = (R32s(slot + Slot::kWriteCursor) - ring) / 16;
+    c.gpr[v0] = static_cast<uint32_t>(w);   // the original's leftover
+    W16(c.gpr[a2], static_cast<uint16_t>(w));
 }
 
 void fn_5bcf4(Ctx& c) {   // (slot, i) -> voice i's 989snd descriptor, or 0 (leaf)
@@ -1365,8 +1387,15 @@ void fn_5bff8(Ctx& c) {
     if (static_cast<int32_t>(sema) >= 0) WaitSema(c, sema);
     const int32_t cur = R32s(slot + Slot::kState);
     bool refuse = next == cur;
-    if (!refuse && next < cur && next != -1) refuse = true;
-    if (!refuse && cur == -1 && next == 4) refuse = true;
+    c.gpr[v0] = static_cast<uint32_t>(cur);   // the original's leftovers at each decision
+    if (!refuse && next < cur) {
+        c.gpr[v0] = minus1;
+        if (next != -1) refuse = true;
+    }
+    if (!refuse && (next >= cur || next == -1) && !(next == cur)) {
+        c.gpr[v0] = 4;
+        if (cur == -1 && next == 4) refuse = true;
+    }
     if (!refuse) W32(slot + Slot::kState, static_cast<uint32_t>(next));
     SignalIfValid(c, f.get(0x10));
 }
@@ -1565,17 +1594,22 @@ void fn_5c6f0(Ctx& c) {   // (slot): close the voices (snd989:29) or forget the 
     f.save(0x10, s0);
     if (R32(slot + Slot::kHeadset) != 0) {
         const uint32_t minus1 = static_cast<uint32_t>(-1);
-        if (R32(slot + Slot::kHeadsetStream) != minus1) W32(slot + Slot::kHeadsetStream, minus1);
+        const uint32_t hs = R32(slot + Slot::kHeadsetStream);
+        c.gpr[v0] = hs;   // the original's leftover
+        if (hs != minus1) W32(slot + Slot::kHeadsetStream, minus1);
         return;
     }
     const int32_t n = R32s(slot + Slot::kVoiceCount);
+    c.gpr[v0] = static_cast<uint32_t>(n);
     for (int32_t i = 0; i < n; ++i) {
         const uint32_t voice = Slot::Voice(slot, static_cast<uint32_t>(i));
         const uint32_t h = R32(voice);
-        if (h == 0) continue;
-        Args(c, h);
-        Import(c, "snd989", 29);
-        W32(voice, 0);
+        if (h != 0) {
+            Args(c, h);
+            Import(c, "snd989", 29);
+            W32(voice, 0);
+        }
+        c.gpr[v0] = (i + 1 < R32s(slot + Slot::kVoiceCount)) ? 1u : 0u;
     }
 }
 
