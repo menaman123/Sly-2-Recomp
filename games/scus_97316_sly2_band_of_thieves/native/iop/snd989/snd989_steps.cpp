@@ -1,19 +1,19 @@
 // snd989_steps.cpp -- 989snd_Library's threads in the STEP form (NativeIopModule::AddThread; iop_step.h): each is the
 // coroutine body of snd989_threads.cpp with its top-level blocking import returned as the park and the body re-entered
 // after it:
-//   * the 'SND ' RPC server fn_349e4: the frame (0x88; the sifcmd queue / server records at sp+0x20 / sp+0x38 -- the EE
-//     holds the server record's address, so the frame is allocated once and never moves), the registration, then
-//     sceSifRpcLoop = StepPark::RpcLoopEnter + Park::Sleep; every wake drains the RPC queue (RpcDrain) and sleeps;
 //   * the tick thread fn_3a8d8: SleepThread = Park::Sleep; on the wake fn_4325c + the tick-done signal;
 //   * the SPU transfer thread fn_49854 (one park: the transfer semaphore), the refill thread fn_49428 (two parks on the
 //     refill-waiter semaphore), the stream reader fn_46520 (one park: the stream semaphore).
 //   * the CD stream thread fn_47fec (two parks: the CD-read semaphore at the top of a pass, the EE-DMA completion wait).
-// NOT in step form (the coroutine body stays): the 0x123457 RPC server fn_34ba0 -- its fno 3 handler (the bank load) blocks
-// INSIDE the handler on the boot lane (fn_3c308's reply-semaphore wait, fn_46d8c's SleepThread, fn_3d118's wait), which a
-// step body cannot return (iopsys's lock / wait pre-acquisition protocol is the design for it).
-// On the boot.pad and Paris hub lanes every other blocking import of the module is at the top level of these six bodies
-// (OFF traces: the nested WaitSema's of fn_47a88 / fn_42f58 / fn_4c1ac always take the count inline); a nested block
-// from a step thread is reported by the kernel ("iop: blocking kernel call from step thread") = the fail-loud oracle.
+// NOT in step form (the coroutine bodies stay): the two RPC servers. fn_34ba0 (0x123457): its fno 3 handler (the bank
+// load) blocks INSIDE the handler (fn_3c308's reply-semaphore wait, fn_46d8c's SleepThread, fn_3d118's wait: boot.pad +
+// the loader route). fn_349e4 ('SND '): its stop-all handler (fn_3384c -> fn_41c9c) DelayThread-loops inside the handler
+// while sounds drain (the loader route: found when the step form spun 10.8M times on the kernel's "blocking kernel call
+// from step thread" report). A step body cannot return a park taken inside a callee; iopsys's lock / wait pre-acquisition
+// protocol is the design for it. RpcServerBody below is the ready step form for fn_349e4, not registered.
+// On the boot.pad, Paris hub and loader-route lanes every other blocking import of the module is at the top level of the
+// five registered bodies (per-thread analysis of the OFF traces; the nested WaitSema's of fn_47a88 / fn_42f58 / fn_4c1ac
+// always take the count inline); a nested block from a step thread is reported by the kernel = the fail-loud oracle.
 #include <cstdio>
 #include <memory>
 
@@ -809,7 +809,9 @@ iop::IopKernel::StepBody Make(const IopContext& initial) {
 }  // namespace
 
 void RegisterSnd989Threads(NativeIopModule& m) {
-    m.AddThread(0x349e4, &Make<&RpcServerBody>, "snd989_rpc_server");
+    // fn_349e4: NOT registered -- see the header (its stop-all handler fn_41c9c delays inside the handler on the loader
+    // route). The body stays here as the step form to use once nested parks are possible.
+    (void)&Make<&RpcServerBody>;
     m.AddThread(0x3a8d8, &Make<&TickBody>, "snd989_tick");
     m.AddThread(0x49854, &Make<&TransferBody>, "snd989_transfer");
     m.AddThread(0x49428, &Make<&RefillBody>, "snd989_refill");
