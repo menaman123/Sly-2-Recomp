@@ -119,6 +119,7 @@ void LegVerifySlot::EndLegFromBoundary(const char* detail) {
             std::fwrite(core_.ram.Data(), 1, core_.ram.Size(), f);
             std::fclose(f);
         }
+        if (extra_ram_dump_) extra_ram_dump_(*knobs_.ram_dump + ".iop");
     }
     park_.closer.Close("none", 0, ThreadManager::Instance().CurrentTid(), detail);
     std::fflush(stdout);

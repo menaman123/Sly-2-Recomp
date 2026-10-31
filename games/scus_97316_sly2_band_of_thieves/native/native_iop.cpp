@@ -18,14 +18,14 @@ std::unique_ptr<NativeIop> NativeIop::Install(const NativeKnobs& knobs, Deps dep
 NativeIop::NativeIop(const NativeKnobs& knobs, Deps deps) : d_(std::move(deps)), direct_spu_(knobs.spu) {
     iop::hle::LibsdModule& libsd = *d_.libsd;
     // The native servers' own ops report to the tap already installed (the census trace), like the module's.
+    // The face: the module's own libsd entry (tap included), or SpuCore directly with the tap fed here.
+    if (direct_spu_) face_ = std::make_unique<Snd989Server::SpuCoreFace>(*d_.spu, d_.iop_ram, libsd.GetOpTracer());
+    else face_ = std::make_unique<Snd989Server::LibsdFace>(libsd, d_.iop_ram);
     Snd989Server::Deps sd;
-    sd.spu = d_.spu;
-    sd.libsd = &libsd;
+    sd.face = face_.get();
     sd.ee_ram = d_.ee_ram;
     sd.iop_ram = d_.iop_ram;
     sd.drain_kernel = d_.drain_kernel;
-    sd.direct_spu = direct_spu_;
-    sd.op_tracer = libsd.GetOpTracer();
     command_ = std::make_unique<Snd989Server>(snd989::kSidCommand, sd);
     bank_ = std::make_unique<Snd989Server>(snd989::kSidBank, sd);
     command_->SetAfterCall([this] { UpdateCensusDetail(); });
@@ -46,12 +46,10 @@ NativeIop::NativeIop(const NativeKnobs& knobs, Deps deps) : d_(std::move(deps)),
         if (!s) return;
         // Re-point the fallback (a restore replaces the hosted server object) and the router row.
         Snd989Server::Deps nd;
-        nd.spu = d_.spu;
-        nd.libsd = d_.libsd;
+        nd.face = face_.get();
         nd.ee_ram = d_.ee_ram;
         nd.iop_ram = d_.iop_ram;
         nd.drain_kernel = d_.drain_kernel;
-        nd.direct_spu = direct_spu_;
         nd.fallback = &hosted;
         s->Rebind(nd);
         d_.router->RegisterServer(sid, *s, sid == snd989::kSidCommand ? "native:989snd" : "native:989snd-bank");

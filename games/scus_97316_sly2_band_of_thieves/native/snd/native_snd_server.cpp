@@ -14,6 +14,7 @@ constexpr int kOrdGetAddr = 6, kOrdVoiceTrans = 9, kOrdVoiceTransStatus = 11;   
 // frame just under the module's own completion-handler stack (LibsdModule::kScratchStack).
 constexpr uint32_t kScratchSp = iop::hle::LibsdModule::kScratchStack - 0x40;
 using snd989::Image;
+using OpEvent = iop::hle::LibsdModule::OpEvent;
 }  // namespace
 
 Snd989Server::Snd989Server(uint32_t sid, Deps deps) : sid_(sid), d_(std::move(deps)) {}
@@ -53,69 +54,68 @@ bool Snd989Server::IopWrite32(uint32_t addr, uint32_t v) {
     return true;
 }
 
-// --- the libsd face -----------------------------------------------------------------------------
-uint32_t Snd989Server::SdGetAddr(uint32_t entry) {
-    if (!d_.direct_spu && d_.libsd) {
-        iop::IopContext ctx;
-        ctx.gpr[4] = entry;
-        ctx.gpr[29] = kScratchSp;
-        d_.libsd->Call(kOrdGetAddr, ctx);
-        return ctx.gpr[2];
-    }
-    const uint32_t v0 = d_.spu ? d_.spu->GetAddr(entry) : 0;
-    if (d_.op_tracer) {
+// --- the production faces --------------------------------------------------------------------------
+uint32_t Snd989Server::LibsdFace::GetAddr(uint32_t entry) {
+    iop::IopContext ctx;
+    ctx.gpr[4] = entry;
+    ctx.gpr[29] = kScratchSp;
+    libsd_.Call(kOrdGetAddr, ctx);
+    return ctx.gpr[2];
+}
+uint32_t Snd989Server::LibsdFace::VoiceTrans(uint32_t chan, uint32_t mode, uint32_t iop_addr, uint32_t spu_addr, uint32_t size) {
+    uint8_t* p = iop_ram_ ? iop_ram_(kScratchSp + 0x10, 4) : nullptr;
+    if (!p) return 0;
+    snd989::WriteWord(p, 0, size);
+    iop::IopContext ctx;
+    ctx.gpr[4] = chan;
+    ctx.gpr[5] = mode;
+    ctx.gpr[6] = iop_addr;
+    ctx.gpr[7] = spu_addr;
+    ctx.gpr[29] = kScratchSp;
+    libsd_.Call(kOrdVoiceTrans, ctx);
+    return ctx.gpr[2];
+}
+uint32_t Snd989Server::LibsdFace::VoiceTransStatus(uint32_t chan, uint32_t flag) {
+    iop::IopContext ctx;
+    ctx.gpr[4] = chan;
+    ctx.gpr[5] = flag;
+    ctx.gpr[29] = kScratchSp;
+    libsd_.Call(kOrdVoiceTransStatus, ctx);
+    return ctx.gpr[2];
+}
+
+uint32_t Snd989Server::SpuCoreFace::GetAddr(uint32_t entry) {
+    const uint32_t v0 = spu_.GetAddr(entry);
+    if (tap_) {
         OpEvent ev;
         ev.ordinal = kOrdGetAddr;
         ev.a0 = entry;
         ev.v0 = v0;
-        d_.op_tracer(ev);
+        tap_(ev);
     }
     return v0;
 }
-
-uint32_t Snd989Server::SdVoiceTrans(uint32_t chan, uint32_t mode, uint32_t iop_addr, uint32_t spu_addr, uint32_t size) {
-    if (!d_.direct_spu && d_.libsd) {
-        if (!IopWrite32(kScratchSp + 0x10, size)) return 0;
-        iop::IopContext ctx;
-        ctx.gpr[4] = chan;
-        ctx.gpr[5] = mode;
-        ctx.gpr[6] = iop_addr;
-        ctx.gpr[7] = spu_addr;
-        ctx.gpr[29] = kScratchSp;
-        d_.libsd->Call(kOrdVoiceTrans, ctx);
-        return ctx.gpr[2];
-    }
+uint32_t Snd989Server::SpuCoreFace::VoiceTrans(uint32_t chan, uint32_t mode, uint32_t iop_addr, uint32_t spu_addr, uint32_t size) {
     // The direct face: the bytes move now; the module's completion handler for this channel is what the
     // open programmed (the movie open clears it), so no deferred completion is modelled here.
     uint32_t moved = 0;
-    if (d_.spu) {
-        uint8_t* host = d_.iop_ram ? d_.iop_ram(iop_addr, size) : nullptr;
-        if (host) moved = d_.spu->VoiceTrans(static_cast<int>(chan & 1), mode, host, spu_addr, size);
-    }
-    if (d_.op_tracer) {
+    uint8_t* host = iop_ram_ ? iop_ram_(iop_addr, size) : nullptr;
+    if (host) moved = spu_.VoiceTrans(static_cast<int>(chan & 1), mode, host, spu_addr, size);
+    if (tap_) {
         OpEvent ev;
         ev.ordinal = kOrdVoiceTrans;
         ev.a0 = chan; ev.a1 = mode; ev.a2 = iop_addr; ev.a3 = spu_addr; ev.extra = size; ev.v0 = moved;
-        d_.op_tracer(ev);
+        tap_(ev);
     }
     return moved;
 }
-
-uint32_t Snd989Server::SdVoiceTransStatus(uint32_t chan, uint32_t flag) {
-    if (!d_.direct_spu && d_.libsd) {
-        iop::IopContext ctx;
-        ctx.gpr[4] = chan;
-        ctx.gpr[5] = flag;
-        ctx.gpr[29] = kScratchSp;
-        d_.libsd->Call(kOrdVoiceTransStatus, ctx);
-        return ctx.gpr[2];
-    }
-    const uint32_t v0 = d_.spu ? static_cast<uint32_t>(d_.spu->VoiceTransStatus(static_cast<int>(chan & 1), static_cast<int>(flag))) : 0;
-    if (d_.op_tracer) {
+uint32_t Snd989Server::SpuCoreFace::VoiceTransStatus(uint32_t chan, uint32_t flag) {
+    const uint32_t v0 = static_cast<uint32_t>(spu_.VoiceTransStatus(static_cast<int>(chan & 1), static_cast<int>(flag)));
+    if (tap_) {
         OpEvent ev;
         ev.ordinal = kOrdVoiceTransStatus;
         ev.a0 = chan; ev.a1 = flag; ev.v0 = v0;
-        d_.op_tracer(ev);
+        tap_(ev);
     }
     return v0;
 }
@@ -180,8 +180,8 @@ bool Snd989Server::BodyMoviePush(const uint8_t* body, uint32_t size, bool dry) {
     const uint32_t spu_base = Iop32(Image::kMovieSpuBase, ok);
     if (!ok || iop_buf == 0 || chan < 0 || chan > 1) return false;   // no movie open: the module answers
     if (dry) return true;
-    SdVoiceTrans(static_cast<uint32_t>(chan), 0, iop_buf, spu_base + offset, bytes);
-    SdVoiceTransStatus(static_cast<uint32_t>(chan), 1);
+    d_.face->VoiceTrans(static_cast<uint32_t>(chan), 0, iop_buf, spu_base + offset, bytes);
+    d_.face->VoiceTransStatus(static_cast<uint32_t>(chan), 1);
     return true;
 }
 
@@ -193,7 +193,7 @@ bool Snd989Server::BodyMovieReadPos(uint32_t& result, bool dry) {
     if (!ok || voice < 0 || voice >= 48) return false;   // no movie voice: the module's own arithmetic answers
     if (dry) return true;
     const uint32_t entry = (Image::VoiceEntryLow(voice) | snd989::kVaNax) & 0xFFFFu;
-    result = SdGetAddr(entry) - spu_base;
+    result = d_.face->GetAddr(entry) - spu_base;
     return true;
 }
 
@@ -300,7 +300,7 @@ void Snd989Server::Forward(const RpcRouter::CallRequest& req) {
 }
 
 void Snd989Server::Call(const RpcRouter::CallRequest& req) {
-    if (sid_ != snd989::kSidCommand || !d_.iop_ram || !d_.ee_ram) { Forward(req); return; }
+    if (sid_ != snd989::kSidCommand || !d_.iop_ram || !d_.ee_ram || !d_.face) { Forward(req); return; }
     const bool candidate = req.func == snd989::kBatch || IsNativeFno(req.func);
     // A reply shape other than the protocol's is not ours to fake.
     if (!candidate || req.recv_size != snd989::kReplyBytes || req.recv == 0) { Forward(req); return; }

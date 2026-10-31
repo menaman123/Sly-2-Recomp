@@ -58,6 +58,7 @@ private:
     NativeIop(const NativeKnobs& knobs, Deps deps);
     Deps d_;
     bool direct_spu_ = false;
+    std::unique_ptr<SdFace> face_;
     std::unique_ptr<Snd989Server> command_, bank_;
 };
 

@@ -34,7 +34,8 @@ struct Image {
     static constexpr uint32_t kHandlerTable = kData + 0x648;   // 107 words: fno -> shim address
     static constexpr uint32_t kHandlerCount = 107;
 
-    // --- fno 10: snd_GetSystemParam(n) = g[kParamTable + n*4] (fn_4e220) ---------------------------
+    // --- fno 10: snd_GetGroupVolume(group) = g[kParamTable + group*4] (fn_4e220); fno 9 (fn_4e100) writes
+    //     the same table (level clamped to 0x400; the fade engine's targets live at kData + 0x2498) --------
     static constexpr uint32_t kParamTable = kData + 0x2418;
 
     // --- the movie sound (fnos 59 open / 62 start / 60 stop / 61 close / 90 push / 91 read position) --

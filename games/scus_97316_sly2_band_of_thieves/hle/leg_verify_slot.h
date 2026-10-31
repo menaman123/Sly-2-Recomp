@@ -11,6 +11,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -47,6 +48,9 @@ public:
 
     // True if harness.inject_key named an unknown key; RunLeg then exits with 2.
     bool Failed() const { return failed_; }
+    // A second image written beside NATIVEEE_RAM_DUMP at the frames cap (path = the dump's + ".iop": the IOP's RAM, the
+    // native sound driver's replay test reads the hosted module's state from it). Null = none.
+    void SetExtraRamDump(std::function<void(const std::string& path)> f) { extra_ram_dump_ = std::move(f); }
     void JoinLadder();
 
     struct HarnessKeyPress { int scancode; uint64_t frame, until; bool pressed = false, released = false; std::string name; };
@@ -89,6 +93,7 @@ private:
     LegCensus& census_;
     TextWatch& text_watch_;
     bool failed_ = false;
+    std::function<void(const std::string& path)> extra_ram_dump_;
     bool tex_dump_done_ = false;
 };
 

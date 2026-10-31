@@ -38,8 +38,8 @@ constexpr uint32_t kFnoCount = 107;
 // ordinal table; a name here is a claim about what the shim DOES, evidenced in the census file).
 enum Fno : uint32_t {
     kStartSoundSystem = 0,     // (ee_sync_word_addr, mode) -> SdInit + master/effect/external volumes
-    kBatchVolume = 9,          // batched: (group|flags, level) volume / fade records
-    kQuery10 = 10,             // (n) -> 0x400
+    kBatchVolume = 9,          // batched: snd_SetGroupVolume(group | flags, level): g[0x52418 + group*4] = min(level, 0x400) (+ fades)
+    kQuery10 = 10,             // snd_GetGroupVolume(group) -> g[0x52418 + group*4] (0x400 = full)
     kSilenceAllVoices = 24,    // () -> VOLL/VOLR = 0 on all 48 voices
     kBankSoundQuery = 26,      // (bank_handle, index) -> 0/1 per sound (no libsd op)
     kQuery54 = 54,             // (1) -> 1

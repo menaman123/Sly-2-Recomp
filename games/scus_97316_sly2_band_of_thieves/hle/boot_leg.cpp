@@ -200,6 +200,14 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegParkSink park_sink(host, census, park, play, disc, iop);
     LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);
     if (verify.Failed()) return 2;
+    // NATIVEEE_RAM_DUMP's companion: the IOP's 2 MiB (the hosted 989snd's state for native/snd's replay test).
+    verify.SetExtraRamDump([&iop](const std::string& path) {
+        if (std::FILE* f = std::fopen(path.c_str(), "wb")) {
+            const uint8_t* p = iop.iop_host.Memory().Pointer(0, ps2r::iop::IopMemory::kSize);
+            if (p) std::fwrite(p, 1, ps2r::iop::IopMemory::kSize, f);
+            std::fclose(f);
+        }
+    });
     // The agent control plane (NATIVEEE_AGENT_SOCKET): after the Verify slot so it owns the completed-boundary
     // consumer in headless runs; its state.load is a live restore supervised below.
     LegAgent agent(cfg, host, title, knobs, core, gs, mtvu, services, audio, saves, pad, park, verify, g_build_id);
