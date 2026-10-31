@@ -227,6 +227,30 @@ void fn_3a250(IopContext&);   // snd_Init(flags)
 void fn_3a48c(IopContext&);   // tick_Init()
 void fn_3aa9c(IopContext&);   // load_Init()
 
+// snd989_loader.cpp -- the loader-route closure (bank unload, stream stop / pause / resume, the queue unlinks).
+void fn_334c4(IopContext&);   // fno1_BankUnload
+void fn_337e0(IopContext&);   // fno7_Stop
+void fn_37870(IopContext&);   // seq_Restart
+void fn_379cc(IopContext&);   // seq_MarkerIndex
+void fn_3c77c(IopContext&);   // bank_Unload
+void fn_3c8c8(IopContext&);   // bank_UnloadLegacy
+void fn_3c958(IopContext&);   // bank_IsLegacyListed
+void fn_3d514(IopContext&);   // bank_RemoveLegacy
+void fn_3fa2c(IopContext&);   // handle_Stop
+void fn_402a4(IopContext&);   // handle_Resume
+void fn_40344(IopContext&);   // bank_StopHandles
+void fn_41f90(IopContext&);   // def_ForEachHandle
+void fn_450c4(IopContext&);   // stream_Resume
+void fn_453fc(IopContext&);   // stream_StopSilent
+void fn_45470(IopContext&);   // stream_IsRefilling
+void fn_454cc(IopContext&);   // stream_IsUploading
+void fn_4555c(IopContext&);   // stream_Stop
+void fn_4ab38(IopContext&);   // startq_Unlink
+void fn_4abe4(IopContext&);   // refillq_Unlink
+void fn_4ad9c(IopContext&);   // chain_Clear
+void fn_4be14(IopContext&);   // pitch_Ratio
+void fn_4d438(IopContext&);   // voice_MaskKeyOffNotify
+
 // snd989_bank.cpp -- the boot-time path, part 3 (the stream system init, the bank load, the movie start).
 void fn_3be20(IopContext&);   // bank_Load
 void fn_3c308(IopContext&);   // load_ReadCd
