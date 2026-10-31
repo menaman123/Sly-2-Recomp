@@ -49,11 +49,19 @@ add_library(ps2r_title_native STATIC
     iop/native_fileio.cpp
     # snd989 track: the 989snd_Library bodies over the module's RAM (native/iop/snd989/; no generated header needed).
     iop/snd989/snd989_native.cpp
+    iop/snd989/snd989_control.cpp
     iop/snd989/snd989_misc.cpp
+    iop/snd989/snd989_param.cpp
+    iop/snd989/snd989_play.cpp
+    iop/snd989/snd989_refill.cpp
     iop/snd989/snd989_rpc.cpp
     iop/snd989/snd989_seq.cpp
+    iop/snd989/snd989_seqev.cpp
     iop/snd989/snd989_stream.cpp
+    iop/snd989/snd989_stream2.cpp
+    iop/snd989/snd989_threads.cpp
     iop/snd989/snd989_tick.cpp
+    iop/snd989/snd989_voice.cpp
     iop/snd989/snd989_volume.cpp
     iop/native_fileio_threads.cpp
 )

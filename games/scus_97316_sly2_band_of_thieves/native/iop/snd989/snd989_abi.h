@@ -124,8 +124,36 @@ inline uint32_t SdVoiceTransStatus(IopContext& c, uint32_t chan, uint32_t flag) 
 inline uint32_t SceCdReadIOPm(IopContext& c) { return Import(c, "cdvdman", 39); }
 }  // namespace imp
 
-// 989snd's two-word (per core) voice masks: voice v (0..47) is core v / 24, bit v % 24.
+// 989snd's two-word (per core) voice masks: voice v (0..47) is core v / 24, bit v % 24; the libsd entry word of
+// voice v is core | bit << 1 (| the parameter in bits 8..15).
 inline int VoiceCore(int v) { return v / 24; }
 inline int VoiceBit(int v) { return v - VoiceCore(v) * 24; }
+inline uint32_t VoiceEntry(int v) { return static_cast<uint32_t>(VoiceCore(v)) | (static_cast<uint32_t>(VoiceBit(v)) << 1); }
+
+// The compiled arithmetic, bit-exact: 32-bit wrapping products (mult/mflo), the high word (mfhi), and the
+// compiler's division by a constant (mult by the magic, mfhi [+ the dividend], sra, minus the sign bit).
+inline int32_t S32(uint32_t v) { return static_cast<int32_t>(v); }
+inline uint32_t U32(int32_t v) { return static_cast<uint32_t>(v); }
+inline int32_t MulLo(int32_t a, int32_t b) { return S32(U32(a) * U32(b)); }
+inline int32_t MulHi(int32_t a, int32_t b) {
+    return S32(static_cast<uint32_t>(static_cast<uint64_t>(static_cast<int64_t>(a) * static_cast<int64_t>(b)) >> 32));
+}
+inline uint32_t MulHiU(uint32_t a, uint32_t b) { return static_cast<uint32_t>((static_cast<uint64_t>(a) * b) >> 32); }
+inline int32_t DivMagic(int32_t v, uint32_t magic, int shift) { return (MulHi(v, S32(magic)) >> shift) - (v >> 31); }
+inline int32_t DivMagicAdd(int32_t v, uint32_t magic, int shift) {
+    return (S32(U32(MulHi(v, S32(magic))) + U32(v)) >> shift) - (v >> 31);
+}
+inline int32_t Div24(int32_t v) { return DivMagic(v, 0x2aaaaaabu, 2); }
+inline int32_t Div127(int32_t v) { return DivMagicAdd(v, 0x81020409u, 6); }
+inline int32_t Div16383(int32_t v) { return DivMagicAdd(v, 0x80020009u, 13); }
+inline int32_t Div32767(int32_t v) { return DivMagicAdd(v, 0x80010003u, 14); }
+inline int32_t Div180(int32_t v) { return DivMagicAdd(v, 0xb60b60b7u, 7); }
+// MIPS div (lo): a divisor of 0 leaves the quotient as the generated code does (the caller mirrors the `break`);
+// INT_MIN / -1 wraps.
+inline int32_t MipsDiv(int32_t a, int32_t b, int32_t stale = 0) {
+    if (b == 0) return stale;
+    if (b == -1) return S32(0u - U32(a));
+    return a / b;
+}
 
 }  // namespace ps2r::title::sly2::snd989
