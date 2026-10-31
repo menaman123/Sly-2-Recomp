@@ -153,6 +153,22 @@ void fn_4b24c(IopContext&);   // stream_ChainRecord(h, st)
 void fn_4e02c(IopContext&);   // voice_RequestKeyOff(core, bit)
 void fn_4e100(IopContext&);   // group_SetVolume(group, vol)
 
+// snd989_stream2.cpp -- the stream start, its records / handle, the stream key-on, the reader's CD request, the loader read.
+void fn_3384c(IopContext&);   // shim_fno54(buff)
+void fn_3b080(IopContext&);   // load_Read(buf, size)
+void fn_3deec(IopContext&);   // heap_Alloc(size, kind, *out_size)
+void fn_3e110(IopContext&);   // trans_TakeChannel()
+void fn_42c84(IopContext&);   // timer_Unlink(node)
+void fn_42dd0(IopContext&);   // timer_FindDue(node, tick)
+void fn_43d00(IopContext&);   // stream_SetRecordRange(kind, first, last)
+void fn_43d2c(IopContext&);   // stream_AllocRecords(*r0, *r1, two, with_voices, kind)
+void fn_43f30(IopContext&);   // stream_Start(src0, src1, arg0, arg1, vol, pan, kind, h, chunk_id, flags)
+void fn_46840(IopContext&);   // cd_RequestRead(sector, sectors, buf)
+void fn_46e94(IopContext&);   // cd_LastError()
+void fn_493b0(IopContext&);   // cd_ReadFailed()
+void fn_4a050(IopContext&);   // stream_KeyOn(st, all)
+void fn_4b164(IopContext&);   // stream_AllocHandle()
+
 // snd989_misc.cpp -- handle validation, the timer / CD callbacks, group scaling, the owned-voice scan.
 void fn_3a90c(IopContext&);   // tick_TimerBeat(arg)
 void fn_3a9dc(IopContext&);   // stream_CdReadDone(status)
