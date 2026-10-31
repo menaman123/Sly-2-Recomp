@@ -212,6 +212,40 @@ void fn_3ac34(IopContext&);   // load_OpenCd(sector, offset)
 void fn_3aca0(IopContext&);   // load_Close()
 void fn_46520(IopContext&);   // thread_StreamReader()
 void fn_49854(IopContext&);   // thread_Transfer()
+void fn_411f8(IopContext&);   // seq_MaySupersede(def, vol, by_origin, *out)
+void fn_49428(IopContext&);   // thread_Refill()
+
+// snd989_cdthread.cpp -- the CD stream thread.
+void fn_47fec(IopContext&);   // thread_CdStream()
+
+// snd989_init.cpp -- the boot-time path.
+void fn_33000(IopContext&);   // ext_Register(rec)
+void fn_34a68(IopContext&);   // rpc1_Handler(fno, args)
+void fn_34c14(IopContext&);   // module_Init(argc, argv)
+void fn_34fd8(IopContext&);   // banner()
+void fn_3a250(IopContext&);   // snd_Init(flags)
+void fn_3a48c(IopContext&);   // tick_Init()
+void fn_3aa9c(IopContext&);   // load_Init()
+
+// snd989_bank.cpp -- the boot-time path, part 3 (the stream system init, the bank load, the movie start).
+void fn_3be20(IopContext&);   // bank_Load
+void fn_3c308(IopContext&);   // load_ReadCd
+void fn_3cd18(IopContext&);   // bank_UploadChunk
+void fn_3d168(IopContext&);   // bank_Relocate
+void fn_3e284(IopContext&);   // movie_Start
+void fn_3e920(IopContext&);   // movie_VoiceStart
+void fn_43654(IopContext&);   // stream_SystemInit
+
+// snd989_init2.cpp -- the boot-time path, part 2.
+void fn_3d674(IopContext&);   // bank_PostLoad
+void fn_3e6f4(IopContext&);   // movie_Stop
+void fn_3e7d8(IopContext&);   // movie_VoiceStop
+void fn_41a64(IopContext&);   // mask_StopAll
+void fn_41bd0(IopContext&);   // mask_ResumeAll
+void fn_4b0a4(IopContext&);   // stream_IdleWait
+void fn_4bf1c(IopContext&);   // voice_TableInit
+void fn_4ea54(IopContext&);   // pan_Law
+void fn_4f224(IopContext&);   // group_RampParams
 
 // snd989_misc.cpp -- handle validation, the timer / CD callbacks, group scaling, the owned-voice scan.
 void fn_3a90c(IopContext&);   // tick_TimerBeat(arg)

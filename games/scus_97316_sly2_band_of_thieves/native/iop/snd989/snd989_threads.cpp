@@ -227,4 +227,123 @@ void fn_39f0c(IopContext& c) {
     Ret(c, 0);
 }
 
+// fn_49428: the refill thread. Waits on the refill-waiter semaphore while nothing is queued or both channels are
+// busy (a failed wait is reported, 0x46, and again after the second wait); for each channel in turn (0 then 1): when
+// its slot is free, it is not busy and the queue is non-empty -- under suspended interrupts the channel is marked
+// busy and the next queued half record (skipping a stopping handle's) becomes its slot; a slot taken arms the libsd
+// transfer handler (fn_3aa3c) and starts the upload (fn_49788), else the channel is freed again. Forever.
+void fn_49428(IopContext& c) {
+    Frame f(c, 0x48);
+    const uint32_t intr = f.At(0x18);
+    uint32_t status = 0;
+    constexpr uint32_t kTransBusy = G::kData + 0x1940, kTransSlot = G::kData + 0x2354;
+    constexpr uint32_t kRefillQueueTail = G::kData + 0x2348;
+    auto take = [&](uint32_t slot) {
+        for (;;) {
+            const uint32_t cur = Ld32(kRefillQueueHead);
+            St32(slot, cur);
+            const uint32_t next = Ld32(cur + 0xc);
+            St32(kRefillQueueHead, next);
+            if (next == 0) St32(kRefillQueueTail, 0);
+            if (Ld32(slot) != 0) {
+                const uint32_t h = Ld32(Ld32(Ld32(slot) + 0x10) + 0xd0);
+                if (Ld8(h + 0x16) & 4) St32(slot, 0);
+                if (Ld32(slot) != 0) return;
+            }
+            if (Ld32(kRefillQueueHead) == 0) return;
+        }
+    };
+    auto report = [&]() {
+        if (status != 0) {
+            St32(f.At(0x10), 0);
+            Call(c, 0x35140, 0x46, status, 0, 0);
+        }
+    };
+top:
+    if (Ld32(kRefillQueueHead) == 0) goto wait0;
+    if (Ld32(kTransBusy) == 0) goto after_wait0;
+    if (Ld32(kTransBusy + 4) == 0) goto after_wait0;
+wait0:
+    status = imp::WaitSema(c, Ld32(G::kRampWaiterSema));
+after_wait0:
+    report();
+    if (Ld32(kTransBusy) == 0 && Ld32(kTransSlot) != 0 && Ld32(kTransBusy + 4) == 0 && Ld32(kTransSlot + 4) != 0)
+        status = imp::WaitSema(c, Ld32(G::kRampWaiterSema));
+    report();
+    if (Ld32(kTransSlot) == 0 && Ld32(kTransBusy) == 0 && Ld32(kRefillQueueHead) != 0) {
+        const uint32_t suspended = imp::CpuSuspendIntr(c, intr);
+        St32(kTransBusy, 1);
+        if (Ld32(kTransSlot) == 0 && Ld32(kRefillQueueHead) != 0) take(kTransSlot);
+        if (suspended == 0) imp::CpuResumeIntr(c, Ld32(intr));
+        if (Ld32(kTransSlot) == 0) {
+            St32(kTransBusy, 0);
+        } else {
+            Import(c, "libsd", 26, 0, 0x3aa3c, 0);
+            Call(c, 0x49788, 0);
+        }
+    }
+    if (Ld32(kTransSlot + 4) != 0 || Ld32(kTransBusy + 4) != 0) goto top;
+    if (Ld32(kRefillQueueHead) == 0) goto wait0;
+    {
+        const uint32_t suspended = imp::CpuSuspendIntr(c, intr);
+        St32(kTransBusy + 4, 1);
+        if (Ld32(kTransSlot + 4) == 0 && Ld32(kRefillQueueHead) != 0) take(kTransSlot + 4);
+        if (suspended == 0) imp::CpuResumeIntr(c, Ld32(intr));
+        if (Ld32(kTransSlot + 4) == 0) {
+            St32(kTransBusy + 4, 0);
+        } else {
+            Import(c, "libsd", 26, 1, 0x3aa3c, 0);
+            Call(c, 0x49788, 1);
+        }
+    }
+    goto top;
+}
+
+// fn_411f8(def, volume, by_origin, *out): may a sequence of `def` start? def[5] (the polyphony) == 0 -> 0. The live
+// sequence handles of this definition (rec[4] == def, or rec[0x120] == def when `by_origin`) are counted and the one
+// to supersede chosen (def[6] & 0x10: the quietest rec[0x3a]; & 0x20: the oldest rec[0x11c]); under the polyphony ->
+// 1; else the candidate goes to *out when it is quieter than `volume` (& 0x10) or by age (& 0x20) -> 1; else 0.
+void fn_411f8(IopContext& c) {
+    const uint32_t def = A0(c), out = A3(c), by_origin = A2(c);
+    const int32_t vol = S32(A1(c));
+    if (Lds8(def + 5) == 0) {
+        Ret(c, 0);
+        return;
+    }
+    if (out != 0) St32(out, 0);
+    const int32_t poly = Lds8(def + 5);
+    int32_t count = 0;
+    uint32_t pick = 0;
+    for (uint32_t rec = Ld32(G::kSoundList); rec != 0; rec = Ld32(rec + 0x24)) {
+        if ((Ld8(rec + 3) & 0x1f) != 5) continue;
+        if (!(by_origin != 0 && Ld32(rec + 0x120) == def) && Ld32(rec + 4) != def) continue;
+        ++count;
+        if (pick == 0) {
+            pick = rec;
+            continue;
+        }
+        const uint32_t fl = Ld16(def + 6);
+        if ((fl & 0x10) && Lds16(rec + 0x3a) < Lds16(pick + 0x3a)) {
+            pick = rec;
+            continue;
+        }
+        if ((fl & 0x20) && Ld32(rec + 0x11c) < Ld32(pick + 0x11c)) pick = rec;
+    }
+    if (!(poly - 1 < count)) {
+        Ret(c, 1);
+        return;
+    }
+    if (pick == 0) {
+        Ret(c, 0);
+        return;
+    }
+    const uint32_t fl = Ld16(def + 6);
+    if (((fl & 0x10) && Lds16(pick + 0x3a) < vol) || (fl & 0x20)) {
+        St32(out, pick);
+        Ret(c, 1);
+        return;
+    }
+    Ret(c, 0);
+}
+
 }  // namespace ps2r::title::sly2::snd989
