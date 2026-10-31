@@ -94,8 +94,29 @@ void NativeIopModule::Add(uint32_t addr, iop_seam::PlainFn fn, const char* name)
     candidates_.push_back(Candidate{addr, nullptr, fn, nullptr, name ? name : "", false});
 }
 
+void NativeIopModule::AddThread(uint32_t entry, StepFactory factory, const char* name) {
+    for (ThreadEntry& t : threads_) {
+        if (t.entry != entry) continue;
+        t.factory = std::move(factory);
+        t.name = name;
+        return;
+    }
+    threads_.push_back(ThreadEntry{entry, std::move(factory), name ? name : ""});
+}
+
+iop::IopKernel::StepBody NativeIopModule::StepBodyFor(uint32_t entry, const IopContext& initial) const {
+    if (!filter_) return {};   // not installed (knob off): the coroutine form
+    for (const ThreadEntry& t : threads_) {
+        if (t.entry != entry || !t.factory) continue;
+        if (!filter_->Admits(id_, entry)) return {};
+        return t.factory(initial);
+    }
+    return {};
+}
+
 int NativeIopModule::Install(const NativeIopFilter& filter) {
     Uninstall();
+    filter_ = &filter;
     if (!table_.slots) return 0;
     for (Candidate& c : candidates_) {
         if (!filter.Admits(id_, c.addr)) continue;
@@ -114,6 +135,7 @@ int NativeIopModule::Install(const NativeIopFilter& filter) {
 }
 
 void NativeIopModule::Uninstall() {
+    filter_ = nullptr;
     if (table_.slots) {
         for (Candidate& c : candidates_) {
             if (!c.installed) continue;

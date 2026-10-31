@@ -206,6 +206,9 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         fd.trace_path = knobs.iop_trace ? knobs.iop_trace->c_str() : nullptr;
         fd.trace.now_us = [&kernel = iop.iop_host.Table().Kernel()] { return kernel.Clock().NowUs(); };
         fd.trace.current_tid = [&kernel = iop.iop_host.Table().Kernel()] { return kernel.CurrentTid(); };
+        fd.set_step_provider = [&iop](std::function<ps2r::iop::IopKernel::StepBody(uint32_t, const ps2r::iop::IopContext&)> p) {
+            iop.iop_host.SetStepProvider(std::move(p));
+        };
         return fd;
     }());
     census.SetNativeIopCensus([&native_iop_frame](ps2r::verify::RunMeta* meta) {
