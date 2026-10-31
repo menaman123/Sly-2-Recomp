@@ -5,6 +5,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/native/native_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vif/vif_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vif/vif_native_chains.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/vif/vif_native_spans.h"
 
 using ps2r::title::sly2::NativeCensus;
 using ps2r::title::sly2::NativeUnit;
@@ -12,7 +13,8 @@ using ps2r::title::sly2::NativeUnit;
 NativeVif::NativeVif(const MainMemory& ram, Scratchpad& spad, Vif& vif, ChainWalker& walker, Options options)
     : walker_(walker), options_(std::move(options)) {
     if (!options_.census_path.empty()) census_ = std::make_unique<VifChainCensus>(ram, spad, vif);
-    if (options_.dmac || options_.vif) native_ = std::make_unique<VifNativeChains>(ram, spad, vif, walker, options_.vif);
+    if (options_.dmac) native_ = std::make_unique<VifNativeChains>(ram, spad, walker);
+    if (options_.vif) spans_ = std::make_unique<VifNativeSpans>(vif, true);
     if (census_ || native_) {
         walker_.SetVifChainExecutor(&NativeVif::Thunk, this);
         installed_ = true;
@@ -47,16 +49,19 @@ ChainWalker::NativeChainStep NativeVif::Step(int ch, DmacChannelRegs& regs, Dmac
 }
 
 std::string NativeVif::Census() const {
+    // The per-unit details of the native= row (counts only; no ',' / ';').
     if (native_) {
-        // The per-unit details of the native= row (counts only; no ',' / ';').
         NativeCensus::Instance().SetDetail(NativeUnit::Dmac, "chains=" + std::to_string(native_->chains()) + ":tags=" +
                                                                  std::to_string(native_->tags()));
-        NativeCensus::Instance().SetDetail(NativeUnit::Vif, "typed=" + std::to_string(native_->unpack_typed()) + ":engine=" +
-                                                                std::to_string(native_->unpack_engine()));
+    }
+    if (spans_) {
+        NativeCensus::Instance().SetDetail(NativeUnit::Vif, "typed=" + std::to_string(spans_->unpack_typed()) + ":engine=" +
+                                                                std::to_string(spans_->unpack_engine()));
     }
     std::string row = (options_.dmac || options_.vif) ? "on" : "off";
     row += ":chains=" + std::to_string(chains_);
     if (native_) row += ":" + native_->Row();
+    if (spans_) row += ":" + spans_->Row();
     if (census_) row += ":census=" + census_->Row();
     return row;
 }

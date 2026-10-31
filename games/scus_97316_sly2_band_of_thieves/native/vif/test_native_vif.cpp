@@ -134,11 +134,16 @@ bool Same(const Rig& a, const Rig& b, const DmacVifWalkResult& ra, const DmacVif
     }
     const VifUnitState& ua = a.vif.unit(1);
     const VifUnitState& ub = b.vif.unit(1);
+    // pending_cmd is live only in WaitData: the engine's word latch rewrites it at every command it parks
+    // mid-span while it decodes word by word (a span after a TTE park), the whole-span parsers never do.
+    const bool pending_live = ua.state == VifState::WaitData || ub.state == VifState::WaitData;
     if (ua.state != ub.state || ua.latch_fill != ub.latch_fill || ua.word_index != ub.word_index || ua.fifo != ub.fifo ||
-        ua.pending_bytes != ub.pending_bytes || ua.pending_cmd != ub.pending_cmd || ua.unpack_phase != ub.unpack_phase ||
+        ua.pending_bytes != ub.pending_bytes || (pending_live && ua.pending_cmd != ub.pending_cmd) || ua.unpack_phase != ub.unpack_phase ||
         ua.direct_buffer != ub.direct_buffer) {
-        std::printf("  %s: VIF1 unit state differs (state %d/%d latch %u/%u wi %d/%d pending %u/%u)\n", what, static_cast<int>(ua.state),
-                    static_cast<int>(ub.state), ua.latch_fill, ub.latch_fill, ua.word_index, ub.word_index, ua.pending_bytes, ub.pending_bytes);
+        std::printf("  %s: VIF1 unit state differs (state %d/%d latch %u/%u wi %d/%d pending %u/%u cmd %02x/%02x fifo %zu/%zu phase %u/%u direct %zu/%zu)\n",
+                    what, static_cast<int>(ua.state), static_cast<int>(ub.state), ua.latch_fill, ub.latch_fill, ua.word_index, ub.word_index,
+                    ua.pending_bytes, ub.pending_bytes, ua.pending_cmd, ub.pending_cmd, ua.fifo.size(), ub.fifo.size(), ua.unpack_phase,
+                    ub.unpack_phase, ua.direct_buffer.size(), ub.direct_buffer.size());
         ok = false;
     }
     if (std::memcmp(&a.ch, &b.ch, sizeof(DmacChannelRegs)) != 0) {

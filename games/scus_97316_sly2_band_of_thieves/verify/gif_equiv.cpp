@@ -86,7 +86,7 @@ struct Side {
     }
     void Feed(const Packet& p) {
         bool lowered = false;
-        if (native && parser.CanAcceptDirect()) {
+        if (native && parser.CanAcceptIntercept()) {   // the arbiter's offer rule (GifArbiter::DrainPassDelivered)
             lowered = native->Intercept(p.path, p.bytes.data(), p.bytes.size());
             if (lowered) ++served; else ++declined;
         }

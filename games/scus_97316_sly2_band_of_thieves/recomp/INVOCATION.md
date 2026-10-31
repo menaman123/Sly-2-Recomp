@@ -33,7 +33,7 @@ continuations: 6575 bodies, 72351 exact entries, 2 restartable wait thunks
 The output is deterministic: a run from a different working directory and input path produces identical
 files. There are no "Unhandled OP Code" sites in the shards.
 
-## `--vu0-native` (CMake `PS2R_SLY2_VU0_NATIVE=ON`, default OFF)
+## `--vu0-native` (CMake `PS2R_SLY2_VU0_NATIVE`, default ON since STAGE NATIVE-2; OFF = the scalar emission, the oracle)
 
 Adds `--vu0-native` to the command above: every COP2 (VU0 macro-mode) FMAC op is emitted through the host
 vector kernels of `engine/ee/recomp_abi/host_app/vu0_native.h` (NEON / SSE2 / scalar; the bit-for-bit twins

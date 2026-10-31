@@ -17,9 +17,11 @@ engine's existing seams. This is NOT the decompilation: the game's recompiled EE
    unpack span, the DMAC chain walker, the IOP module table, the SPU2 driver, the recompiler's COP2
    emit. No engine model is deleted or edited into a title-specific shape: the engine's generic model
    is **the fallback and the oracle**.
-3. **It is behind a Config knob `title.native.<unit>`** (`vu1|gif|vif|dmac|iop|spu|gs|vu0`; bool;
-   default off = the modelled path), read ONLY through `native_knobs.h` (`NativeKnobs::From(cfg)`).
-   The keys are in the engine's fingerprint, so a knob ON shows in run.meta `env_ps2` / `env_hash`;
+3. **It is behind a Config knob `title.native.<unit>`** (`vu1|gif|vif|dmac|iop|spu|gs|vu0`; bool), read
+   ONLY through `native_knobs.h` (`NativeKnobs::From(cfg)`). Since STAGE NATIVE-2 (2026-10-31) `vu1`, `gif`,
+   `vif`, `dmac`, `vu0` default ON (each proved with zero fallbacks on the lane and the Paris play lane;
+   `--set title.native.<unit>=off` = the modelled path, the oracle); `iop`, `spu`, `gs` default off. The
+   keys are in the engine's fingerprint, so a NON-DEFAULT value shows in run.meta `env_ps2` / `env_hash`;
    the default leaves both unchanged. The deterministic profile does not pin them.
 4. **Hash-identical on the lane is the acceptance test.** With the knob OFF the run reproduces the
    stage BASELINE (det_lane.sh, 600 frames, no pad / boot.pad): `mem=0df0a2278a02` (pad
