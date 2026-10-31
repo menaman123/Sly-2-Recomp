@@ -120,6 +120,11 @@ inline uint32_t SdGetSwitch(IopContext& c, uint32_t entry) { return Import(c, "l
 inline uint32_t SdSetAddr(IopContext& c, uint32_t entry, uint32_t value) { return Import(c, "libsd", 9, entry, value); }
 inline uint32_t SdGetAddr(IopContext& c, uint32_t entry) { return Import(c, "libsd", 10, entry); }
 inline uint32_t SdSetCoreAttr(IopContext& c, uint32_t entry, uint32_t value) { return Import(c, "libsd", 11, entry, value); }
+// SdVoiceTrans(chan, mode, iop_addr, spu_addr, size): the 5th argument is the caller's stack word at sp+0x10 (a Frame).
+inline uint32_t SdVoiceTrans(IopContext& c, uint32_t chan, uint32_t mode, uint32_t iop_addr, uint32_t spu_addr) {
+    return Import(c, "libsd", 17, chan, mode, iop_addr, spu_addr);
+}
+inline uint32_t SdVoiceTransStatus(IopContext& c, uint32_t chan, uint32_t flag) { return Import(c, "libsd", 19, chan, flag); }
 inline uint32_t SceCdReadIOPm(IopContext& c) { return Import(c, "cdvdman", 39); }
 }  // namespace imp
 

@@ -15,6 +15,31 @@ namespace ps2r::title::sly2::snd989 {
 struct G {
     static constexpr uint32_t kData = 0x50000;
 
+    // --- the 0x123456 RPC face (fn_3497c dispatcher, fn_34880 batch; native/snd/snd989_image.h has the rules) -----
+    static constexpr uint32_t kReplyBufPtr = kData + 0x63c;     // the IOP reply buffer {-1, result[..], -1}
+    static constexpr uint32_t kResultPtr = kData + 0x640;       // where the next shim with a value stores it
+    static constexpr uint32_t kExtModuleList = kData + 0x644;   // the external-command records ('SUKR': spiop)
+    static constexpr uint32_t kHandlerTable = kData + 0x648;    // 107 words: fno -> shim
+    static constexpr uint32_t kVolumeCurve = kData + 0x7f8;     // s16 table (fn_35200)
+    static constexpr uint32_t kParamTable = kData + 0x2418;     // 15 group volumes 0..0x400 (fno 9 writes, fno 10 reads)
+
+    // --- the sound handles (fn_417f8) ------------------------------------------------------------------------------
+    static constexpr uint32_t kSeqHandles = kData + 0x2fb8;     // 64 records of 0x124 (type 5)
+    static constexpr uint32_t kStreamHandles = kData + 0x22e4;  // pointer to the type-4 records (0x78 each)
+    static constexpr uint32_t kStreamHandleCount = kData + 0x22e8;
+
+    // --- the movie sound (fnos 59-62 / 90 / 91) -------------------------------------------------------------------
+    static constexpr uint32_t kMovieChan = kData + 0x19ac;      // s16 SPU DMA channel
+    static constexpr uint32_t kMovieIopBuf = kData + 0x19b0;
+    static constexpr uint32_t kMovieSpuBase = kData + 0x19b4;
+    static constexpr uint32_t kMovieVoice0 = kData + 0x19cc;
+
+    // --- the tick's timer / the stream reader's CD read (fn_3a90c / fn_3a9dc) ----------------------------------
+    static constexpr uint32_t kTickHold = kData + 0x191c;       // > 0: the beat does not wake the tick thread (set to 2)
+    static constexpr uint32_t kCdReadSema = kData + 0x192c;
+    static constexpr uint32_t kCdError = kData + 0x1930;
+    static constexpr uint32_t kCdErrorStatus = kData + 0x1934;
+
     // --- the global lock (fn_42f58 lock / fn_430dc unlock / fn_431bc trylock) -------------------------------
     static constexpr uint32_t kLockDepth = kData + 0x2214;      // nesting depth (0 = free)
     static constexpr uint32_t kLockTags = kData + 0x2218;       // 32 words: the tag each level took the lock with

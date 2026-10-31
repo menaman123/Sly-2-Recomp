@@ -58,6 +58,8 @@ if(TARGET ps2r_title_recomp)
     if(TARGET ps2r_title_iop_snd989)
         add_library(ps2r_title_native_iop STATIC
             iop/snd989/snd989_native.cpp
+            iop/snd989/snd989_misc.cpp
+            iop/snd989/snd989_rpc.cpp
             iop/snd989/snd989_seq.cpp
             iop/snd989/snd989_tick.cpp
             iop/snd989/snd989_volume.cpp

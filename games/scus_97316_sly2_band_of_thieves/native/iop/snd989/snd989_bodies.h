@@ -48,4 +48,28 @@ void fn_41da0(IopContext&);   // snd_StopHandle(h, force, release, why)
 void fn_4218c(IopContext&);   // sndlist_Tick()
 void fn_4226c(IopContext&);   // timer_Walk(node, h)
 
+// snd989_rpc.cpp -- the 0x123456 RPC face and the hot shims.
+void fn_3318c(IopContext&);   // snd_ExternalCommand(tag, op, ...)
+void fn_33148(IopContext&);   // snd_FindExternalModule(tag)
+void fn_33534(IopContext&);   // shim fno 9 (group volume)
+void fn_338bc(IopContext&);   // shim fno 26
+void fn_344c4(IopContext&);   // shim fno 76
+void fn_34158(IopContext&);   // shim fno 90
+void fn_34184(IopContext&);   // shim fno 91
+void fn_3497c(IopContext&);   // rpc_Dispatch(fno, buff, size)
+void fn_34880(IopContext&);   // rpc_Batch(buff) (fno 77)
+void fn_35200(IopContext&);   // snd_VolumeCurve(_, i)
+void fn_39b24(IopContext&);   // bank_BlockSoundIsValid(bank, index)
+void fn_3e5c0(IopContext&);   // movie_Push(size, offset)
+void fn_3e610(IopContext&);   // movie_ReadPosition()
+void fn_3fac8(IopContext&);   // snd_BankSoundIsValid(bank, index)
+
+// snd989_misc.cpp -- handle validation, the timer / CD callbacks, group scaling, the owned-voice scan.
+void fn_3a90c(IopContext&);   // tick_TimerBeat(arg)
+void fn_3a9dc(IopContext&);   // stream_CdReadDone(status)
+void fn_3fa7c(IopContext&);   // snd_HandleOrZero(h)
+void fn_417f8(IopContext&);   // snd_HandleRecord(h)
+void fn_42064(IopContext&);   // handle_NextVoice(h, start)
+void fn_4ed08(IopContext&);   // voice_GroupScale(vol, group)
+
 }  // namespace ps2r::title::sly2::snd989

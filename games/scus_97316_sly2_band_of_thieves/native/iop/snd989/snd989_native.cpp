@@ -12,15 +12,34 @@ namespace ps2r::title::sly2::snd989 {
 
 // Every ported function, in address order (the role names follow OpenGOAL's 989snd where it has one).
 const PortedFn kPortedFns[] = {
+    {0x33148, &fn_33148, "snd_FindExternalModule"},
+    {0x3318c, &fn_3318c, "snd_ExternalCommand"},
+    {0x33534, &fn_33534, "shim_fno9"},
+    {0x338bc, &fn_338bc, "shim_fno26"},
+    {0x34158, &fn_34158, "shim_fno90"},
+    {0x34184, &fn_34184, "shim_fno91"},
+    {0x344c4, &fn_344c4, "shim_fno76"},
+    {0x34880, &fn_34880, "rpc_Batch"},
+    {0x3497c, &fn_3497c, "rpc_Dispatch"},
     {0x35140, &fn_35140, "snd_ReportError"},
+    {0x35200, &fn_35200, "snd_VolumeCurve"},
     {0x35a04, &fn_35a04, "endhandler_Poll"},
     {0x369c8, &fn_369c8, "master_StepRamps"},
     {0x377a4, &fn_377a4, "seq_Tick"},
     {0x3926c, &fn_3926c, "seq_Step"},
+    {0x39b24, &fn_39b24, "bank_BlockSoundIsValid"},
+    {0x3a90c, &fn_3a90c, "tick_TimerBeat"},
+    {0x3a9dc, &fn_3a9dc, "stream_CdReadDone"},
     {0x3e1cc, &fn_3e1cc, "ramp_Done"},
+    {0x3e5c0, &fn_3e5c0, "movie_Push"},
+    {0x3e610, &fn_3e610, "movie_ReadPosition"},
+    {0x3fa7c, &fn_3fa7c, "snd_HandleOrZero"},
+    {0x3fac8, &fn_3fac8, "snd_BankSoundIsValid"},
     {0x40eb8, &fn_40eb8, "master_SetVolume"},
     {0x40f64, &fn_40f64, "master_Tick"},
+    {0x417f8, &fn_417f8, "snd_HandleRecord"},
     {0x41da0, &fn_41da0, "snd_StopHandle"},
+    {0x42064, &fn_42064, "handle_NextVoice"},
     {0x4218c, &fn_4218c, "sndlist_Tick"},
     {0x4226c, &fn_4226c, "timer_Walk"},
     {0x42f58, &fn_42f58, "snd_Lock"},
@@ -34,6 +53,7 @@ const PortedFn kPortedFns[] = {
     {0x4d074, &fn_4d074, "voice_ApplyKeyOffs"},
     {0x4d184, &fn_4d184, "voice_Ended"},
     {0x4d318, &fn_4d318, "voice_KeyOff"},
+    {0x4ed08, &fn_4ed08, "voice_GroupScale"},
     {0x4edbc, &fn_4edbc, "voice_RefreshGroupVolumes"},
     {0x4efb4, &fn_4efb4, "fade_Step"},
 };
@@ -118,6 +138,17 @@ std::string NativeCensusRow() {
         if (s.recompiled_calls) hot.push_back({s.addr, s.recompiled_calls});
     }
     std::sort(hot.begin(), hot.end(), [](const Hot& a, const Hot& b) { return a.calls != b.calls ? a.calls > b.calls : a.addr < b.addr; });
+    // NATIVEEE_IOP_NATIVE_REPORT=<file>: every slot's counts (addr size native recompiled), the port's work list.
+    if (const char* rep = std::getenv("NATIVEEE_IOP_NATIVE_REPORT")) {
+        if (std::FILE* f = std::fopen(rep, "w")) {
+            for (uint32_t k = 0; k < iop_snd989::kFnSlotCount; ++k) {
+                const IopFnSlot& s = iop_snd989::iop_fn_slots[k];
+                std::fprintf(f, "%05x %5u %10llu %10llu\n", s.addr, s.size / 4, static_cast<unsigned long long>(s.native_calls),
+                             static_cast<unsigned long long>(s.recompiled_calls));
+            }
+            std::fclose(f);
+        }
+    }
     std::string row = "snd989:" + std::to_string(native) + "/" + std::to_string(recompiled) + ":fns=" + std::to_string(installed) + "/" +
                       std::to_string(iop_snd989::kFnSlotCount);
     if (!hot.empty()) {
