@@ -10,6 +10,7 @@
 #include "engine/iop/abi/host_app/iop_stubs.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/native_iop_module.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop/spiop_state.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop/spiop_libc.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop/spiop_threads.h"
 
 namespace ps2r::title::sly2::spiop {
@@ -1895,6 +1896,7 @@ void Thunk(Ctx& ctx, void* self) { static_cast<const NativeFn*>(self)->body(ctx)
 void Register(NativeIopModule& spiop) {
     for (size_t i = 0; i < kFunctionCount; ++i)
         spiop.Add(kFunctions[i].addr, &Thunk, kFunctions[i].name, const_cast<NativeFn*>(&kFunctions[i]));
+    RegisterLibc(spiop);             // the soft-float / runtime half (spiop_libc.cpp): ported, unexercised on the lanes
     SpiopThreads::Register(spiop);   // the headset threads in the step form (the tray thread: spiop_tray_thread.cpp)
 }
 

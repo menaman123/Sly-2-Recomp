@@ -210,6 +210,10 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         fd.set_step_provider = [&iop](std::function<ps2r::iop::IopKernel::StepBody(uint32_t, const ps2r::iop::IopContext&)> p) {
             iop.iop_host.SetStepProvider(std::move(p));
         };
+        fd.rpc_loop_bind = [&iop](const ps2r::iop::IopContext* loop_ctx) {
+            iop.iop_host.Sifcmd().SetLoopContext(iop.iop_host.Table().Kernel().CurrentTid(), loop_ctx);
+        };
+        fd.rpc_drain = [&iop] { iop.iop_host.Table().Rpc().RpcServiceDrain(); };
         return fd;
     }());
     census.SetNativeIopCensus([&native_iop_frame](ps2r::verify::RunMeta* meta) {

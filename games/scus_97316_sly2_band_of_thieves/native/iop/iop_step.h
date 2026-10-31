@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 
 #include "engine/iop/iop_context.h"
 #include "engine/iop/iop_kernel.h"
@@ -28,10 +29,11 @@ struct StepPark {
     using Park = iop::IopKernel::Park;
     using Resume = iop::IopKernel::Resume;
 
-    // The park a body is waiting on (for the J row and v0 at the resume).
+    // The park a body is waiting on (for the J row and v0 at the resume; `out` = ReceiveMbx's message slot).
     struct Pending {
         const char* lib = nullptr;
         uint32_t index = 0;
+        uint32_t out = 0;
     };
 
     // The body's first call: the E row of the thread entry (what the seam wrapper writes for the coroutine
@@ -43,6 +45,18 @@ struct StepPark {
     static Park WaitSema(IopContext& regs, Pending& pending, int32_t sid);
     static Park DelayThread(IopContext& regs, Pending& pending, uint32_t usec);
     static Park SleepThread(IopContext& regs, Pending& pending);
+    // thmsgbx:8 ReceiveMbx(&msg, mbx) -> Park::Mbx (the kernel's id = the guest id - 1); the resume writes the
+    // message's guest address at `out`. (WaitEventFlag is not offered: its result word needs the flag's value at
+    // the wake, which only the kernel has; no fileio/spiop/lgaud thread parks on one on this title's lanes.)
+    static Park ReceiveMbx(IopContext& regs, Pending& pending, uint32_t out, int32_t mbx);
+    // sifcmd:22 sceSifRpcLoop(qd) as a step body: the I row, the loop context bound (the handlers dispatch from a copy
+    // of `regs`: IopRpcServer), Park::Sleep (the loop's SleepThread: a kernel call, no import row). After every
+    // resume the body calls RpcDrain() (RpcServiceLoop's inner loop) and parks in Park::Sleep() again -- directly,
+    // not through Resumed/SleepThread (the coroutine form's loop writes no rows for them).
+    static Park RpcLoopEnter(IopContext& regs, uint32_t qd);
+    static void RpcDrain();
+    // Bound by the frame (NativeIopFrame::Deps rpc_loop_bind / rpc_drain).
+    static void BindRpc(std::function<void(const IopContext*)> loop_bind, std::function<void()> drain);
     // At the next call after a park: v0 = the wait's result (what the blocking import returned to the coroutine
     // body), the J row. A no-op for the first call / no pending park.
     static void Resumed(IopContext& regs, Pending& pending, const Resume& r);
