@@ -64,6 +64,12 @@ void fn_3e5c0(IopContext&);   // movie_Push(size, offset)
 void fn_3e610(IopContext&);   // movie_ReadPosition()
 void fn_3fac8(IopContext&);   // snd_BankSoundIsValid(bank, index)
 
+// snd989_stream.cpp -- the streamed sound handle's tick.
+void fn_44768(IopContext&);   // stream_NextChunk(h, kind)
+void fn_45904(IopContext&);   // stream_Tick(h)
+void fn_45ccc(IopContext&);   // stream_PollVoice(st, set_flag)
+void fn_461e8(IopContext&);   // stream_AccountPlayed(st, pos)
+
 // snd989_misc.cpp -- handle validation, the timer / CD callbacks, group scaling, the owned-voice scan.
 void fn_3a90c(IopContext&);   // tick_TimerBeat(arg)
 void fn_3a9dc(IopContext&);   // stream_CdReadDone(status)

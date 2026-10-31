@@ -34,6 +34,11 @@ struct G {
     static constexpr uint32_t kMovieSpuBase = kData + 0x19b4;
     static constexpr uint32_t kMovieVoice0 = kData + 0x19cc;
 
+    // --- the streams (fn_45904 / fn_45ccc / fn_44768) -------------------------------------------------------------
+    static constexpr uint32_t kStreamSema = kData + 0x2360;        // the stream thread's semaphore (a chunk handed off)
+    static constexpr uint32_t kStreamVoiceCount = kData + 0x2388;  // stream voice records in use
+    static constexpr uint32_t kFmtStreamStuck = kData + 0x584;     // "stream voice stuck" diagnostic
+
     // --- the tick's timer / the stream reader's CD read (fn_3a90c / fn_3a9dc) ----------------------------------
     static constexpr uint32_t kTickHold = kData + 0x191c;       // > 0: the beat does not wake the tick thread (set to 2)
     static constexpr uint32_t kCdReadSema = kData + 0x192c;

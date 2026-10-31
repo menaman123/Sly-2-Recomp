@@ -61,6 +61,7 @@ if(TARGET ps2r_title_recomp)
             iop/snd989/snd989_misc.cpp
             iop/snd989/snd989_rpc.cpp
             iop/snd989/snd989_seq.cpp
+            iop/snd989/snd989_stream.cpp
             iop/snd989/snd989_tick.cpp
             iop/snd989/snd989_volume.cpp
         )
