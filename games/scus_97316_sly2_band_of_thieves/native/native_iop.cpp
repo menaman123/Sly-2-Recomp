@@ -11,21 +11,23 @@ namespace ps2r::title::sly2 {
 
 std::unique_ptr<NativeIop> NativeIop::Install(const NativeKnobs& knobs, Deps deps) {
     if (!knobs.iop) return nullptr;
-    if (!deps.router || !deps.libsd || !deps.set_server_observer || !deps.spu || !deps.ee_ram) return nullptr;
+    if (!deps.router || !deps.libsd || !deps.set_server_observer || !deps.spu || !deps.ee_ram || !deps.iop_ram) return nullptr;
     return std::unique_ptr<NativeIop>(new NativeIop(knobs, std::move(deps)));
 }
 
 NativeIop::NativeIop(const NativeKnobs& knobs, Deps deps) : d_(std::move(deps)), direct_spu_(knobs.spu) {
     iop::hle::LibsdModule& libsd = *d_.libsd;
     // The native servers' own ops report to the tap already installed (the census trace), like the module's.
-    NativeSndRpcServer::Deps sd;
+    Snd989Server::Deps sd;
     sd.spu = d_.spu;
     sd.libsd = &libsd;
     sd.ee_ram = d_.ee_ram;
+    sd.iop_ram = d_.iop_ram;
+    sd.drain_kernel = d_.drain_kernel;
     sd.direct_spu = direct_spu_;
     sd.op_tracer = libsd.GetOpTracer();
-    command_ = std::make_unique<NativeSndRpcServer>(snd989::kSidCommand, sd);
-    bank_ = std::make_unique<NativeSndRpcServer>(snd989::kSidBank, sd);
+    command_ = std::make_unique<Snd989Server>(snd989::kSidCommand, sd);
+    bank_ = std::make_unique<Snd989Server>(snd989::kSidBank, sd);
     command_->SetAfterCall([this] { UpdateCensusDetail(); });
     bank_->SetAfterCall([this] { UpdateCensusDetail(); });
     if (d_.rpc_trace) {
@@ -38,26 +40,17 @@ NativeIop::NativeIop(const NativeKnobs& knobs, Deps deps) : d_(std::move(deps)),
         command_->SetCallTracer(tracer);
         bank_->SetCallTracer(tracer);
     }
-    // The forwarded path's libsd ops: observed by the native servers, then the previous tap.
-    {
-        iop::hle::LibsdModule::OpTracer prev = libsd.GetOpTracer();
-        NativeSndRpcServer* cmd = command_.get();
-        NativeSndRpcServer* bank = bank_.get();
-        libsd.SetOpTracer([prev, cmd, bank](const iop::hle::LibsdModule::OpEvent& ev) {
-            cmd->ObserveForwardedOp(ev);
-            bank->ObserveForwardedOp(ev);
-            if (prev) prev(ev);
-        });
-    }
     // Take the router rows when (and every time) the hosted 989snd registers them.
     d_.set_server_observer([this](uint32_t sid, IopRpcServer& hosted) {
-        NativeSndRpcServer* s = sid == snd989::kSidCommand ? command_.get() : sid == snd989::kSidBank ? bank_.get() : nullptr;
+        Snd989Server* s = sid == snd989::kSidCommand ? command_.get() : sid == snd989::kSidBank ? bank_.get() : nullptr;
         if (!s) return;
         // Re-point the fallback (a restore replaces the hosted server object) and the router row.
-        NativeSndRpcServer::Deps nd;
+        Snd989Server::Deps nd;
         nd.spu = d_.spu;
         nd.libsd = d_.libsd;
         nd.ee_ram = d_.ee_ram;
+        nd.iop_ram = d_.iop_ram;
+        nd.drain_kernel = d_.drain_kernel;
         nd.direct_spu = direct_spu_;
         nd.fallback = &hosted;
         s->Rebind(nd);
@@ -74,8 +67,7 @@ NativeIop::~NativeIop() {
 
 void NativeIop::UpdateCensusDetail() {
     NativeCensus& c = NativeCensus::Instance();
-    c.SetDetail(NativeUnit::Iop, "fno91=" + std::to_string(command_->ServedReadPos()) + ":" + command_->Detail() +
-                                     ":bank_fwd=" + std::to_string(bank_->Forwarded()));
+    c.SetDetail(NativeUnit::Iop, command_->Detail() + ":bank_fwd=" + std::to_string(bank_->Forwarded()));
     c.SetDetail(NativeUnit::Spu, direct_spu_ ? "face=spu_core" : "face=libsd");
 }
 

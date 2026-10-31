@@ -187,6 +187,10 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         nd.set_server_observer = [&iop](NativeIop::ServerObserver o) { iop.iop_host.SetServerObserver(std::move(o)); };
         nd.spu = &services.spu_core;
         nd.ee_ram = [&ram = core.ram](uint32_t addr, uint32_t size) -> uint8_t* { return ram.Pointer(MainMemory::Phys(addr), size); };
+        nd.iop_ram = [&mem = iop.iop_host.Memory()](uint32_t addr, uint32_t size) -> uint8_t* {
+            return mem.Pointer(addr & ps2r::iop::IopMemory::kMask, size);
+        };
+        nd.drain_kernel = [&kernel = iop.iop_host.Table().Kernel()] { (void)kernel.Dispatch(); };
         nd.rpc_trace = iop.rpc_trace_file;
         native_iop = NativeIop::Install(native_knobs, std::move(nd));
     }
