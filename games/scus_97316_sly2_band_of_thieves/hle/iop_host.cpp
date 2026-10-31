@@ -39,6 +39,8 @@ struct Namespace {
     InitializeFn initialize;
     const iop_lgaud::ImportStub* stubs;   // the same POD layout in every namespace
     uint32_t stub_count;
+    iop_seam::IopFnSlot* slots;           // the --seam slot table
+    uint32_t slot_count;
 };
 
 // The generated TUs' tables, one per hosted module. ImportStub has the same layout in
@@ -46,15 +48,19 @@ struct Namespace {
 const Namespace kNamespaces[] = {
     {"fileio", iop_fileio::kBase, iop_fileio::kBase + iop_fileio::kLoadExtent, &iop_fileio::iop_recompiled_functions,
      &iop_fileio::initialize_iop_recompiled_functions,
-     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_fileio::kImportStubs), iop_fileio::kImportStubCount},
+     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_fileio::kImportStubs), iop_fileio::kImportStubCount,
+     iop_fileio::iop_fn_slots, iop_fileio::kFunctionCount},
     {"lgaud", iop_lgaud::kBase, iop_lgaud::kBase + iop_lgaud::kLoadExtent, &iop_lgaud::iop_recompiled_functions,
-     &iop_lgaud::initialize_iop_recompiled_functions, iop_lgaud::kImportStubs, iop_lgaud::kImportStubCount},
+     &iop_lgaud::initialize_iop_recompiled_functions, iop_lgaud::kImportStubs, iop_lgaud::kImportStubCount,
+     iop_lgaud::iop_fn_slots, iop_lgaud::kFunctionCount},
     {"snd989", iop_snd989::kBase, iop_snd989::kBase + iop_snd989::kLoadExtent, &iop_snd989::iop_recompiled_functions,
      &iop_snd989::initialize_iop_recompiled_functions,
-     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_snd989::kImportStubs), iop_snd989::kImportStubCount},
+     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_snd989::kImportStubs), iop_snd989::kImportStubCount,
+     iop_snd989::iop_fn_slots, iop_snd989::kFunctionCount},
     {"spiop", iop_spiop::kBase, iop_spiop::kBase + iop_spiop::kLoadExtent, &iop_spiop::iop_recompiled_functions,
      &iop_spiop::initialize_iop_recompiled_functions,
-     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_spiop::kImportStubs), iop_spiop::kImportStubCount},
+     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_spiop::kImportStubs), iop_spiop::kImportStubCount,
+     iop_spiop::iop_fn_slots, iop_spiop::kFunctionCount},
 };
 
 void InitializeNamespaces() {
@@ -228,6 +234,12 @@ void IopHost::AfterSectionRestore() {
 IopHost::~IopHost() {
     table_.Shutdown();
     iop::IopAbiSurface::Unbind();
+}
+
+std::vector<IopHost::SeamTable> IopHost::SeamTables() {
+    std::vector<SeamTable> out;
+    for (const Namespace& n : kNamespaces) out.push_back(SeamTable{n.id, n.slots, n.slot_count});
+    return out;
 }
 
 GuestFunction IopHost::ResolveGuestFn(uint32_t addr) {

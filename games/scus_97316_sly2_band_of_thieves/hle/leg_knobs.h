@@ -85,6 +85,8 @@ struct LegKnobs {
     // entry the IOP code reached (`SD ord a0 a1 a2 a3 extra -> v0`) in call order -- the libsd op sequence
     // between a round trip's `RPC<` and its reply line is what that RPC caused.
     std::optional<std::string> rpc_trace;
+    // NATIVEEE_IOP_TRACE=<file>: the hosted IOP modules' per-call trace (native/iop/iop_call_trace.h).
+    std::optional<std::string> iop_trace;
     // NATIVEEE_PAD_SCRIPT=<script text | file> / NATIVEEE_PAD_RECORD=<file> / NATIVEEE_KEY_SCRIPT=<steps>.
     std::optional<std::string> pad_script;
     std::optional<std::string> pad_record;

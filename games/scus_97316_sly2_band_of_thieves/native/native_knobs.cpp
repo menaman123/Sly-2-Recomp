@@ -19,6 +19,7 @@ NativeKnobs NativeKnobs::From(const Config& cfg) {
     k.spu = cfg.title_native.spu;
     k.gs = cfg.title_native.gs;
     k.vu0 = cfg.title_native.vu0;
+    k.iopsys = cfg.title_native.iopsys;
     return k;
 }
 

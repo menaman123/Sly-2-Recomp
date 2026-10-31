@@ -67,6 +67,8 @@ public:
         // Set later by the composition: refreshes the other native paths' NativeCensus details (the GIF
         // builder's counters) before the native= row is written.
         std::function<void()> native_detail = {};
+        // Set later by the composition: the native IOP frame's rows (native_iop=, native_iop_remaining=, ...).
+        std::function<void(ps2r::verify::RunMeta*)> native_iop = {};
         // Set later by RunLeg (the agent control plane, leg_agent.h; null = off).
         const LegAgent* agent = nullptr;
         // Set by RunLeg: the title.native.* switches in force (the `native=` row, native/README.md).
@@ -77,6 +79,7 @@ public:
     void SetFrameRateCensus(std::function<std::string()> row) { p_.frame_rate = std::move(row); }
     void SetNativeVifCensus(std::function<std::string()> row) { p_.native_vif = std::move(row); }
     void SetNativeDetail(std::function<void()> fn) { p_.native_detail = std::move(fn); }
+    void SetNativeIopCensus(std::function<void(ps2r::verify::RunMeta*)> fn) { p_.native_iop = std::move(fn); }
     void SetAgent(const LegAgent* agent) { p_.agent = agent; }
 
     explicit LegCensus(const Phases& p) : p_(p) {}

@@ -26,6 +26,9 @@ struct NativeKnobs {
     bool spu = false;
     bool gs = false;
     bool vu0 = false;
+    // title.native.iopsys: the hosted IOP modules' functions as native host bodies (native/iop/README.md).
+    // Not a NativeUnit row (the IOP unit's row stays `iop`); its census is `native_iop=`.
+    bool iopsys = false;
 
     // The switches as the loaded Config carries them (title.native.<unit>).
     static NativeKnobs From(const Config& cfg);
