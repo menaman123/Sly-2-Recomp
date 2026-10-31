@@ -8,6 +8,7 @@
 #include <cstdio>
 
 #include "engine/iop/abi/host_app/iop_stubs.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/native_iop_module.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop/spiop_state.h"
 
 namespace ps2r::title::sly2::spiop {
@@ -81,8 +82,6 @@ inline int32_t Mod360Positive(int32_t x) {
     return r;
 }
 
-uint64_t g_calls[128];
-uint64_t g_recompiled_roots = 0;   // entries through the map that reached a recompiled body (no native one installed)
 
 // ---------------------------------------------------------------------------------------------------------
 // The 'SUKR' handlers (0x5a000..0x5a30c): op -> body, each fetching the context first.
@@ -1854,79 +1853,13 @@ const NativeFn* Find(uint32_t addr) {
     return nullptr;
 }
 
-size_t InstallInto(std::map<uint32_t, std::function<void(Ctx&)>>& functions, const std::string& filter, std::string* installed) {
-    const bool all = filter.empty() || filter == "all" || filter == "on" || filter == "1";
-    size_t n = 0;
-    for (size_t i = 0; i < kFunctionCount; ++i) {
-        const NativeFn& f = kFunctions[i];
-        bool hit = all;
-        if (!all) {
-            char key[16];
-            std::snprintf(key, sizeof(key), "%x", f.addr);
-            size_t pos = 0;
-            while (pos <= filter.size()) {
-                size_t end = filter.find(',', pos);
-                if (end == std::string::npos) end = filter.size();
-                std::string tok = filter.substr(pos, end - pos);
-                if (tok.rfind("0x", 0) == 0) tok = tok.substr(2);
-                if (tok == key) hit = true;
-                pos = end + 1;
-            }
-        }
-        auto it = functions.find(f.addr);
-        if (it == functions.end()) continue;   // not a function the recompiler emitted at this address
-        if (!hit) {
-            // not selected: count the entries that reach the recompiled body through the map
-            auto recompiled = it->second;
-            it->second = [recompiled](Ctx& ctx) {
-                ++g_recompiled_roots;
-                recompiled(ctx);
-            };
-            continue;
-        }
-        const Body body = f.body;
-        uint64_t* counter = &g_calls[i];
-        it->second = [body, counter](Ctx& ctx) {
-            ++*counter;
-            body(ctx);
-        };
-        ++n;
-        if (installed) {
-            if (!installed->empty()) installed->push_back(',');
-            char key[16];
-            std::snprintf(key, sizeof(key), "%x", f.addr);
-            *installed += key;
-        }
-    }
-    return n;
-}
+namespace {
+void Thunk(Ctx& ctx, void* self) { static_cast<const NativeFn*>(self)->body(ctx); }
+}  // namespace
 
-uint64_t NativeCalls() {
-    uint64_t t = 0;
-    for (size_t i = 0; i < kFunctionCount; ++i) t += g_calls[i];
-    return t;
-}
-
-uint64_t NativeCalls(uint32_t addr) {
+void Register(NativeIopModule& spiop) {
     for (size_t i = 0; i < kFunctionCount; ++i)
-        if (kFunctions[i].addr == addr) return g_calls[i];
-    return 0;
-}
-
-uint64_t RecompiledRootCalls() { return g_recompiled_roots; }
-
-void ResetCounters() {
-    for (uint64_t& c : g_calls) c = 0;
-    g_recompiled_roots = 0;
-}
-
-std::string CensusRow() {
-    // spiop:<native calls>/<native + recompiled root entries>:fns=<ported>
-    const uint64_t n = NativeCalls();
-    char buf[96];
-    std::snprintf(buf, sizeof(buf), "spiop:%llu/%llu:fns=%zu", static_cast<unsigned long long>(n),
-                  static_cast<unsigned long long>(n + g_recompiled_roots), kFunctionCount);
-    return buf;
+        spiop.Add(kFunctions[i].addr, &Thunk, kFunctions[i].name, const_cast<NativeFn*>(&kFunctions[i]));
 }
 
 }  // namespace ps2r::title::sly2::spiop

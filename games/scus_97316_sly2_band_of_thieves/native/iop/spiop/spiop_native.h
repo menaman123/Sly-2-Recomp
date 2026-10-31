@@ -12,21 +12,20 @@
 // installed and recompiled when it is not -- the fallback and the oracle at every call). What is not
 // mirrored: the leftover values of caller-saved registers ($t*, $a*, $v1) at return.
 //
-// INSTALLATION. `Functions()` lists {address, size, body}; the composition installs them either through
-// the iopsys track's per-function seam (`iop_spiop::iop_seam_install`) or, until that lands, by replacing
-// the entries of `iop_spiop::iop_recompiled_functions` (`InstallInto`): every way a module function is
-// reached from outside -- the 'SUKR' handlers 989snd jumps to, the thread bodies thbase starts, the
-// module entry -- resolves through that map, so the roots run native and the whole call tree follows.
-// A filter (title.native.spiop=<csv of addresses>, or `all`) selects which bodies are installed.
+// INSTALLATION. `RegisterSpiopNatives(NativeIopModule&)` Add()s every body by the address of the recompiled
+// function it replaces (native_iop_bodies.cpp); the iopsys frame installs the admitted ones into the module's
+// per-function seam slots under title.native.iopsys (NATIVEEE_IOP_NATIVE=spiop[:addr,...] bisects). The census
+// reads `native_iop=spiop:<native fns>/<total>:<native calls>/<recompiled calls>`.
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <map>
-#include <string>
 
 #include "engine/iop/iop_context.h"
+
+namespace ps2r::title::sly2 {
+class NativeIopModule;
+}
 
 namespace ps2r::title::sly2::spiop {
 
@@ -43,18 +42,12 @@ struct NativeFn {
 const NativeFn* Functions(size_t& count);
 const NativeFn* Find(uint32_t addr);
 
-// Replaces the map entries (the pre-seam install). `filter`: "" or "all" = every ported function; else a
-// comma-separated list of hex addresses. Returns the number installed; `installed` (optional) collects them.
-size_t InstallInto(std::map<uint32_t, std::function<void(ps2r::iop::IopContext&)>>& functions, const std::string& filter,
-                   std::string* installed = nullptr);
+// Adds every ported body to the spiop NativeIopModule (the iopsys frame installs them).
+void Register(NativeIopModule& spiop);
 
-// Per-body call counters (the census: native_iop=spiop:<native>/<total ported>).
-uint64_t NativeCalls();
-uint64_t NativeCalls(uint32_t addr);
-// Entries through the map that reached a recompiled body (a ported function not selected by the filter).
-uint64_t RecompiledRootCalls();
-void ResetCounters();
-// The run.meta row: "spiop:<native calls>/<native + recompiled root entries>:fns=<ported>".
-std::string CensusRow();
+}  // namespace ps2r::title::sly2::spiop
 
+namespace ps2r::title::sly2 {
+// The registry line (native_iop_bodies.cpp).
+inline void RegisterSpiopNatives(NativeIopModule& spiop) { spiop::Register(spiop); }
 }  // namespace ps2r::title::sly2::spiop
