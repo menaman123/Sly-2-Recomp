@@ -218,6 +218,15 @@ void fn_49428(IopContext&);   // thread_Refill()
 // snd989_cdthread.cpp -- the CD stream thread.
 void fn_47fec(IopContext&);   // thread_CdStream()
 
+// snd989_init.cpp -- the boot-time path.
+void fn_33000(IopContext&);   // ext_Register(rec)
+void fn_34a68(IopContext&);   // rpc1_Handler(fno, args)
+void fn_34c14(IopContext&);   // module_Init(argc, argv)
+void fn_34fd8(IopContext&);   // banner()
+void fn_3a250(IopContext&);   // snd_Init(flags)
+void fn_3a48c(IopContext&);   // tick_Init()
+void fn_3aa9c(IopContext&);   // load_Init()
+
 // snd989_misc.cpp -- handle validation, the timer / CD callbacks, group scaling, the owned-voice scan.
 void fn_3a90c(IopContext&);   // tick_TimerBeat(arg)
 void fn_3a9dc(IopContext&);   // stream_CdReadDone(status)
