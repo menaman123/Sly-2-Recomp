@@ -90,8 +90,10 @@ def parse(path):
 guest_arity = {}
 
 
-def key(row, opts, ignore_regs, ignore_imports):
-    """The comparable tuple of a row (the body column dropped; ignored columns blanked)."""
+def key(row, opts, ignore_regs, ignore_imports, next_row=None):
+    """The comparable tuple of a row (the body column dropped; ignored columns blanked). `next_row`: the row
+    after this one -- an import of a HOSTED module's export (snd989:93, lgaud:18 ...) is masked by the guest
+    arity of the export it enters (the E row that follows), since the stock table cannot know it."""
     kind = row[0]
     if kind == 'E':
         # E seq mod addr body a0 a1 a2 a3 sp ra t tid depth
@@ -114,7 +116,11 @@ def key(row, opts, ignore_regs, ignore_imports):
         if imp in ignore_imports:
             regs = ['-'] * 4
         elif not opts.all_import_regs:
-            arity = IMPORT_ARITY.get(imp, 4)
+            arity = IMPORT_ARITY.get(imp)
+            if arity is None and next_row is not None and next_row[0] == 'E' and len(next_row) > 3:
+                arity = guest_arity.get(next_row[3].lower())
+            if arity is None:
+                arity = 4
             regs = regs[:arity] + ['-'] * (4 - arity)
         return ('I', imp, regs[0], regs[1], regs[2], regs[3], t if opts.time else '-', depth)
     if kind == 'J':
@@ -203,8 +209,8 @@ def main():
         summary(b, opts.on)
     n = min(len(a), len(b))
     for i in range(n):
-        ka = key(a[i], opts, ignore_regs, ignore_imports)
-        kb = key(b[i], opts, ignore_regs, ignore_imports)
+        ka = key(a[i], opts, ignore_regs, ignore_imports, a[i + 1] if i + 1 < len(a) else None)
+        kb = key(b[i], opts, ignore_regs, ignore_imports, b[i + 1] if i + 1 < len(b) else None)
         if ka == kb:
             continue
         print(f"DIVERGE at row {i} (seq OFF={a[i][1]} ON={b[i][1]})")
