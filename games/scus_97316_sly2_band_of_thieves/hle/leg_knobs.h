@@ -81,7 +81,9 @@ struct LegKnobs {
     // programmed registers, loop ends, transfers, unmodelled services, a per-second level census per voice).
     std::optional<std::string> spu_trace;
     // NATIVEEE_RPC_TRACE=<file>: every EE -> IOP RPC round trip into a hosted module (IOP frame, sid, fno,
-    // request bytes, reply pointer and bytes).
+    // request bytes, reply pointer and bytes), the `RPC<` dispatch marker before each, and every libsd
+    // entry the IOP code reached (`SD ord a0 a1 a2 a3 extra -> v0`) in call order -- the libsd op sequence
+    // between a round trip's `RPC<` and its reply line is what that RPC caused.
     std::optional<std::string> rpc_trace;
     // NATIVEEE_PAD_SCRIPT=<script text | file> / NATIVEEE_PAD_RECORD=<file> / NATIVEEE_KEY_SCRIPT=<steps>.
     std::optional<std::string> pad_script;

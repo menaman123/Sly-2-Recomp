@@ -26,6 +26,8 @@ add_library(ps2r_title_native STATIC
     vif/vif_chain_tags.cpp
     vif/vif_native_chains.cpp
     vif/vif_unpack_native.cpp
+    native_iop.cpp
+    iop/native_snd_server.cpp
 )
 target_include_directories(ps2r_title_native PUBLIC ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/..)
 # -ffp-contract=off: the float contract spelled for every compiler (the engine's rule for GNU; Clang's
@@ -35,7 +37,7 @@ if(PS2R_SIMD)
     target_compile_definitions(ps2r_title_native PRIVATE PS2R_SIMD=1)
 endif()
 # ps2r_core: Config (title.native.*); ps2r_host: engine/platform (the only host surface allowed here).
-target_link_libraries(ps2r_title_native PUBLIC ps2r_core ps2r_host ps2r_gif ps2r_vu ps2r_gs_state ps2r_dmac ps2r_vif ps2r_ee)
+target_link_libraries(ps2r_title_native PUBLIC ps2r_core ps2r_host ps2r_gif ps2r_vu ps2r_gs_state ps2r_dmac ps2r_vif ps2r_ee ps2r_sif ps2r_iop ps2r_sound)
 # The seams the tracks plug into: ps2r_gif (GifArbiter, GsSink, DrawAttribution), ps2r_vu (the VU1
 # program identity for the census), ps2r_gs_state (GsState, the builders' target).
 
@@ -56,3 +58,4 @@ target_compile_options(sly2_test_native_vif PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(sly2_test_native_vif PRIVATE ps2r_title_native ps2r_gs_ir)
 add_test(NAME Sly2_NativeVifChains COMMAND sly2_test_native_vif)
 set_tests_properties(Sly2_NativeVifChains PROPERTIES TIMEOUT 120)
+# The IOP / SPU2 native path's seams: RpcRouter (ps2r_sif), LibsdModule (ps2r_iop), SpuCore (ps2r_sound).

@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 
 #include "engine/core/config/config.h"
@@ -40,6 +41,7 @@ public:
     std::function<bool()> quantum_gate;
 
     IopHost iop_host;
+    std::FILE* rpc_trace_file = nullptr;   // the open NATIVEEE_RPC_TRACE file (never closed: the process ends with the leg)
     struct YieldUnbind {
         ~YieldUnbind() { EeYieldPoint::Instance().Unbind(); }
     } yield_unbind;

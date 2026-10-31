@@ -50,6 +50,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_agent.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/native_iop.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/native_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vif/native_vif.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
@@ -176,6 +177,18 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     if (native_vif.Installed() && mtvu.mtvu)
         std::fprintf(stderr, "nativeee: native vif/dmac: the MTVU worker owns the VIF1 feed -- the native chain executor is idle\n");
     census.SetNativeVifCensus([&native_vif] { return native_vif.Census(); });
+    // title.native.iop / .spu: the native 989snd RPC servers over the hosted module's router rows (native_iop.h).
+    std::unique_ptr<NativeIop> native_iop;
+    {
+        NativeIop::Deps nd;
+        nd.router = &services.rpc_router;
+        nd.libsd = &iop.iop_host.Libsd();
+        nd.set_server_observer = [&iop](NativeIop::ServerObserver o) { iop.iop_host.SetServerObserver(std::move(o)); };
+        nd.spu = &services.spu_core;
+        nd.ee_ram = [&ram = core.ram](uint32_t addr, uint32_t size) -> uint8_t* { return ram.Pointer(MainMemory::Phys(addr), size); };
+        nd.rpc_trace = iop.rpc_trace_file;
+        native_iop = NativeIop::Install(native_knobs, std::move(nd));
+    }
     LegParkSink park_sink(host, census, park, play, disc, iop);
     LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);
     if (verify.Failed()) return 2;
