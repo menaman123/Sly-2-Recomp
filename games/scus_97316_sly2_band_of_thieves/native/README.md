@@ -50,6 +50,7 @@ engine's existing seams. This is NOT the decompilation: the game's recompiled EE
 | `native_census.{h,cpp}` | `NativeCensus::Instance()` -- per-unit served/fallback counters; `Row()` = run.meta `native=` |
 | `native_simd.{h,cpp}` | the portable `Vec4f` (NEON / SSE2 / scalar) |
 | `native_<unit>.{h,cpp}` | one per track: `vu1`, `gif`, `vif` + `dmac`, `iop` + `spu`, `gs` + `vu0` -- the native paths themselves |
+| `vu0/` | `title.native.vu0`: the seven VU0 microprograms the game's VCALLMS sites start (0x0 / 0x10 / 0x60 / 0xf0 / 0x120 / 0x150 / 0x1c0) as host bodies GENERATED AT BUILD TIME from the ELF's VU0 image by `vu0_native_gen` (pinned by `vu0/MANIFEST.sha256`); `native_vu0.{h,cpp}` installs the `VuTierDispatch::SetVu0Hook` body (fingerprint-gated, the cached tier is the fallback); `test_sly2_vu0_native` = the oracle (cached == interp == native on random register files). The COP2 inline ops are the recompiler's `--vu0-native` (`recomp/CMakeLists.txt` `PS2R_SLY2_VU0_NATIVE`, `recomp/INVOCATION.md`) |
 
 Install order: `boot_leg.cpp` RunLeg builds `NativeKnobs` from `cfg` after the devices exist and
 before the census is constructed; each native path's installer takes the knobs and the seam's
