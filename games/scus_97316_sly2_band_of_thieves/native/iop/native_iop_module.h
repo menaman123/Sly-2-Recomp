@@ -26,8 +26,11 @@
 #include <string>
 #include <vector>
 
+#include <functional>
+
 #include "engine/iop/abi/host_app/iop_seam.h"
 #include "engine/iop/iop_context.h"
+#include "engine/iop/iop_kernel.h"
 
 namespace ps2r::title::sly2 {
 
@@ -65,7 +68,8 @@ public:
     };
     struct Candidate {
         uint32_t addr;
-        iop_seam::NativeFn fn;
+        iop_seam::NativeFn fn;      // the self form, or nullptr when `plain` is set
+        iop_seam::PlainFn plain;    // the plain `void(IopContext&)` form
         void* self;
         const char* name;
         bool installed;
@@ -84,11 +88,25 @@ public:
     void Bind(Table t) { table_ = t; }
     const Table& Bound() const { return table_; }
 
-    // A native body for the guest function at `addr` (`self` defaults to this module).
+    // A native body for the guest function at `addr` (`self` defaults to this module) -- or the plain
+    // `void(IopContext&)` form (a free function over the module's RAM; no object).
     void Add(uint32_t addr, iop_seam::NativeFn fn, const char* name, void* self = nullptr);
+    void Add(uint32_t addr, iop_seam::PlainFn fn, const char* name);
     // Member-function trampoline: Add(addr, &Thunk<T, &T::Body>, name, this).
     template <class T, void (T::*Body)(IopContext&)>
     static void Thunk(IopContext& ctx, void* self) { (static_cast<T*>(self)->*Body)(ctx); }
+
+    // A thread ENTRY in the step form (engine/iop/iop_kernel.h: a body that returns its Park instead of
+    // blocking; no coroutine). Asked at every thbase StartThread of a thread whose entry is `entry` with the
+    // thread's initial IopContext ($sp/$gp/$a0); admitted by the same filter as the function bodies. A module
+    // whose every thread entry has a step factory runs without a coroutine switch (iop_dispatch= census:
+    // coro_switches=0 for it). The function body at `entry` may ALSO be Add()ed: it serves the coroutine form
+    // (knob off / not admitted) and any direct call.
+    using StepFactory = std::function<iop::IopKernel::StepBody(const IopContext& initial)>;
+    void AddThread(uint32_t entry, StepFactory factory, const char* name);
+    // The step body for `entry` when admitted and registered; empty otherwise (-> the coroutine body).
+    iop::IopKernel::StepBody StepBodyFor(uint32_t entry, const IopContext& initial) const;
+    size_t StepThreads() const { return threads_.size(); }
 
     // Installs the admitted candidates into the bound table; returns how many. A candidate whose address
     // is not a generated function start is reported (stderr) and skipped. Uninstall() restores every slot.
@@ -110,7 +128,14 @@ private:
     const char* id_;
     uint32_t base_, extent_;
     Table table_;
+    struct ThreadEntry {
+        uint32_t entry;
+        StepFactory factory;
+        const char* name;
+    };
     std::vector<Candidate> candidates_;
+    std::vector<ThreadEntry> threads_;
+    const NativeIopFilter* filter_ = nullptr;   // the filter of the last Install (StepBodyFor's admission)
     int installed_ = 0;
 };
 

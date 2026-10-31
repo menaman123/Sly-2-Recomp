@@ -38,6 +38,7 @@ add_library(ps2r_title_native STATIC
     iop/iop_services.cpp
     iop/iop_call_trace.cpp
     iop/snd989_lock.cpp
+    iop/spiop_tray_thread.cpp
     # lgaud track (iop/native_lgaud.h): lgAud + FILEIO_service bodies
     iop/native_lgaud.cpp
 )

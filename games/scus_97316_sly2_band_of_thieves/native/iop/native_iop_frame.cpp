@@ -22,6 +22,15 @@ NativeIopFrame::NativeIopFrame(Deps deps) : deps_(std::move(deps)), filter_(Nati
         IopCallTrace::Open(deps_.trace_path, std::move(td));
     }
     if (deps_.enabled) Install();
+    // The step-thread provider: a thread entry registered by AddThread on the module that owns the address
+    // (admitted by the filter when the knob is on; empty = the coroutine form).
+    if (deps_.set_step_provider) {
+        deps_.set_step_provider([this](uint32_t entry, const IopContext& initial) -> iop::IopKernel::StepBody {
+            for (auto& m : modules_)
+                if (m->Owns(entry)) return m->StepBodyFor(entry, initial);
+            return {};
+        });
+    }
 }
 
 NativeIopFrame::~NativeIopFrame() {
