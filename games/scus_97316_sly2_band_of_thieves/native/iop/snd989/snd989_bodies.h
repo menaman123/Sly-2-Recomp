@@ -227,6 +227,17 @@ void fn_3a250(IopContext&);   // snd_Init(flags)
 void fn_3a48c(IopContext&);   // tick_Init()
 void fn_3aa9c(IopContext&);   // load_Init()
 
+// snd989_init2.cpp -- the boot-time path, part 2.
+void fn_3d674(IopContext&);   // bank_PostLoad
+void fn_3e6f4(IopContext&);   // movie_Stop
+void fn_3e7d8(IopContext&);   // movie_VoiceStop
+void fn_41a64(IopContext&);   // mask_StopAll
+void fn_41bd0(IopContext&);   // mask_ResumeAll
+void fn_4b0a4(IopContext&);   // stream_IdleWait
+void fn_4bf1c(IopContext&);   // voice_TableInit
+void fn_4ea54(IopContext&);   // pan_Law
+void fn_4f224(IopContext&);   // group_RampParams
+
 // snd989_misc.cpp -- handle validation, the timer / CD callbacks, group scaling, the owned-voice scan.
 void fn_3a90c(IopContext&);   // tick_TimerBeat(arg)
 void fn_3a9dc(IopContext&);   // stream_CdReadDone(status)
