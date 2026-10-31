@@ -25,6 +25,7 @@ add_library(ps2r_title_native STATIC
     vif/vif_census.cpp
     vif/vif_chain_tags.cpp
     vif/vif_native_chains.cpp
+    vif/vif_native_spans.cpp
     vif/vif_unpack_native.cpp
     native_iop.cpp
     iop/native_snd_server.cpp

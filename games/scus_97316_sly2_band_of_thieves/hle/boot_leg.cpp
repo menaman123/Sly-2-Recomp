@@ -171,12 +171,11 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     auto native_detail = [&]() {   // the census detail strings, written once the game stopped
         if (native_gif) NativeCensus::Instance().SetDetail(NativeUnit::Gif, native_gif->Detail());
     };
-    // vif + dmac: the VIF1 chain executor on the DMAC walker (inline feed only; the MTVU worker keeps the model).
-    // Also the VIF chain census (NATIVEEE_VIF_CENSUS=<file>), which installs the same executor read-only.
+    // dmac: the VIF1 chain executor on the DMAC walker (inline and staged walks); vif: the span executor on
+    // the VIF unit (every VIF1 span, on the EE thread inline or on the MTVU worker's thread under the staged
+    // feed). Also the VIF chain census (NATIVEEE_VIF_CENSUS=<file>), which installs the chain executor read-only.
     NativeVif native_vif(core.ram, core.spad, devices.vif, devices.dmac.walker(),
                          NativeVif::Options{native_knobs.dmac, native_knobs.vif, knobs.vif_census ? *knobs.vif_census : std::string()});
-    if (native_vif.Installed() && mtvu.mtvu)
-        std::fprintf(stderr, "nativeee: native vif/dmac: the MTVU worker owns the VIF1 feed -- the native chain executor is idle\n");
     census.SetNativeVifCensus([&native_vif] { return native_vif.Census(); });
     // title.native.iop / .spu: the native 989snd RPC servers over the hosted module's router rows (native_iop.h).
     std::unique_ptr<NativeIop> native_iop;
