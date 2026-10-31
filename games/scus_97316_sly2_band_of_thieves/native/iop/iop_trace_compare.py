@@ -18,6 +18,11 @@ Rows: E seq mod addr n|r a0 a1 a2 a3 sp ra t_us tid depth / X seq mod addr n|r v
                           a2/a3 (register-file leftovers, nat2-snd.md); `*:ra` ignores $ra everywhere
 --ignore-imports LIB:IDX  do not compare the named import's registers (e.g. libsd:10 a2/a3 leftovers): the
                           row must still be there, only its register columns are skipped
+--guest-arity FILE        `<addr-hex> <n>` lines: compare only a0..a(n-1) at the entry of guest function
+                          <addr> (its real argument count, read off the generated body); others: all four
+--all-import-regs         compare all four registers of every import. Default: only the registers the
+                          import READS (the stock libraries' arities, IMPORT_ARITY below; unknown = 4) --
+                          a MIPS caller loads only the registers it passes, so a2/a3 carry leftovers
 --no-time                 do not compare the t_us column (the IOP clock) -- a port that changes the
                           dispatch count moves it; the default compares it
 --compare-ra              compare $ra at entry (default off: a native caller leaves $ra as it found it;
@@ -29,6 +34,34 @@ Exit 0 = identical under the options, 1 = divergence found, 2 = usage / read err
 """
 import argparse
 import sys
+
+
+# The stock libraries' import arities (how many of a0-a3 the HLE body reads): stock_library_binder.cpp.
+IMPORT_ARITY = {
+    'thbase:4': 1, 'thbase:5': 1, 'thbase:6': 2, 'thbase:8': 0, 'thbase:9': 0, 'thbase:10': 1, 'thbase:14': 2,
+    'thbase:16': 1, 'thbase:20': 0, 'thbase:22': 2, 'thbase:24': 0, 'thbase:25': 1, 'thbase:26': 1, 'thbase:33': 1,
+    'thbase:39': 2,
+    'thsemap:4': 1, 'thsemap:5': 1, 'thsemap:6': 1, 'thsemap:7': 1, 'thsemap:8': 1, 'thsemap:9': 1,
+    'thevent:4': 1, 'thevent:5': 1, 'thevent:6': 2, 'thevent:7': 2, 'thevent:8': 2, 'thevent:9': 2, 'thevent:10': 4,
+    'thevent:11': 4, 'thevent:12': 2,
+    'thmsgbx:4': 1, 'thmsgbx:5': 1, 'thmsgbx:6': 2, 'thmsgbx:7': 2, 'thmsgbx:8': 2, 'thmsgbx:9': 2, 'thmsgbx:11': 2,
+    'intrman:8': 0, 'intrman:9': 0, 'intrman:17': 1, 'intrman:18': 1,
+    'timrman:4': 3, 'timrman:6': 1, 'timrman:20': 4, 'timrman:22': 4, 'timrman:23': 1, 'timrman:24': 1,
+    'sifman:5': 0, 'sifman:7': 2, 'sifman:8': 1, 'sifman:29': 0, 'sifman:32': 4,
+    'sifcmd:12': 3, 'sifcmd:13': 3, 'sifcmd:14': 1, 'sifcmd:15': 2, 'sifcmd:16': 4, 'sifcmd:17': 4, 'sifcmd:19': 2,
+    'sifcmd:22': 1, 'sifcmd:23': 4, 'sifcmd:24': 2, 'sifcmd:25': 1,
+    'sysmem:4': 3, 'sysmem:5': 1, 'sysmem:6': 0, 'sysmem:7': 0, 'sysmem:8': 0, 'sysmem:9': 1, 'sysmem:10': 1,
+    'loadcore:5': 0, 'loadcore:6': 1, 'loadcore:7': 1, 'loadcore:12': 0,
+    'cdvdman:4': 1, 'cdvdman:6': 4, 'cdvdman:8': 0, 'cdvdman:10': 2, 'cdvdman:11': 1, 'cdvdman:12': 0, 'cdvdman:13': 1,
+    'cdvdman:14': 2, 'cdvdman:15': 0, 'cdvdman:37': 1, 'cdvdman:39': 0, 'cdvdman:75': 1,
+    'modload:17': 2, 'modload:18': 3,
+    # libsd (export index): Init 1, SetParam 2, GetParam 1, SetSwitch 2, GetSwitch 1, SetAddr 2, GetAddr 1,
+    # SetCoreAttr 2, Note2Pitch 1, ProcBatch 3, VoiceTrans 4, BlockTrans 4, VoiceTransStatus 2, BlockTransStatus 2,
+    # SetTransCallback 2, SetEffectAttr 2, GetEffectAttr 2
+    'libsd:4': 1, 'libsd:5': 2, 'libsd:6': 1, 'libsd:7': 2, 'libsd:8': 1, 'libsd:9': 2, 'libsd:10': 1, 'libsd:11': 2,
+    'libsd:13': 1, 'libsd:15': 3, 'libsd:17': 4, 'libsd:18': 4, 'libsd:19': 2, 'libsd:20': 2, 'libsd:23': 2,
+    'libsd:25': 2, 'libsd:26': 2,
+}
 
 
 def parse(path):
@@ -44,6 +77,9 @@ def parse(path):
     return rows
 
 
+guest_arity = {}
+
+
 def key(row, opts, ignore_regs, ignore_imports):
     """The comparable tuple of a row (the body column dropped; ignored columns blanked)."""
     kind = row[0]
@@ -53,6 +89,10 @@ def key(row, opts, ignore_regs, ignore_imports):
         regs = {'a0': a0, 'a1': a1, 'a2': a2, 'a3': a3, 'sp': sp, 'ra': ra}
         for name in ignore_regs.get(addr.lower(), set()) | ignore_regs.get('*', set()):
             regs[name] = '-'
+        arity = guest_arity.get(addr.lower())
+        if arity is not None:
+            for i in range(arity, 4):
+                regs['a%d' % i] = '-'
         return ('E', mod, addr, regs['a0'], regs['a1'], regs['a2'], regs['a3'], regs['sp'],
                 regs['ra'] if opts.ra else '-', t if opts.time else '-', tid, depth)
     if kind == 'X':
@@ -60,9 +100,13 @@ def key(row, opts, ignore_regs, ignore_imports):
         return ('X', mod, addr, v0, v1 if opts.v1 else '-', t if opts.time else '-')
     if kind == 'I':
         _, _seq, imp, a0, a1, a2, a3, t, depth = row[:9]
+        regs = [a0, a1, a2, a3]
         if imp in ignore_imports:
-            a0 = a1 = a2 = a3 = '-'
-        return ('I', imp, a0, a1, a2, a3, t if opts.time else '-', depth)
+            regs = ['-'] * 4
+        elif not opts.all_import_regs:
+            arity = IMPORT_ARITY.get(imp, 4)
+            regs = regs[:arity] + ['-'] * (4 - arity)
+        return ('I', imp, regs[0], regs[1], regs[2], regs[3], t if opts.time else '-', depth)
     if kind == 'J':
         _, _seq, imp, v0, t = row[:5]
         if imp in ignore_imports:
@@ -72,18 +116,27 @@ def key(row, opts, ignore_regs, ignore_imports):
 
 
 def stack_at(rows, upto):
-    """The open E rows (guest call stack) before row index `upto`."""
-    stack = []
-    for r in rows[:upto]:
+    """The open E rows (guest call stack) of the thread running at row `upto` (per-tid stacks: the
+    coroutines interleave at their parks; an X row pops the innermost E of its address on the last
+    thread that entered it)."""
+    stacks = {}
+    owner = {}
+    cur = None
+    for r in rows[:upto + 1]:
         if r[0] == 'E':
-            stack.append(r)
-        elif r[0] == 'X' and stack:
-            # pop the innermost E of the same address (a body that parked and resumed keeps its order)
-            for i in range(len(stack) - 1, -1, -1):
-                if stack[i][3] == r[3]:
-                    del stack[i]
+            tid = r[12] if len(r) > 12 else '?'
+            stacks.setdefault(tid, []).append(r)
+            owner[r[3]] = tid
+            cur = tid
+        elif r[0] == 'X':
+            tid = owner.get(r[3])
+            st = stacks.get(tid, [])
+            for i in range(len(st) - 1, -1, -1):
+                if st[i][3] == r[3]:
+                    del st[i]
                     break
-    return stack
+            cur = tid
+    return stacks.get(cur, [])
 
 
 def summary(rows, label):
@@ -110,6 +163,8 @@ def main():
     ap.add_argument('--no-time', dest='time', action='store_false')
     ap.add_argument('--compare-ra', dest='ra', action='store_true')
     ap.add_argument('--compare-v1', dest='v1', action='store_true')
+    ap.add_argument('--all-import-regs', action='store_true')
+    ap.add_argument('--guest-arity', metavar='FILE')
     ap.add_argument('--summary', action='store_true')
     opts = ap.parse_args()
     ignore_regs = {}
@@ -120,6 +175,13 @@ def main():
             a = a[2:]
         ignore_regs.setdefault(a, set()).update(x.strip() for x in regs.split(',') if x.strip())
     ignore_imports = set(opts.ignore_imports)
+    if opts.guest_arity:
+        with open(opts.guest_arity) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2 and not parts[0].startswith('#'):
+                    a = parts[0].lower()
+                    guest_arity[a[2:] if a.startswith('0x') else a] = int(parts[1])
     try:
         a = parse(opts.off)
         b = parse(opts.on)

@@ -24,9 +24,15 @@ namespace ps2r::title::sly2 {
 using iop::IopContext;
 
 struct IopServices {
-    // The generic import: a0..a3 set, the HLE body run, v0 returned (gpr[2]).
-    static uint32_t Import(IopContext& ctx, const char* lib, uint32_t index, uint32_t a0 = 0, uint32_t a1 = 0,
-                           uint32_t a2 = 0, uint32_t a3 = 0);
+    // The generic import: the arguments given set a0.. (the registers a MIPS caller loads: a0-a3 the body does
+    // not pass keep the caller's values, as the recompiled call site leaves them), the HLE body run, v0
+    // returned (gpr[2]).
+    static uint32_t Import(IopContext& ctx, const char* lib, uint32_t index);
+    static uint32_t Import(IopContext& ctx, const char* lib, uint32_t index, uint32_t a0);
+    static uint32_t Import(IopContext& ctx, const char* lib, uint32_t index, uint32_t a0, uint32_t a1);
+    static uint32_t Import(IopContext& ctx, const char* lib, uint32_t index, uint32_t a0, uint32_t a1, uint32_t a2);
+    static uint32_t Import(IopContext& ctx, const char* lib, uint32_t index, uint32_t a0, uint32_t a1, uint32_t a2,
+                           uint32_t a3);
     // Another guest function at `addr` (its seam wrapper: the installed native body or the recompiled one).
     // `ra`, when non-zero, is what a JAL would have left in $ra (the recompiled body saves it to its frame;
     // control never depends on it). Returns v0. False-returning variant: no function at `addr`.
@@ -124,9 +130,12 @@ struct IopServices {
     // -- sysmem 1.02 / stdio 1.03 / loadcore 1.03 --------------------------------------------------------
     static uint32_t AllocSysMemory(IopContext& ctx, uint32_t mode, uint32_t size, uint32_t addr) { return Import(ctx, "sysmem", 4, mode, size, addr); }
     static int32_t FreeSysMemory(IopContext& ctx, uint32_t addr) { return S(Import(ctx, "sysmem", 5, addr)); }
-    // printf(fmt, a1, a2, a3): the format string and the first three args as the recompiled body passed them
-    // (the stdio HLE formats from IOP RAM; stack args past a3 at $sp+0x10.. as the ABI lays them).
-    static int32_t Printf(IopContext& ctx, uint32_t fmt, uint32_t a1 = 0, uint32_t a2 = 0, uint32_t a3 = 0) {
+    // printf(fmt, ...): the format string and the register args the recompiled body loaded (the stdio HLE
+    // formats from IOP RAM; stack args past a3 at $sp+0x10.. as the ABI lays them).
+    static int32_t Printf(IopContext& ctx, uint32_t fmt) { return S(Import(ctx, "stdio", 4, fmt)); }
+    static int32_t Printf(IopContext& ctx, uint32_t fmt, uint32_t a1) { return S(Import(ctx, "stdio", 4, fmt, a1)); }
+    static int32_t Printf(IopContext& ctx, uint32_t fmt, uint32_t a1, uint32_t a2) { return S(Import(ctx, "stdio", 4, fmt, a1, a2)); }
+    static int32_t Printf(IopContext& ctx, uint32_t fmt, uint32_t a1, uint32_t a2, uint32_t a3) {
         return S(Import(ctx, "stdio", 4, fmt, a1, a2, a3));
     }
     static int32_t RegisterLibraryEntries(IopContext& ctx, uint32_t table) { return S(Import(ctx, "loadcore", 6, table)); }
@@ -136,7 +145,13 @@ struct IopServices {
     // 6 = GetParam, 7 = SetSwitch, 8 = GetSwitch, 9 = SetAddr, 10 = GetAddr, 11 = SetCoreAttr, 13 = Note2Pitch,
     // 15 = ProcBatch, 17 = VoiceTrans, 18 = BlockTrans, 19 = VoiceTransStatus, 20 = BlockTransStatus,
     // 23 = SetTransCallback, 25 = SetEffectAttr, 26 = GetEffectAttr -- stock_library_binder.cpp's kLibsd).
-    static uint32_t Libsd(IopContext& ctx, uint32_t index, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 = 0, uint32_t a3 = 0) {
+    static uint32_t Libsd(IopContext& ctx, uint32_t index) { return Import(ctx, "libsd", index); }
+    static uint32_t Libsd(IopContext& ctx, uint32_t index, uint32_t a0) { return Import(ctx, "libsd", index, a0); }
+    static uint32_t Libsd(IopContext& ctx, uint32_t index, uint32_t a0, uint32_t a1) { return Import(ctx, "libsd", index, a0, a1); }
+    static uint32_t Libsd(IopContext& ctx, uint32_t index, uint32_t a0, uint32_t a1, uint32_t a2) {
+        return Import(ctx, "libsd", index, a0, a1, a2);
+    }
+    static uint32_t Libsd(IopContext& ctx, uint32_t index, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
         return Import(ctx, "libsd", index, a0, a1, a2, a3);
     }
 

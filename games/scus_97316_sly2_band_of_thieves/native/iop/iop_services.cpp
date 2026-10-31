@@ -8,6 +8,32 @@
 
 namespace ps2r::title::sly2 {
 
+uint32_t IopServices::Import(IopContext& ctx, const char* lib, uint32_t index) {
+    iop::IopAbiSurface::ImportCall(lib, index, ctx);
+    return ctx.gpr[2];
+}
+
+uint32_t IopServices::Import(IopContext& ctx, const char* lib, uint32_t index, uint32_t a0) {
+    ctx.gpr[4] = a0;
+    iop::IopAbiSurface::ImportCall(lib, index, ctx);
+    return ctx.gpr[2];
+}
+
+uint32_t IopServices::Import(IopContext& ctx, const char* lib, uint32_t index, uint32_t a0, uint32_t a1) {
+    ctx.gpr[4] = a0;
+    ctx.gpr[5] = a1;
+    iop::IopAbiSurface::ImportCall(lib, index, ctx);
+    return ctx.gpr[2];
+}
+
+uint32_t IopServices::Import(IopContext& ctx, const char* lib, uint32_t index, uint32_t a0, uint32_t a1, uint32_t a2) {
+    ctx.gpr[4] = a0;
+    ctx.gpr[5] = a1;
+    ctx.gpr[6] = a2;
+    iop::IopAbiSurface::ImportCall(lib, index, ctx);
+    return ctx.gpr[2];
+}
+
 uint32_t IopServices::Import(IopContext& ctx, const char* lib, uint32_t index, uint32_t a0, uint32_t a1, uint32_t a2,
                              uint32_t a3) {
     ctx.gpr[4] = a0;

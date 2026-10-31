@@ -31,7 +31,8 @@ recompiled body are interchangeable at any call.
 | `native_iop_bodies.cpp` | the registry: one `Register...(frame.<Module>())` line per module track. |
 | `iop_services.{h,cpp}` | `IopServices`: the stock libraries' services by export ordinal, typed, over the body's own `IopContext` -- the SAME `IopAbiSurface::ImportCall` the recompiled `import_call` reaches (kernel-side and register-side effects identical: a `WaitSema` parks the coroutine where the recompiled one did). `CallGuest(ctx, addr)` runs another guest function through its wrapper. `IopRam` reads/writes the module's state words. `IopStackFrame` for a callee with stack arguments. |
 | `iop_call_trace.{h,cpp}` | `NATIVEEE_IOP_TRACE=<file>`: every guest function entry/exit (a0-a3 / v0, $sp, $ra, the IOP clock, tid) and every import entry/exit, bound on the seam's two hooks. |
-| `iop_trace_compare.py` | the per-function gate: diff the OFF (recompiled) and ON (native) traces; the first divergent row names the body whose port is wrong. |
+| `iop_trace_compare.py` | the per-function gate: diff the OFF (recompiled) and ON (native) traces; the first divergent row names the body whose port is wrong. Compares an import's registers up to the stock library's arity and (with `--guest-arity`) a guest function's up to its own: a MIPS caller loads only the registers it passes, the rest are leftovers a native body leaves differently. |
+| `iop_guest_arity.py` | derives the guest arity file from the generated TUs (which of a0-a3 each function reads before writing, fixpoint over the JAL sites; conservative). |
 | `snd989_lock.{h,cpp}` | the first port and the shared service: the 989snd global lock (fn_42f58 Acquire / fn_430dc Release) over the module's words (owner 0x5229c, sema 0x52528, depth 0x52214, tag stack 0x52218). |
 
 ## Porting a function (the module tracks' loop)
@@ -47,7 +48,12 @@ recompiled body are interchangeable at any call.
    function (one line in `native_iop_bodies.cpp`).
 4. Gate: the lane with `--set title.native.iopsys=on` must equal the baseline rows (nat2_gate.sh); for a
    divergence, record `NATIVEEE_IOP_TRACE` with `NATIVEEE_IOP_NATIVE=none` and with
-   `NATIVEEE_IOP_NATIVE=<id>:<addr>` and run `iop_trace_compare.py OFF ON`.
+   `NATIVEEE_IOP_NATIVE=<id>:<addr>` and run
+   `iop_guest_arity.py <build>/generated/.../iop/*/iop_recompiled.cpp > arity.txt;
+    iop_trace_compare.py OFF ON --guest-arity arity.txt`.
+   The lock's proof: 600 boot.pad frames, OFF vs ON = `IDENTICAL: 219324 rows (71957 guest calls, 37720
+   imports)` -- the whole call stream of the hosted IOP, every argument a callee reads, every import in
+   order, every return value, the IOP clock at every row.
 5. The census (`run.meta native_iop=<id>:<native fns>/<total>:<native calls>/<recompiled calls>`,
    `native_iop_remaining=<id>:<n>fns:<addr>=<calls>...`) says what the lane still reaches as recompiled.
 
