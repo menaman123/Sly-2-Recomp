@@ -18,6 +18,16 @@
 // the table (a miss) falls back to the engine's model (the block tier, proven == the interpreter) and is
 // counted (NativeCensus::Fallback + the per-image miss list in the row's detail).
 //
+// CONTENT IDENTITY (STAGE NATIVE-2): the engine keys a program by the hash of the WHOLE 16 KB micro memory,
+// which carries the residue of earlier uploads, so one disc program had up to three identities and an unseen
+// residue combination was a miss. The table (native_vu1_table.h) now keys each program by the hash of its own
+// bytes (the `size` the disc's ELF uploads at VU address 0: native/vu1/extract_images.py, disc_programs.txt);
+// `Identify` hashes a kicked image's first `size` bytes per row (longest first) and the engine's
+// unknown-image resolver (Vu1AotTier::SetUnknownImageResolver) registers the whole-memory hash as an ALIAS
+// of the program's exports (SetNativeExportsAlias) the first time it is kicked -- before the fallback would
+// run, so no kick is lost. Sound because the generated TU covers only blocks inside the program's extent
+// (vu1_native_gen bounds the closure) and the per-block structural check still runs at install.
+//
 // Identity: the generated bodies are proven against the interpreter on the corpus at build-test time
 // (Vu1NativeCorpus: every case + a cycle-cap sweep) and in the game by the lane's frames hash (every
 // vertex the native program emits equals the modelled program's). The run-time InstallNative check
@@ -30,12 +40,16 @@
 #include <mutex>
 #include <string>
 
+#include <set>
+
 #include "engine/vu/vu1_aot/vu1_aot_tier.h"
 
 struct VuSettings;
 class VuUnit;
 
 namespace ps2r::title::sly2 {
+
+struct NativeVu1Image;
 
 class NativeVu1 {
 public:
@@ -62,8 +76,18 @@ public:
 
     uint64_t misses() const;
 
+    // The table row whose program bytes are the prefix of `micro` (16 KB; longest program first), or null.
+    // Pure (the corpus test and the resolver share it).
+    static const NativeVu1Image* Identify(const uint8_t* micro);
+    // How many whole-memory images were aliased to a program so far (one per residue variant seen).
+    size_t aliases() const;
+
 private:
     static void OnMiss(void* user, VuUnit& unit, uint32_t start_pc, uint64_t image_hash, Vu1AotTier::Status status);
+    static bool Resolve(void* user, VuUnit& unit, uint64_t image_hash);
+
+    std::set<uint64_t> unknown_;                  // whole-memory hashes no program matched (VU thread)
+    std::map<uint64_t, uint64_t> alias_of_;       // whole-memory hash -> content hash (VU thread)
 
     mutable std::mutex mu_;
     std::map<uint64_t, uint64_t> miss_by_image_;  // image hash -> kicks that fell back (VU thread writes)

@@ -1,20 +1,20 @@
 # games/scus_97316_sly2_band_of_thieves/native/vu1/images.txt -- the AUTHORITATIVE list of Sly 2's VU1
-# microprogram images (STAGE NATIVE). One row per image: <VuImageHash::Fast, 16 hex> then facts.
-# Hashes, counts and entry addresses only -- never the image bytes (game data; the corpus under
-# ~/recomp-agent-data/scus_97316/corpora/vu1/ carries them for the build-time generator).
-# Source: the native= census of the boot lane (600 / 1200 frames, boot.pad) and the Paris lane (hub_ep1_fix + sm_paris.pad,
-# 1200 frames) on the native build -- progs=<hash>x<kicks>/<bundles> (nat-vu1.md, 2026-10-30) -- plus the kick corpus
-# (vp_cases_all 721 + ud_jitfix 90 + the NATIVEEE_VU1_CAP windows paris_cap1/paris_cap2/boot_cap1) and the user's pack_int6.
-# `blocks`/`ops` = the generated TU with the full corpus (vu1_native_images.txt of the build).
+# microprograms (STAGE NATIVE-2: CONTENT identity). One row per PROGRAM: <content hash, 16 hex> then facts.
+# content hash = VuImageHash::Fast over the program's bytes at their VU load addresses (0..size), the key of
+# native_vu1_table.h; a kicked image is identified by hashing its first `size` bytes whatever residue the rest
+# of the 16 KB micro memory carries (native_vu1.h). Hashes, sizes, addresses and counts only -- never the bytes.
 #
-# hash              kicks: boot 1200 f | Paris 1200 f     role / notes
-3326286ecab9d6f6    648497 | 2338535     the main renderer image (720 of the 721 vp_cases_all cases; ~60 % of boot kicks, 89 % of Paris)
-73186dffb4c76bef    179251 | 36          boot-heavy (menus / 2D), rare in Paris
-29679015777598ee    163777 | 178965
-7e5686216fd46a10     93822 | 81186
-980abf796e0b0e23      5485 | 354
-55c3d2c682bf6fc1         1 | 0           a 2-op stub image (one kick at boot)
-c588629b9ade2d4d         0 | 22942       Paris only (7 entries, 44 blocks)
-c3bb48b698950cb9         0 | 9556        Paris only (1 entry, 14 blocks)
-67658fd6db08e764         0 | 0           in the user's corpus (ud_jitfix, 12 cases) -- not seen on either lane
-f35598e56b90e6ae         0 | 0           in the user's corpus (ud_jitfix, 16 cases) -- not seen on either lane
+# Source (static, from the disc): the ELF's .vutext section = 8 VU overlay programs described by .DVP.ovlytab
+# (extract_images.py re-derives this table from the ISO or the ELF at build time -> <build>/.../disc/
+# disc_programs.txt; closure_check.py fails when the two disagree). 7 run on VU1; 11753019 (0x2a0 bytes) is
+# the VU0 image (native/vu0). The level files carry no microcode (native/COVERAGE.md): this is the whole set.
+# `variants` = the whole-memory (residue) images the kick corpus recorded for the program (the legacy identity).
+#
+# content hash      id         size   ELF chunks (vaddr+size@load)                 variants seen (whole-memory hashes) / role
+0bcaf2408301ebce    376110651  0x3c60 25e688+800@0 ... 261ec0+460@3800 (8)        3326286ecab9d6f6 -- the main renderer (89 % of Paris kicks; 12 entries)
+bbb90259e965db36    188054619  0x1e60 25c1c8+800@0 ... 25d9e0+660@1800 (4)        29679015777598ee
+c9d3cd4589a7ea02    376109499  0x0ec0 25a0c8+800@0,25a8d0+6c0@800                 c3bb48b698950cb9 (Paris only)
+81b9f647569fbfc2    188054331  0x0920 25b888+800@0,25c090+120@800                 7e5686216fd46a10, 67658fd6db08e764 (two residues)
+8d086b61837f9626    188055835  0x08c0 25afa8+800@0,25b7b0+c0@800                  73186dffb4c76bef, c588629b9ade2d4d, f35598e56b90e6ae (three residues; menus / 2D)
+6fe004542a6c2f6e    752221467  0x05d0 25e098+5d0@0                                980abf796e0b0e23
+5a41f38bf6affc01    376110587  0x0010 25e060+10@0                                 55c3d2c682bf6fc1 -- the 2-bundle E-bit stub (one kick at boot)

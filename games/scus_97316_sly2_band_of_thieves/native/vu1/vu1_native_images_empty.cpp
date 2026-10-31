@@ -4,7 +4,7 @@
 
 namespace ps2r::title::sly2 {
 
-const NativeVu1Image kNativeVu1Images[] = {{0ull, nullptr, 0u, 0ull}};
+const NativeVu1Image kNativeVu1Images[] = {{0ull, 0u, nullptr, 0u, 0ull}};
 const size_t kNativeVu1ImageCount = 0;
 
 }  // namespace ps2r::title::sly2

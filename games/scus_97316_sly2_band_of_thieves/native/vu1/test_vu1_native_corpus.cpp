@@ -21,6 +21,7 @@
 #include "engine/vu/vu1_aot/vu1_aot_exports.h"
 #include "engine/vu/vu1_aot/vu1_aot_verifier.h"
 #include "engine/vu/vu1_case.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/vu1/native_vu1.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vu1/native_vu1_table.h"
 
 namespace {
@@ -52,10 +53,12 @@ void LoadDir(const std::string& dir, Images& images, size_t* n) {
     }
 }
 
-const ps2r::title::sly2::NativeVu1Image* Find(uint64_t hash) {
+// The table row of an image: by whole-image hash (legacy rows) or by CONTENT (NativeVu1::Identify hashes the
+// image's first `size` bytes per program row -- the run-time rule).
+const ps2r::title::sly2::NativeVu1Image* Find(uint64_t hash, const uint8_t* micro) {
     for (size_t i = 0; i < ps2r::title::sly2::kNativeVu1ImageCount; ++i)
         if (ps2r::title::sly2::kNativeVu1Images[i].hash == hash) return &ps2r::title::sly2::kNativeVu1Images[i];
-    return nullptr;
+    return ps2r::title::sly2::NativeVu1::Identify(micro);
 }
 
 }  // namespace
@@ -79,13 +82,15 @@ int main(int argc, char** argv) {
         const std::string hex = Vu1AotEmitter::Hex16(kv.first);
         std::vector<const Vu1Case*> ptrs;
         for (const auto& c : kv.second) ptrs.push_back(c.get());
-        const ps2r::title::sly2::NativeVu1Image* img = Find(kv.first);
-        std::printf("image=%s cases=%zu\n", hex.c_str(), ptrs.size());
-        Check(img != nullptr, "the table names this image");
+        const ps2r::title::sly2::NativeVu1Image* img = Find(kv.first, ptrs[0]->micro_mem);
+        const bool alias = img != nullptr && img->hash != kv.first;
+        std::printf("image=%s cases=%zu%s\n", hex.c_str(), ptrs.size(),
+                    alias ? (" -> program " + Vu1AotEmitter::Hex16(img->hash) + " (" + std::to_string(img->size) + " bytes, content identity)").c_str() : "");
+        Check(img != nullptr, "the table names this image (by whole-image hash or by program content)");
         if (img == nullptr) continue;
         const Vu1AotImageExports* ex = img->exports();
-        Check(ex != nullptr && ex->image_hash == kv.first && ex->abi_version == kVu1AotAbiVersion, "exports header: hash and ABI version");
-        const Vu1AotVerifier::Result r = Vu1AotVerifier::Verify(ptrs, ex);
+        Check(ex != nullptr && ex->image_hash == img->hash && ex->abi_version == kVu1AotAbiVersion, "exports header: hash and ABI version");
+        const Vu1AotVerifier::Result r = Vu1AotVerifier::Verify(ptrs, ex, 0, false, alias);
         if (!r.identical) std::printf("     divergence: %s\n", r.divergence.c_str());
         Check(r.identical, "native == interpreter on every case (regs, data, clock, bundles, kicked bytes)");
         Check(r.native_blocks > 0, "at least one block ran through a generated function");
@@ -102,9 +107,9 @@ int main(int argc, char** argv) {
             bool caps_ok = true;
             int block_judged = 0;
             for (uint64_t cap : kCaps) {
-                const Vu1AotVerifier::Result rc = Vu1AotVerifier::Verify(ptrs, ex, cap);
+                const Vu1AotVerifier::Result rc = Vu1AotVerifier::Verify(ptrs, ex, cap, false, alias);
                 if (rc.identical) continue;
-                const Vu1AotVerifier::Result rb = Vu1AotVerifier::Verify(ptrs, ex, cap, true);
+                const Vu1AotVerifier::Result rb = Vu1AotVerifier::Verify(ptrs, ex, cap, true, alias);
                 if (rb.identical) {
                     std::printf("     cap=%llu: native == block tier; block tier vs interp: %s (pre-existing cut path)\n",
                                 static_cast<unsigned long long>(cap), rc.divergence.c_str());

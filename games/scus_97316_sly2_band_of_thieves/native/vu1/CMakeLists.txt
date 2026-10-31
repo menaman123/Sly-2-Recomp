@@ -7,8 +7,11 @@
 #                         outside the repository, e.g. ~/recomp-agent-data/scus_97316/corpora/vu1/*).
 #                         Cache variable; defaults to the environment variable of the same name. Without
 #                         it: the table is empty (vu1_native_images_empty.cpp), the knob is inert, STATUS.
-#   images.txt            the AUTHORITATIVE image list (hashes + facts, no bytes): an image of the corpus
-#                         not listed is skipped; a listed image with no case fails the generation.
+#   images.txt            the AUTHORITATIVE program list (CONTENT hashes + facts, no bytes): a program of the
+#                         disc not listed is skipped; a listed program with no corpus case fails the generation.
+#   PS2R_TITLE_ELF        the title's ELF (cmake/TitleInputs.cmake, from NATIVEEE_DISC / NATIVEEE_TITLE_ELF):
+#                         extract_images.py pulls the 8 VU programs of its .vutext into <gen>/disc/ at build
+#                         time (disc_programs.txt = id, size, content hash; the bytes stay in the build dir).
 #   MANIFEST.sha256       pins the generated TUs (the recomp shards' rule; PS2R_RECOMP_CHECK_MANIFEST strict).
 #                         Recorded for the default policy (chain=1); another policy skips the check.
 # Tool    vu1_native_gen (this dir; links ps2r_vu) -> ${PS2R_TITLE_GEN_ROOT}/games/<title>/native/vu1/
@@ -69,6 +72,19 @@ if(NOT _corpus_args OR _n_images EQUAL 0)
     return()
 endif()
 
+# The disc's programs (content identity): extract_images.py over the title ELF -> <gen>/disc/{<id>.bin, disc_programs.txt}.
+set(_disc_dir "${_gen}/disc")
+set(_disc_programs "${_disc_dir}/disc_programs.txt")
+if(NOT PS2R_TITLE_ELF OR NOT Python3_EXECUTABLE)
+    message(FATAL_ERROR "games/${PS2R_TITLE}/native/vu1: the content-identity generator needs the title ELF (PS2R_TITLE_ELF) and Python3")
+endif()
+add_custom_command(
+    OUTPUT "${_disc_programs}"
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/extract_images.py" --elf "${PS2R_TITLE_ELF}" --out "${_disc_dir}" --quiet
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/extract_images.py" "${PS2R_TITLE_ELF_READY}"
+    COMMENT "Extracting Sly 2's VU microprograms from the disc's ELF -> ${_disc_dir} (extract_images.py)"
+    VERBATIM)
+
 set(_generated_tus "")
 foreach(_h IN LISTS _hashes)
     list(APPEND _generated_tus "${_gen}/vu1_${_h}.cpp")
@@ -76,9 +92,9 @@ endforeach()
 set(_generated ${_generated_tus} "${_gen}/vu1_native_images.cpp" "${_gen}/vu1_native_images.txt")
 add_custom_command(
     OUTPUT ${_generated}
-    COMMAND vu1_native_gen ${_corpus_args} --out "${_gen}" --images "${_images_txt}" --chain ${PS2R_SLY2_VU1_NATIVE_CHAIN}
-    DEPENDS vu1_native_gen "${_images_txt}"
-    COMMENT "Generating Sly 2's native VU1 microprograms -> ${_gen} (vu1_native_gen, ${_n_images} image(s), chain=${PS2R_SLY2_VU1_NATIVE_CHAIN})"
+    COMMAND vu1_native_gen ${_corpus_args} --out "${_gen}" --images "${_images_txt}" --programs "${_disc_programs}" --chain ${PS2R_SLY2_VU1_NATIVE_CHAIN}
+    DEPENDS vu1_native_gen "${_images_txt}" "${_disc_programs}"
+    COMMENT "Generating Sly 2's native VU1 microprograms -> ${_gen} (vu1_native_gen, ${_n_images} program(s), content identity, chain=${PS2R_SLY2_VU1_NATIVE_CHAIN})"
     VERBATIM)
 set_source_files_properties(${_generated} PROPERTIES GENERATED TRUE)
 add_custom_target(ps2r_title_native_vu1_generate DEPENDS ${_generated})
