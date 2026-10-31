@@ -519,7 +519,8 @@ void IopHost::WriteCensus(verify::RunMeta* meta) {
         const uint64_t boundaries = table_.Kernel().Clock().Frames();
         meta->Set("iop_dispatch", "ns=" + std::to_string(c.ns) + ",passes=" + std::to_string(c.passes) + ",pumps=" +
                                       std::to_string(c.pumps) + ",coro_switches=" + std::to_string(table_.Kernel().CoroutineSwitches()) +
-                                      ",step_runs=" + std::to_string(table_.Kernel().StepRuns()) + ",step_threads=" +
+                                      ",step_runs=" + std::to_string(table_.Kernel().StepRuns()) + ",step_blocks=" +
+                                      std::to_string(table_.Kernel().StepBlockingCalls()) + ",step_threads=" +
                                       std::to_string(thbase_.StepThreadsArmed()) + ",ns_per_pump=" +
                                       std::to_string(c.pumps ? c.ns / c.pumps : 0) + ",ns_per_boundary=" +
                                       std::to_string(boundaries ? c.ns / boundaries : 0) + ",boundaries=" + std::to_string(boundaries));
