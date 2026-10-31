@@ -32,6 +32,10 @@ struct LegKnobs {
     // NATIVEEE_GIF_TRACE=1 | tbp:<hex>: every GIF tag / register write to stderr (gif_trace_sink.h).
     bool gif_trace = false;
     std::optional<std::string> gif_trace_value;
+    // NATIVEEE_GIF_CENSUS=<tsv path>: the GIF packet-shape histogram (native/gif/gif_shape_census.h).
+    std::optional<std::string> gif_census;
+    // NATIVEEE_GIF_PKT_CAPTURE=<file>[:<max MiB>] (with GIF_CENSUS): every delivered GIF packet, delivery order.
+    std::optional<std::string> gif_pkt_capture;
     // NATIVEEE_VU1_MODE=interp|cached|block|aot on top of Config engine.vu1_mode.
     std::optional<std::string> vu1_mode;
     // NATIVEEE_MTVU=1|0: force the MTVU stack on / off in every mode (set = the env decides; "1" = on).

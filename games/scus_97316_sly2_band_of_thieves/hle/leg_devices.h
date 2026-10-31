@@ -4,6 +4,8 @@
 // register windows later, once the MTVU stack exists.
 #pragma once
 
+#include <memory>
+
 #include "engine/core/config/config.h"
 #include "engine/dmac/dmac.h"
 #include "engine/gif/gif_arbiter.h"
@@ -20,6 +22,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_gs.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_knobs.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/gif/gif_shape_census.h"
 
 namespace ps2r::title::sly2 {
 
@@ -41,6 +44,9 @@ public:
     Vu0Registry vu0_registry;
     Vif vif;
     Dmac dmac;
+    // NATIVEEE_GIF_CENSUS=<tsv>: the GIF packet-shape histogram (native/gif/gif_shape_census.h); installed
+    // on the fan-out after the devices exist (it taps the arbiter and reads vu1), destroyed first.
+    std::unique_ptr<GifShapeCensus> gif_census;
 };
 
 }  // namespace ps2r::title::sly2
