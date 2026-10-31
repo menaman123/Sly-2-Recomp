@@ -67,6 +67,7 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
     });
     if (knobs.rpc_trace) {
         if (FILE* f = std::fopen(knobs.rpc_trace->c_str(), "w")) {
+            rpc_trace_file = f;
             std::fprintf(f, "# rpc trace: iop_frame sid fno ssize send_hex -> reply rsize recv_hex (first 64 bytes each)\n");
             std::fprintf(f, "# iop_frame RPC< sid fno = the request is dispatched; iop_frame SD ord a0 a1 a2 a3 extra -> v0 = a libsd entry the IOP code reached\n");
             IopRpcServer::SetTracer([this, f](const IopRpcServer::TraceEvent& ev) {

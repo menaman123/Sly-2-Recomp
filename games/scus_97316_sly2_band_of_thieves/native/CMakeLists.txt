@@ -15,6 +15,8 @@ add_library(ps2r_title_native STATIC
     native_census.cpp
     native_knobs.cpp
     native_simd.cpp
+    native_iop.cpp
+    iop/native_snd_server.cpp
 )
 target_include_directories(ps2r_title_native PUBLIC ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/..)
 # -ffp-contract=off: the float contract spelled for every compiler (the engine's rule for GNU; Clang's
@@ -25,3 +27,5 @@ if(PS2R_SIMD)
 endif()
 # ps2r_core: Config (title.native.*); ps2r_host: engine/platform (the only host surface allowed here).
 target_link_libraries(ps2r_title_native PUBLIC ps2r_core ps2r_host)
+# The IOP / SPU2 native path's seams: RpcRouter (ps2r_sif), LibsdModule (ps2r_iop), SpuCore (ps2r_sound).
+target_link_libraries(ps2r_title_native PUBLIC ps2r_sif ps2r_iop ps2r_sound)

@@ -15,6 +15,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <list>
 #include <map>
 #include <memory>
@@ -93,6 +94,10 @@ public:
     iop::hle::LibsdModule& Libsd() { return libsd_; }
     // The EE-facing server of a hosted module's sceSifRegisterRpc record, by server id (nullptr = none).
     IopRpcServer* HostedServer(uint32_t sid);
+    // Called after every hosted sceSifRegisterRpc became a router row (boot and savestate restore): a
+    // native path that answers the same id re-points the row here and keeps `hosted` as its fallback.
+    using ServerObserver = std::function<void(uint32_t sid, IopRpcServer& hosted)>;
+    void SetServerObserver(ServerObserver o) { server_observer_ = std::move(o); }
     // The IOPH save-state section: IOP RAM, kernel tables, hosted module rows, libraries, RPC servers
     // and timers. Restoring re-arms each hosted thread and re-registers each RPC server.
     iop::IopHostSection& Section() { return *section_; }
@@ -152,6 +157,7 @@ private:
     std::vector<std::unique_ptr<IopRpcServer>> servers_;
     std::unique_ptr<iop::IopHostSection> section_;
     std::string rpc_servers_census_;
+    ServerObserver server_observer_;
     std::string load_log_;
     uint64_t dma_bytes_ = 0;
     uint32_t module_loads_ = 0;

@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <string>
 #include <cstdlib>
 #include <utility>
 
@@ -112,6 +113,13 @@ LegVerifySlot::LegVerifySlot(const ps2r::Config& cfg, ps2r::verify::VerifyHost& 
 
 void LegVerifySlot::EndLegFromBoundary(const char* detail) {
     census_.Write();
+    // NATIVEEE_RAM_DUMP at the frames cap too (the watchdog's dump, for a lane whose mem.mhash moved).
+    if (knobs_.ram_dump && std::string(detail) == "frames_cap") {
+        if (std::FILE* f = std::fopen(knobs_.ram_dump->c_str(), "wb")) {
+            std::fwrite(core_.ram.Data(), 1, core_.ram.Size(), f);
+            std::fclose(f);
+        }
+    }
     park_.closer.Close("none", 0, ThreadManager::Instance().CurrentTid(), detail);
     std::fflush(stdout);
     if (play_.session) play_.session->RequestClose();

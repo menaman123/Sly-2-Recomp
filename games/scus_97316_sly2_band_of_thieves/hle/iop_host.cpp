@@ -465,6 +465,8 @@ void IopHost::OnServerRegistered(const iop::hle::SifcmdModule::ServerRecord& r) 
                            std::to_string(r.tid);
     PS2R_LOG(HOST, Info, "iop: RPC server 0x%08x registered (func 0x%08x buff 0x%08x queue tid %d)", r.sid, r.func,
              r.buff, r.tid);
+    if (server_observer_)
+        if (IopRpcServer* hosted = HostedServer(r.sid)) server_observer_(r.sid, *hosted);
 }
 
 IopRpcServer* IopHost::HostedServer(uint32_t sid) {
