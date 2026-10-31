@@ -3,6 +3,7 @@
 // the NATIVEEE_IOP_NATIVE filter. Merge rule: append a line, never reorder.
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/native_iop_frame.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/snd989_lock.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop/spiop_native.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop_tray_thread.h"
 
 namespace ps2r::title::sly2 {
@@ -13,7 +14,8 @@ void RegisterNativeIopBodies(NativeIopFrame& frame) {
     // iopsys: spiop's tray-poll thread in the step form (the first coroutine-free native thread; the lane proof).
     SpiopTrayThread::Register(frame.Spiop());
     // snd989 track:  RegisterSnd989Natives(frame.Snd989());
-    // spiop track:   RegisterSpiopNatives(frame.Spiop());
+    // spiop track (iop/spiop/README.md): the streaming module, 69 of 98 functions.
+    RegisterSpiopNatives(frame.Spiop());
     // lgaud track:   RegisterLgaudNatives(frame.Lgaud()); RegisterFileioNatives(frame.Fileio());
 }
 
