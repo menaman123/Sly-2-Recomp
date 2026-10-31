@@ -14,6 +14,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -30,6 +31,8 @@ public:
         std::vector<NativeIopModule::Table> tables;     // one per module below, in the order of Modules() (unbound = empty)
         const char* trace_path = nullptr;               // NATIVEEE_IOP_TRACE
         IopCallTrace::Deps trace;                       // the clock / tid for the trace rows
+        // IopHost::SetStepProvider: the frame binds the step-thread provider (a module's AddThread entries).
+        std::function<void(std::function<iop::IopKernel::StepBody(uint32_t entry, const IopContext& initial)>)> set_step_provider;
     };
     explicit NativeIopFrame(Deps deps);
     ~NativeIopFrame();

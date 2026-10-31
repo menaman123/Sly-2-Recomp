@@ -112,6 +112,9 @@ public:
         uint32_t count;
     };
     static std::vector<SeamTable> SeamTables();
+    // A native STEP body for a thread entry (no coroutine: IopKernel::StartStepThread through thbase's
+    // provider): the native IOP frame binds it once its module's threads are native.
+    void SetStepProvider(iop::hle::ThbaseModule::StepProvider p) { thbase_.SetStepProvider(std::move(p)); }
 
 private:
     struct Hosted {
