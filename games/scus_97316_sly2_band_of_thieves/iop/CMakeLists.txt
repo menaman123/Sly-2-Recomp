@@ -11,6 +11,9 @@
 # ps2r_iop_recompiler relocates each to its base, wraps it in namespace iop_<id> and routes every library
 # import through the engine's IopLibraryTable. Bases are in iop_modules.h (all below the sysmem heap at
 # 0x60000). Each module's MANIFEST.sha256 pins the generated output; nothing generated is committed.
+# --override-table: the per-function override seam of STAGE NATIVE-3 (native/iop/): every generated body's
+# prologue runs iop_<id>::iop_override_table[i] (a host body over the same IopContext + IOP RAM) when set,
+# else the recompiled body, and counts the call (the `native_iop=<id>:native/recompiled` census).
 if(NOT PS2R_TITLE_EMBEDDED_AVAILABLE)
     message(STATUS "games/scus_97316_sly2_band_of_thieves/iop: no extracted embedded modules -- ps2r_title_iop_* not defined")
     return()
@@ -33,7 +36,7 @@ function(ps2r_sly2_iop_module id module base)
     add_custom_command(
         OUTPUT ${_generated}
         COMMAND ps2r_iop_recompiler   # the target name: emulator-aware in a cross build
-                --input "${_irx}" --base ${base} --namespace iop_${id} --import-call --quiet
+                --input "${_irx}" --base ${base} --namespace iop_${id} --import-call --override-table --quiet
                 --output-header "${_gen}/iop_recompiled.h" --output-cpp "${_gen}/iop_recompiled.cpp"
         DEPENDS ps2r_iop_recompiler "${_ready}"
         COMMENT "Recompiling embedded IOP module ${module} -> ${_gen} (ps2r_iop_recompiler --base ${base} --namespace iop_${id})"

@@ -52,6 +52,21 @@ if(TARGET ps2r_title_recomp)
     # target_sources(ps2r_title_native PRIVATE native_vu1.cpp ...)
     # target_link_libraries(ps2r_title_native PUBLIC ps2r_vu ps2r_gif ...)
     add_subdirectory(vu0)
+    # iop/ -> ps2r_title_native_iop (STAGE NATIVE-3): the hosted IOP modules' functions as host bodies in the
+    # recompiled TUs' per-function seam (iop/CMakeLists.txt --override-table); snd989/ = 989snd_Library
+    # (iop/snd989/README.md). Needs the generated iop_recompiled.h of each module it ports.
+    if(TARGET ps2r_title_iop_snd989)
+        add_library(ps2r_title_native_iop STATIC
+            iop/snd989/snd989_native.cpp
+            iop/snd989/snd989_seq.cpp
+            iop/snd989/snd989_tick.cpp
+            iop/snd989/snd989_volume.cpp
+        )
+        target_include_directories(ps2r_title_native_iop PUBLIC ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/.. ${PS2R_IOP_GEN_ROOT})
+        target_compile_options(ps2r_title_native_iop PRIVATE -Wall -Wextra -Werror)
+        target_link_libraries(ps2r_title_native_iop PUBLIC ps2r_title_iop_snd989 ps2r_iop)
+        set_property(GLOBAL APPEND PROPERTY PS2R_ON_MACHINE_TARGETS ps2r_title_native_iop)
+    endif()
     # The CLOSURE check (STAGE NATIVE-2, native/COVERAGE.md): closure_check.py re-derives from the disc (or the ELF)
     # the inputs the game can hand to VU1 / VU0 / IOP -- the .vutext programs, the VCALLMS and MSCAL entry sets, the
     # IRX modules, the level streams -- and FAILS when one has no native path (images.txt row + generated TU + block).

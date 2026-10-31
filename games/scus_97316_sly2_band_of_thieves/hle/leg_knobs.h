@@ -85,6 +85,11 @@ struct LegKnobs {
     // entry the IOP code reached (`SD ord a0 a1 a2 a3 extra -> v0`) in call order -- the libsd op sequence
     // between a round trip's `RPC<` and its reply line is what that RPC caused.
     std::optional<std::string> rpc_trace;
+    // NATIVEEE_IOP_NATIVE="<module>=off|on|<addr>,<addr>..;..." (STAGE NATIVE-3): which hosted IOP modules' ported
+    // functions run as host bodies in the recompiled TUs' per-function seam (native/iop/). Default: every ported
+    // function of every module (the native default); `snd989=off` = that module fully recompiled (the oracle);
+    // `snd989=4325c,431bc` = only those functions (bisecting). Not fingerprinted: an exact port leaves every row.
+    std::optional<std::string> iop_native;
     // NATIVEEE_PAD_SCRIPT=<script text | file> / NATIVEEE_PAD_RECORD=<file> / NATIVEEE_KEY_SCRIPT=<steps>.
     std::optional<std::string> pad_script;
     std::optional<std::string> pad_record;

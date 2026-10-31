@@ -51,6 +51,9 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/native_iop.h"
+#if PS2R_SLY2_NATIVE_IOP
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/snd989/snd989_native.h"
+#endif
 #include "games/scus_97316_sly2_band_of_thieves/native/native_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vif/native_vif.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vu0/native_vu0.h"
@@ -194,6 +197,15 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         nd.rpc_trace = iop.rpc_trace_file;
         native_iop = NativeIop::Install(native_knobs, std::move(nd));
     }
+    // STAGE NATIVE-3: the hosted IOP modules' ported functions as host bodies in the recompiled TUs' per-function
+    // seam (native/iop/; NATIVEEE_IOP_NATIVE selects; the recompiled bodies stay the fallback and the oracle).
+#if PS2R_SLY2_NATIVE_IOP
+    {
+        const snd989::NativeOptions snd_opt = snd989::NativeOptions::FromEnv(knobs.iop_native ? knobs.iop_native->c_str() : nullptr);
+        snd989::InstallNative(snd_opt);
+        census.SetNativeIopCensus([] { return snd989::NativeCensusRow(); });
+    }
+#endif
     // VU0: the six VCALLMS microprograms as generated host bodies on the EE-side VU0 unit (title.native.vu0).
     NativeVu0 native_vu0;
     native_vu0.Install(native_knobs, devices.vu0);
