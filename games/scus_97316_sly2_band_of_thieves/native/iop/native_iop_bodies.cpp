@@ -4,6 +4,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/native_iop_frame.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/native_fileio.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/native_lgaud.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/snd989/snd989_native.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/snd989_lock.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop/spiop_native.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop_tray_thread.h"
@@ -15,7 +16,8 @@ void RegisterNativeIopBodies(NativeIopFrame& frame) {
     Snd989Lock::Register(frame.Snd989());
     // iopsys: spiop's tray-poll thread in the step form (the first coroutine-free native thread; the lane proof).
     SpiopTrayThread::Register(frame.Spiop());
-    // snd989 track:  RegisterSnd989Natives(frame.Snd989());
+    // snd989 track: the 989snd_Library bodies (native/iop/snd989/).
+    RegisterSnd989Natives(frame.Snd989());
     // spiop track (iop/spiop/README.md): the streaming module, 69 of 98 functions.
     RegisterSpiopNatives(frame.Spiop());
     // lgaud track: lgAud (native_lgaud.cpp) + FILEIO_service (native_fileio.cpp).

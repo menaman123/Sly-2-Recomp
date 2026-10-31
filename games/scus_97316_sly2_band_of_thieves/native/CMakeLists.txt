@@ -46,6 +46,14 @@ add_library(ps2r_title_native STATIC
     # lgaud track (iop/native_lgaud.h): lgAud + FILEIO_service bodies
     iop/native_lgaud.cpp
     iop/native_fileio.cpp
+    # snd989 track: the 989snd_Library bodies over the module's RAM (native/iop/snd989/; no generated header needed).
+    iop/snd989/snd989_native.cpp
+    iop/snd989/snd989_misc.cpp
+    iop/snd989/snd989_rpc.cpp
+    iop/snd989/snd989_seq.cpp
+    iop/snd989/snd989_stream.cpp
+    iop/snd989/snd989_tick.cpp
+    iop/snd989/snd989_volume.cpp
 )
 target_include_directories(ps2r_title_native PUBLIC ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/..)
 # -ffp-contract=off: the float contract spelled for every compiler (the engine's rule for GNU; Clang's
