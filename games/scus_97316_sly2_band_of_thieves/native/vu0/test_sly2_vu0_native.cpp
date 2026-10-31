@@ -6,15 +6,19 @@
 // same 608-byte register file (TPC included), the same clock delta and the same data memory.
 // Two consecutive runs on the same unit are also compared (the clock and the flag state carry).
 // Args: <ELF path> [iterations=2000]. SKIP (77) when the ELF is absent.
+#include <cfenv>
+#include <ctime>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <string>
 #include <vector>
 
 #include "engine/vu/tiers/vu_tier_dispatch.h"
 #include "engine/vu/vu_unit.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/native_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/native_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vu0/native_vu0.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vu0/vu0_native_programs.h"
@@ -210,6 +214,36 @@ int main(int argc, char** argv) {
             CHECK(std::memcmp(&cached.regs(), &nat.regs(), sizeof(VUregs)) == 0);
         }
     }
+    // --bench: ns per call, cached tier vs native, each entry (the mechanism's gain; the lane cannot show it:
+    // VU0 is 0.0 % of its EE thread). Not a gate.
+    if (argc > 3 && std::string(argv[3]) == "--bench") {
+        std::fesetround(FE_TOWARDZERO);   // the guest thread's mode: the tiers' round guard is then a read only
+        for (uint32_t pi = 0; pi < count; ++pi) {
+            const uint32_t entry = vu0_native::kImage.programs[pi].entry;
+            VUregs r;
+            RandomRegs(r);
+            const int n = 200000;
+            // CPU time (std::clock), best of 3: the shared host's load must not count.
+            double c_ns = 1e18, n_ns = 1e18;
+            for (int rep = 0; rep < 3; ++rep) {
+                cached.regs() = r;
+                const std::clock_t t0 = std::clock();
+                for (int i = 0; i < n; ++i) cached.Execute(entry);
+                const std::clock_t t1 = std::clock();
+                nat.regs() = r;
+                for (int i = 0; i < n; ++i) nat.Execute(entry);
+                const std::clock_t t2 = std::clock();
+                const double c = 1e9 * static_cast<double>(t1 - t0) / CLOCKS_PER_SEC / n;
+                const double v = 1e9 * static_cast<double>(t2 - t1) / CLOCKS_PER_SEC / n;
+                if (c < c_ns) c_ns = c;
+                if (v < n_ns) n_ns = v;
+            }
+            std::printf("  bench entry 0x%x: cached %.0f ns/call, native %.0f ns/call (%.1fx)\n", entry, c_ns, n_ns, c_ns / n_ns);
+        }
+    }
+    std::printf("Sly2Vu0Native: native served %llu, fallen back %llu\n",
+                static_cast<unsigned long long>(NativeCensus::Instance().ServedCount(NativeUnit::Vu0)),
+                static_cast<unsigned long long>(NativeCensus::Instance().FallbackCount(NativeUnit::Vu0)));
     std::printf("Sly2Vu0Native: %s\n", g_fail == 0 ? "PASS" : "FAIL");
     return g_fail == 0 ? 0 : 1;
 }

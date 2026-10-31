@@ -30,7 +30,8 @@ private:
     static bool Hook(void* user, VuUnit& unit, uint32_t start_pc, uint64_t micro_generation);
 
     bool installed_ = false;
-    uint64_t memo_generation_ = ~0ull;  // the micro_generation the fingerprint was last judged at
+    uint64_t memo_generation_ = ~0ull;  // the micro_generation the fingerprint was last judged at ...
+    const uint8_t* memo_micro_ = nullptr;  // ... on this unit's micro memory
     bool memo_match_ = false;
 };
 

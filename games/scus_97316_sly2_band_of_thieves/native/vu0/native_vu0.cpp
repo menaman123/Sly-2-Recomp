@@ -44,12 +44,13 @@ bool NativeVu0::Hook(void* user, VuUnit& unit, uint32_t start_pc, uint64_t micro
 }
 
 bool NativeVu0::Run(VuUnit& unit, uint32_t start_pc, uint64_t micro_generation) {
-    if (micro_generation != memo_generation_) {
-        // The image fingerprint: judged once per upload (the EE window / VIF0 MPG bump the generation).
-        const Vu1State& st = unit.state();
+    const Vu1State& st = unit.state();
+    if (micro_generation != memo_generation_ || st.micro != memo_micro_) {
+        // The image fingerprint: judged once per upload (the EE window / VIF0 MPG bump the generation) and per unit.
         const uint32_t n = vu0_native::kImage.size <= st.mem_mask + 1u ? vu0_native::kImage.size : st.mem_mask + 1u;
         memo_match_ = Fnv1a64(st.micro, n) == vu0_native::kImage.fnv1a64;
         memo_generation_ = micro_generation;
+        memo_micro_ = st.micro;
     }
     const vu0_native::Vu0NativeProgram* prog = memo_match_ ? Find(start_pc & 0xFFFu) : nullptr;
     if (prog == nullptr) {
@@ -57,8 +58,7 @@ bool NativeVu0::Run(VuUnit& unit, uint32_t start_pc, uint64_t micro_generation) 
         return false;
     }
     VuChopRoundGuard round_guard;  // the tiers' rule: FMAC/FDIV truncate (a no-op on the guest thread, already toward zero)
-    Vu1State& st = unit.state();
-    st.suspended = false;          // the tier's per-run scratch (a native body never parks)
+    unit.state().suspended = false;  // the tier's per-run scratch (a native body never parks)
     prog->fn(unit);
     NativeCensus::Instance().Served(NativeUnit::Vu0);
     return true;
