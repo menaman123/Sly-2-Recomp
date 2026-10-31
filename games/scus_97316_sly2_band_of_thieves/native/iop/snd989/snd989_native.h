@@ -16,4 +16,10 @@ namespace ps2r::title::sly2 {
 // Add()s every ported body (snd989_bodies.h kPortedFns) to the snd989 module (native_iop_bodies.cpp's line).
 void RegisterSnd989Natives(NativeIopModule& snd989);
 
+namespace snd989 {
+// AddThread()s the module's thread entries that have a step form (snd989_steps.cpp: the 'SND ' RPC server, the tick,
+// transfer, refill and reader threads). Called by RegisterSnd989Natives.
+void RegisterSnd989Threads(NativeIopModule& snd989);
+}  // namespace snd989
+
 }  // namespace ps2r::title::sly2

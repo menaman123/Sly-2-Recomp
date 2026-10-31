@@ -241,6 +241,7 @@ void RegisterSnd989Natives(NativeIopModule& m) {
             if (cnd.addr == p.addr) taken = true;
         if (!taken) m.Add(p.addr, p.body, p.name);
     }
+    snd989::RegisterSnd989Threads(m);
 }
 
 }  // namespace ps2r::title::sly2
