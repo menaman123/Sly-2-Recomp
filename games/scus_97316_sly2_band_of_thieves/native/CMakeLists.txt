@@ -64,6 +64,7 @@ add_library(ps2r_title_native STATIC
     iop/snd989/snd989_cdthread.cpp
     iop/snd989/snd989_init.cpp
     iop/snd989/snd989_init2.cpp
+    iop/snd989/snd989_bank.cpp
     iop/snd989/snd989_tick.cpp
     iop/snd989/snd989_voice.cpp
     iop/snd989/snd989_volume.cpp

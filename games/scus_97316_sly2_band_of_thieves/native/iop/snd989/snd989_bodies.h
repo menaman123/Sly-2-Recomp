@@ -227,6 +227,15 @@ void fn_3a250(IopContext&);   // snd_Init(flags)
 void fn_3a48c(IopContext&);   // tick_Init()
 void fn_3aa9c(IopContext&);   // load_Init()
 
+// snd989_bank.cpp -- the boot-time path, part 3 (the stream system init, the bank load, the movie start).
+void fn_3be20(IopContext&);   // bank_Load
+void fn_3c308(IopContext&);   // load_ReadCd
+void fn_3cd18(IopContext&);   // bank_UploadChunk
+void fn_3d168(IopContext&);   // bank_Relocate
+void fn_3e284(IopContext&);   // movie_Start
+void fn_3e920(IopContext&);   // movie_VoiceStart
+void fn_43654(IopContext&);   // stream_SystemInit
+
 // snd989_init2.cpp -- the boot-time path, part 2.
 void fn_3d674(IopContext&);   // bank_PostLoad
 void fn_3e6f4(IopContext&);   // movie_Stop
