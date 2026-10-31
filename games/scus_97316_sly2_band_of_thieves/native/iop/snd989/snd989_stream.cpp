@@ -13,8 +13,6 @@
 
 namespace ps2r::title::sly2::snd989 {
 
-static inline uint32_t VoiceEntry(int v) { return static_cast<uint32_t>(VoiceCore(v)) | (static_cast<uint32_t>(VoiceBit(v)) << 1); }
-
 // fn_461e8(st, pos): add the bytes played since the last position to st[0xb4] (crossing a half boundary adds the
 // rest of the old half and the start of the new one); st[0xbc] = pos. Returns the sum (same half) or the new half's
 // record offset (crossed) -- the value $v0 carries.
