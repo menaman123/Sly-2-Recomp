@@ -2,6 +2,8 @@
 // its bodies to its module (`Add(addr, body, name)`); the frame installs them under title.native.iopsys and
 // the NATIVEEE_IOP_NATIVE filter. Merge rule: append a line, never reorder.
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/native_iop_frame.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/native_fileio.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/native_lgaud.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/snd989_lock.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop/spiop_native.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop_tray_thread.h"
@@ -16,7 +18,9 @@ void RegisterNativeIopBodies(NativeIopFrame& frame) {
     // snd989 track:  RegisterSnd989Natives(frame.Snd989());
     // spiop track (iop/spiop/README.md): the streaming module, 69 of 98 functions.
     RegisterSpiopNatives(frame.Spiop());
-    // lgaud track:   RegisterLgaudNatives(frame.Lgaud()); RegisterFileioNatives(frame.Fileio());
+    // lgaud track: lgAud (native_lgaud.cpp) + FILEIO_service (native_fileio.cpp).
+    RegisterLgaudNatives(frame.Lgaud());
+    RegisterFileioNatives(frame.Fileio());
 }
 
 }  // namespace ps2r::title::sly2
