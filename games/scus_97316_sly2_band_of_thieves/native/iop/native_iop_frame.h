@@ -57,6 +57,10 @@ public:
     std::string Census() const;
     // The functions still reached as recompiled bodies, per module, most-called first (addr:calls ...).
     std::string Remaining(size_t per_module = 12) const;
+    // Every slot of every module: "<id> <addr> <end> <native?> <native_calls> <recompiled_calls> <name>" one per line
+    // (the reachability census: a slot with 0/0 over every leg is a function no lane reaches). Written to `path`
+    // (NATIVEEE_IOP_SLOT_REPORT at the census; the file is run-derived -> keep it under the agent data dir).
+    bool WriteSlotReport(const char* path) const;
 
 private:
     Deps deps_;

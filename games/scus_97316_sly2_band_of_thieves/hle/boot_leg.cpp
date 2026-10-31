@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <memory>
 #include <stdexcept>
@@ -216,6 +217,9 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         meta->Set("native_iop_remaining", native_iop_frame.Remaining());
         meta->Set("native_iop_filter", native_iop_frame.Filter().Spec().empty() ? std::string("all") : native_iop_frame.Filter().Spec());
         meta->Set("native_iop_trace_rows", std::to_string(IopCallTrace::Rows()));
+        // NATIVEEE_IOP_SLOT_REPORT=<file>: every slot's counts (the reachability census across legs).
+        if (const char* rep = std::getenv("NATIVEEE_IOP_SLOT_REPORT"))
+            meta->Set("native_iop_slot_report", native_iop_frame.WriteSlotReport(rep) ? rep : "unwritable");
     });
     // VU0: the six VCALLMS microprograms as generated host bodies on the EE-side VU0 unit (title.native.vu0).
     NativeVu0 native_vu0;

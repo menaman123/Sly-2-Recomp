@@ -82,4 +82,24 @@ std::string NativeIopFrame::Remaining(size_t per_module) const {
     return s.empty() ? "none" : s;
 }
 
+bool NativeIopFrame::WriteSlotReport(const char* path) const {
+    if (!path || !*path) return false;
+    std::FILE* f = std::fopen(path, "w");
+    if (!f) return false;
+    std::fprintf(f, "# module addr end native native_calls recompiled_calls name\n");
+    for (const auto& m : modules_) {
+        const NativeIopModule::Table& t = m->Bound();
+        for (uint32_t i = 0; i < t.count; ++i) {
+            const iop_seam::IopFnSlot& s = t.slots[i];
+            const char* name = "";
+            for (const NativeIopModule::Candidate& c : m->Candidates())
+                if (c.addr == s.addr) { name = c.name; break; }
+            std::fprintf(f, "%s %05x %05x %d %llu %llu %s\n", m->Id(), s.addr, s.end, s.native ? 1 : 0,
+                         static_cast<unsigned long long>(s.native_calls), static_cast<unsigned long long>(s.recompiled_calls), name);
+        }
+    }
+    std::fclose(f);
+    return true;
+}
+
 }  // namespace ps2r::title::sly2

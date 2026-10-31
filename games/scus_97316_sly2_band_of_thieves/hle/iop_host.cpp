@@ -516,10 +516,13 @@ void IopHost::WriteCensus(verify::RunMeta* meta) {
     // The host cost of the IOP's dispatch (a census, never an input): per-boundary = ns / pumps.
     {
         const iop::IopModuleTable::DispatchCost& c = table_.Cost();
+        const uint64_t boundaries = table_.Kernel().Clock().Frames();
         meta->Set("iop_dispatch", "ns=" + std::to_string(c.ns) + ",passes=" + std::to_string(c.passes) + ",pumps=" +
                                       std::to_string(c.pumps) + ",coro_switches=" + std::to_string(table_.Kernel().CoroutineSwitches()) +
                                       ",step_runs=" + std::to_string(table_.Kernel().StepRuns()) + ",step_threads=" +
-                                      std::to_string(thbase_.StepThreadsArmed()));
+                                      std::to_string(thbase_.StepThreadsArmed()) + ",ns_per_pump=" +
+                                      std::to_string(c.pumps ? c.ns / c.pumps : 0) + ",ns_per_boundary=" +
+                                      std::to_string(boundaries ? c.ns / boundaries : 0) + ",boundaries=" + std::to_string(boundaries));
     }
     // The IOP frame clock's quanta: one per boundary, the same count as the SPU's mixer pumps.
     meta->Set("iop_frame_quanta", std::to_string(table_.Kernel().Clock().Frames()));
