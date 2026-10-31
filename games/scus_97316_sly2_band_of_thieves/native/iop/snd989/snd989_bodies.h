@@ -95,6 +95,32 @@ void fn_4dcc8(IopContext&);   // voice_Pitch(note, fine, a2, a3)
 void fn_4dd68(IopContext&);   // voice_PitchWords(def, mod, a2, a3, base, *note, *fine)
 void fn_4e628(IopContext&);   // voice_VolumeLaw(v0, v1, pan, v2, pan_b, v3, pan_c, out, flags)
 
+// snd989_voice.cpp -- voice allocation / key-on / the active list, the note-on event, the LFSR, the modulator list.
+void fn_35310(IopContext&);   // mod_WaveRandom(node, phase)
+void fn_353a8(IopContext&);   // mod_Start(node)
+void fn_35440(IopContext&);   // mod_UnlistAll(rec)
+void fn_35480(IopContext&);   // mod_Unlist(node)
+void fn_35508(IopContext&);   // mod_List(node)
+void fn_37a44(IopContext&);   // seq_NoteOn(rec, entry, *index)
+void fn_39b44(IopContext&);   // seq_VoiceEnded(v, rec)
+void fn_3f440(IopContext&);   // snd_Random()
+void fn_4c458(IopContext&);   // voice_Mute(v, on)
+void fn_4c750(IopContext&);   // voice_Alloc(grp, prio, keep)
+void fn_4ca58(IopContext&);   // voice_KeyOn(v, noise)
+void fn_4de04(IopContext&);   // voice_Activate(v)
+void fn_4dec0(IopContext&);   // voice_Deactivate(v)
+
+// snd989_refill.cpp -- the stream refill machinery.
+void fn_351c8(IopContext&);   // dma_Done(*sema)
+void fn_3aa3c(IopContext&);   // trans_Done(ch)
+void fn_471a0(IopContext&);   // refill_Dispatch(offset)
+void fn_47a88(IopContext&);   // refill_Memory(offset, size, blocks, flags)
+void fn_49788(IopContext&);   // trans_Start(ch)
+void fn_49c58(IopContext&);   // trans_Step(ch)
+void fn_4a7c4(IopContext&);   // adpcm_FixFlags(buf, size, more, mark_end)
+void fn_4a9d4(IopContext&);   // refill_Queue(hr)
+void fn_4aa70(IopContext&);   // start_Queue(hr)
+
 // snd989_misc.cpp -- handle validation, the timer / CD callbacks, group scaling, the owned-voice scan.
 void fn_3a90c(IopContext&);   // tick_TimerBeat(arg)
 void fn_3a9dc(IopContext&);   // stream_CdReadDone(status)
