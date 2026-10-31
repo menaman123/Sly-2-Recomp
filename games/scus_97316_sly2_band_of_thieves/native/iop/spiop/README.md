@@ -22,10 +22,18 @@ recompiled bodies stay in the generated TU.
 
 Threads: tray (fn_5b438) and headset monitor/feeder run as step bodies (no coroutine). The three slot stream
 threads (fn_5be48) stay coroutines: their state functions call 989snd exports (snd989:49/99/25/29 ...) whose
-bodies take the 989snd global lock -- a `WaitSema` on a contended semaphore inside the hosted callee, which a
-step body cannot return as its park (the kernel reports such a call: `iop_kernel.cpp LeaveThread`). On the
-boot lane they are 572 coroutine switches each (`iop_threads=` row); converting them needs the 989snd lock
-itself expressed as a park the caller returns, i.e. step-aware 989snd entry points.
+bodies take the 989snd global lock (fn_42f58: `WaitSema` on semaphore 8) -- a park inside the hosted callee, which
+a step body cannot return (`iop_kernel.cpp LeaveThread` reports such a call); the slot semaphore (fn_5bff8) and
+the disc semaphore (fn_5c0c4/fn_5c794) are two more nested sites. Measured on the OFF traces (a blocking import =
+an I row not followed by its own J row): on boot.pad 600 and the Paris hub 900 the stream threads park ONLY on
+their own 5 ms `DelayThread` (572 switches each on boot, ~3000 each on the hub); not one nested `WaitSema` of
+theirs ever blocked (the sid-8 lock blocks belong to snd989's threads 46520/47fec and the EE-side handler). So a
+step form that calls the callees as they are would be exact on these lanes but not by construction: the exact
+form is the lock pre-acquisition protocol (poll the semaphore; return `Park::Sema` when it would block; on resume
+hand the callee a `{tid, sid}` token its `WaitSema` site consumes instead of waiting), which needs the token
+honoured at every nested site: the three spiop sites above plus snd989's fn_42f58 and fn_4c1ac (the voice-table
+lock) -- the snd989 track's bodies. Until then the coroutine form stays (exact; ~3.7 ms per 600 boot frames, ~20 ms
+per 900 hub frames at 3.27 us per switch).
 
 Rules learned here (beside README.md's loop): the original's frame is mirrored (same `$sp` move, the same
 saved-register slots and parameter blocks -- imports read them); every void body sets the recompiled body's
