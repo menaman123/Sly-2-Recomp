@@ -24,8 +24,15 @@ fi
 [ ${#corpus[@]} -gt 0 ] || { echo "gen.sh: no corpus (give --corpus DIR or configure NATIVEEE_VU1_CORPUS)" >&2; exit 2; }
 [ -x "$tool" ] || cmake --build "$build" --target vu1_native_gen
 mkdir -p "$gen"
-"$tool" "${corpus[@]}" --out "$gen" --images "$here/images.txt" --chain 1
+# the disc's programs (content identity): regenerate them from the build's title ELF if absent
+programs="$gen/disc/disc_programs.txt"
+if [ ! -f "$programs" ]; then
+    elf="$build/generated/games/$title/inputs/SCUS_973.16"
+    [ -f "$elf" ] || { echo "gen.sh: no $programs and no title ELF at $elf (build the ps2r_title_native_vu1_generate target first)" >&2; exit 2; }
+    python3 "$here/extract_images.py" --elf "$elf" --out "$gen/disc" --quiet
+fi
+"$tool" "${corpus[@]}" --out "$gen" --images "$here/images.txt" --programs "$programs" --chain 1
 if [ "$record" = 1 ]; then
-    (cd "$gen" && shasum -a 256 vu1_*.cpp vu1_native_images.cpp vu1_native_images.txt) > "$here/MANIFEST.sha256"
+    (cd "$gen" && shasum -a 256 vu1_[0-9a-f]*.cpp vu1_native_images.cpp vu1_native_images.txt) > "$here/MANIFEST.sha256"
     echo "gen.sh: MANIFEST.sha256 re-recorded ($(wc -l < "$here/MANIFEST.sha256" | tr -d ' ') rows)"
 fi

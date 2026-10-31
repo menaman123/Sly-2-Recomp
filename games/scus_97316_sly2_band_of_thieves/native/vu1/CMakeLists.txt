@@ -100,7 +100,7 @@ set_source_files_properties(${_generated} PROPERTIES GENERATED TRUE)
 add_custom_target(ps2r_title_native_vu1_generate DEPENDS ${_generated})
 
 # The manifest (cmake/ps2r_verify_manifest.cmake, the recomp rule). To record it:
-#   (cd ${_gen} && shasum -a 256 vu1_*.cpp vu1_native_images.cpp vu1_native_images.txt) > native/vu1/MANIFEST.sha256
+#   (cd ${_gen} && shasum -a 256 vu1_[0-9a-f]*.cpp vu1_native_images.cpp vu1_native_images.txt) > native/vu1/MANIFEST.sha256
 set(_manifest "${CMAKE_CURRENT_SOURCE_DIR}/MANIFEST.sha256")
 set(_verify_stamp "")
 if(EXISTS "${_manifest}" AND PS2R_SLY2_VU1_NATIVE_CHAIN EQUAL 1)

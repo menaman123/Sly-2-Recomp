@@ -137,6 +137,29 @@ def programs_from_elf(data):
     return out
 
 
+def vu_address_constants(data):
+    """Every VU address the EE code materialises as a `lui rt, 0` + `addiu rd, rt, imm` pair (the DVP linker's
+    HI16/LO16 relocations against VU symbols: the MSCAL entries the game's packet builders pass to their
+    helpers, VU data addresses, ...). Returns the sorted set of immediates (bytes) -- the static superset of
+    the kick entries (a computed entry, e.g. MSCNT, is not in it)."""
+    sec = elf_sections(data)
+    t = sec[".text"]
+    n = t["size"] // 4
+    words = struct.unpack_from("<%dI" % n, data, t["offset"])
+    out = set()
+    for k, w in enumerate(words):
+        if (w >> 26) == 0x0F and (w & 0xFFFF) == 0:
+            rt = (w >> 16) & 31
+            for j in range(1, 5):
+                if k + j >= n:
+                    break
+                w2 = words[k + j]
+                if (w2 >> 26) == 0x09 and ((w2 >> 21) & 31) == rt:
+                    out.add(w2 & 0xFFFF)
+                    break
+    return sorted(v for v in out if v < 0x4000 and (v & 7) == 0)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--iso", help="the disc image (SCUS_973.16 is read from its root directory)")
@@ -164,6 +187,9 @@ def main(argv=None):
             f.write(img)
         rows.append("%s %s %x %016x %s %s" % (pid, unit, len(img), vu_image_hash(img), hashlib.sha256(img).hexdigest()[:16],
                                            ",".join("%x+%x@%x" % c for c in chunks)))
+    ents = vu_address_constants(data)
+    rows.append("# vu address constants of the EE code (lui 0 + addiu: the static superset of the MSCAL entries), bytes:")
+    rows.append("vuaddrs " + " ".join("%x" % v for v in ents))
     with open(os.path.join(a.out, "disc_programs.txt"), "w") as f:
         f.write("\n".join(rows) + "\n")
     if not a.quiet:

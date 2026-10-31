@@ -71,6 +71,8 @@ struct Args {
     Vu1AotBlockGen::Policy region;
 };
 
+std::vector<uint32_t> g_vu_addrs;  // disc_programs.txt "vuaddrs": VU addresses the EE code references
+
 // One disc program (disc_programs.txt row + its bytes from <dir>/<id>.bin).
 struct Program {
     std::string id;
@@ -161,6 +163,12 @@ bool ReadPrograms(const std::string& path, std::vector<Program>* out) {
         std::string size_hex, hash_hex;
         std::istringstream row(line);
         if (!(row >> pr.id >> pr.unit >> size_hex >> hash_hex)) continue;
+        if (pr.id == "vuaddrs") {  // the EE code's VU address constants: extra closure entries for every program
+            std::istringstream rest(line.substr(p + 7));
+            std::string tok;
+            while (rest >> tok) g_vu_addrs.push_back(static_cast<uint32_t>(std::strtoul(tok.c_str(), nullptr, 16)));
+            continue;
+        }
         pr.size = static_cast<uint32_t>(std::strtoul(size_hex.c_str(), nullptr, 16));
         pr.content_hash = std::strtoull(hash_hex.c_str(), nullptr, 16);
         std::ifstream bin((dir / (pr.id + ".bin")).string(), std::ios::binary);
@@ -300,6 +308,11 @@ int main(int argc, char** argv) {
                 continue;
             }
             // The canonical image: the program's bytes, zero residue.
+            // The EE code's VU address constants inside this program's extent: closure entries too (an MSCAL
+            // the lanes never kicked still gets its blocks; a data address only adds an unreachable block).
+            size_t static_added = 0;
+            for (uint32_t v : g_vu_addrs)
+                if (v < pr.size && entry_set.count(v) == 0) { entries.push_back(v); ++static_added; }
             std::vector<uint8_t> canon(Vu1Case::kMicroSize, 0);
             std::memcpy(canon.data(), pr.bytes.data(), pr.size);
             VuBlockProgram scratch;
@@ -333,8 +346,8 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "vu1_native_gen: cannot write %s\n", path.c_str());
                 return 1;
             }
-            std::printf("program=%s id=%s size=%x variants=%zu cases=%zu entries=%zu blocks=%u (dropped past the end: %zu) ops=%llu bundles=%llu bytes=%zu -> %s\n",
-                        hex.c_str(), pr.id.c_str(), pr.size, it->second.size(), n_cases_prog, entry_set.size(), out.blocks, dropped,
+            std::printf("program=%s id=%s size=%x variants=%zu cases=%zu entries=%zu (+%zu static vu addresses) blocks=%u (dropped past the end: %zu) ops=%llu bundles=%llu bytes=%zu -> %s\n",
+                        hex.c_str(), pr.id.c_str(), pr.size, it->second.size(), n_cases_prog, entry_set.size(), static_added, out.blocks, dropped,
                         static_cast<unsigned long long>(out.ops), static_cast<unsigned long long>(bundles), out.source.size(), path.c_str());
             rows.push_back({pr.content_hash, pr.size, n_cases_prog, entry_set.size(), out.blocks, out.ops, bundles, out.source.size(), pr.id, variants});
             listed.erase(pr.content_hash);
