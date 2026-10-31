@@ -17,6 +17,8 @@ std::optional<std::string> Text(const char* value) {
 LegKnobs LegKnobs::FromEnvironment() {
     LegKnobs k;
     k.watch = Text(std::getenv("NATIVEEE_WATCH"));
+    k.spiop_native = Text(std::getenv("NATIVEEE_SPIOP_NATIVE"));
+    if (k.spiop_native && (*k.spiop_native == "off" || *k.spiop_native == "0")) k.spiop_native.reset();
     if (const char* env = std::getenv("NATIVEEE_GS_VERTS")) k.gs_verts_key = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
     if (const char* env = std::getenv("NATIVEEE_SHADOW_SPLIT")) k.shadow_split = std::string(env) != "0";
     if (const char* env = std::getenv("NATIVEEE_GS_VERTS_CAP")) k.gs_verts_cap = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));

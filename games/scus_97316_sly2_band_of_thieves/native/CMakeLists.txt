@@ -30,6 +30,8 @@ add_library(ps2r_title_native STATIC
     # iop + spu (track iop-spu, then snd): the native 989snd RPC server on the RpcRouter seam (snd/README.md)
     native_iop.cpp
     snd/native_snd_server.cpp
+    # the hosted IOP modules as host C++, function by function over their own RAM (track nat3-spiop: iop/spiop/README.md)
+    iop/spiop/spiop_native.cpp
 )
 target_include_directories(ps2r_title_native PUBLIC ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/..)
 # -ffp-contract=off: the float contract spelled for every compiler (the engine's rule for GNU; Clang's
