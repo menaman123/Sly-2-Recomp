@@ -53,6 +53,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/native/native_iop.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/native_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vif/native_vif.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/vu0/native_vu0.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_devices.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_disc.h"
@@ -189,6 +190,9 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         nd.rpc_trace = iop.rpc_trace_file;
         native_iop = NativeIop::Install(native_knobs, std::move(nd));
     }
+    // VU0: the six VCALLMS microprograms as generated host bodies on the EE-side VU0 unit (title.native.vu0).
+    NativeVu0 native_vu0;
+    native_vu0.Install(native_knobs, devices.vu0);
     LegParkSink park_sink(host, census, park, play, disc, iop);
     LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);
     if (verify.Failed()) return 2;

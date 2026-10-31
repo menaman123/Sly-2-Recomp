@@ -47,6 +47,9 @@ if(TARGET ps2r_title_recomp)
     # vu1/ -> ps2r_title_native_vu1: the title's VU1 microprograms generated at build time from the kick
     # corpus (native/vu1/CMakeLists.txt; linked into ps2r_title_play by hle/CMakeLists.txt).
     add_subdirectory(vu1)
+    # target_sources(ps2r_title_native PRIVATE native_vu1.cpp ...)
+    # target_link_libraries(ps2r_title_native PUBLIC ps2r_vu ps2r_gif ...)
+    add_subdirectory(vu0)
 endif()
 # The seams the native paths plug into: the DMAC chain walker, the VIF unit, the VU units.
 

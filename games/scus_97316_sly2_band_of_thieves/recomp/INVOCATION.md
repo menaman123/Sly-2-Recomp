@@ -33,6 +33,17 @@ continuations: 6575 bodies, 72351 exact entries, 2 restartable wait thunks
 The output is deterministic: a run from a different working directory and input path produces identical
 files. There are no "Unhandled OP Code" sites in the shards.
 
+## `--vu0-native` (CMake `PS2R_SLY2_VU0_NATIVE=ON`, default OFF)
+
+Adds `--vu0-native` to the command above: every COP2 (VU0 macro-mode) FMAC op is emitted through the host
+vector kernels of `engine/ee/recomp_abi/host_app/vu0_native.h` (NEON / SSE2 / scalar; the bit-for-bit twins
+of the scalar `VR_reg` operators, `tests/vu/test_vu0_native_twin.cpp`), the dest mask as a lane blend, and
+the MAC/STATUS flag commit folded over each straight-line run (one `vu0n::Commit` before any reader: CFC2 /
+CTC2 / VCALLMS / syscall / control flow / block end). The shards differ textually (6,577 commit sites ->
+1,559 folded commits), so this setting has its own manifest, `MANIFEST.vu0_native.sha256`, recorded the
+same way from a `--vu0-native` generation. The report line is unchanged (6575 bodies, 72351 exact entries).
+The two settings must be run-equivalent: the determinism lane's mem/audio/frames hashes are the gate.
+
 ## Re-recording the manifest
 
 When the generator or its flags change, the build fails the manifest check. Regenerate, review the diff,

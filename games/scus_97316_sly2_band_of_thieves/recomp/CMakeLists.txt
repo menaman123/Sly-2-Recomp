@@ -16,6 +16,18 @@ if(NOT TARGET ps2r_recompiler_v2)
 endif()
 
 set(PS2R_SLY2_RECOMP_SHARDS 32 CACHE STRING "ps2r_recompiler_v2 --shards / --init-parts for this title (TitleProfile::recomp.shard_count)")
+# --vu0-native (STAGE NATIVE, track gs-vu0): the COP2 (VU0 macro-mode) FMAC ops are emitted through the
+# host vector kernels of engine/ee/recomp_abi/host_app/vu0_native.h (NEON / SSE2 / scalar, bit-identical
+# to the scalar VR_reg operators) with the MAC/STATUS flag commit folded over each straight-line run.
+# A BUILD-time choice (the shards differ), so each setting has its own manifest: MANIFEST.sha256 (off)
+# and MANIFEST.vu0_native.sha256 (on). Default OFF until the stage gate flips it.
+option(PS2R_SLY2_VU0_NATIVE "Recompile the title with ps2r_recompiler_v2 --vu0-native" OFF)
+set(_vu0_native_flag --no-vu0-native)
+set(_manifest_name MANIFEST.sha256)
+if(PS2R_SLY2_VU0_NATIVE)
+    set(_vu0_native_flag --vu0-native)
+    set(_manifest_name MANIFEST.vu0_native.sha256)
+endif()
 set(_gen "${PS2R_RECOMP_GEN_DIR}")
 set(_cwd "${CMAKE_CURRENT_BINARY_DIR}/tool_cwd")   # the tool writes logs/ and looks for stub files in its cwd
 file(MAKE_DIRECTORY "${_gen}" "${_cwd}")
@@ -58,7 +70,7 @@ add_custom_command(
             --input "${PS2R_TITLE_ELF}"
             --output-header "${_gen}/recompiled.h" --output-cpp "${_gen}/recompiled.cpp"
             --shards ${PS2R_SLY2_RECOMP_SHARDS} --init-parts ${PS2R_SLY2_RECOMP_SHARDS}
-            --direct-calls --no-legacy-title-stubs --yield-backedges
+            --direct-calls --no-legacy-title-stubs --yield-backedges ${_vu0_native_flag}
     # The continuation post-pass (C++ port of continuations.py; ContinuationsToolMatchesPython below
     # checks they agree).
     COMMAND ps2r_continuations "${_gen}" --audits "${CMAKE_SOURCE_DIR}/tools/recompiler_v2/continuation_audits.json"
@@ -77,7 +89,7 @@ set_tests_properties(ContinuationsToolMatchesPython PROPERTIES TIMEOUT 120 LABEL
 # With PS2R_RECOMP_CHECK_MANIFEST on, the generated files must match MANIFEST.sha256 byte for byte
 # (STRICT deletes a mismatching output). To record it:
 #   (cd ${_gen} && shasum -a 256 recompiled.h recompiled.cpp continuations.h recompiled_shard_*.cpp) > recomp/MANIFEST.sha256
-set(_manifest "${CMAKE_CURRENT_SOURCE_DIR}/MANIFEST.sha256")
+set(_manifest "${CMAKE_CURRENT_SOURCE_DIR}/${_manifest_name}")
 set(_verify_stamp "")
 if(EXISTS "${_manifest}")
     set(_stamp "${CMAKE_CURRENT_BINARY_DIR}/manifest.verified")
@@ -95,7 +107,7 @@ if(EXISTS "${_manifest}")
         COMMENT "Verifying the recompiled output against recomp/MANIFEST.sha256 (strict=${_strict})"
         VERBATIM)
     set(_verify_stamp "${_stamp}")
-    message(STATUS "games/scus_97316_sly2_band_of_thieves: recomp/MANIFEST.sha256 present (check ${_strict})")
+    message(STATUS "games/scus_97316_sly2_band_of_thieves: recomp/${_manifest_name} present (check ${_strict}; vu0_native=${PS2R_SLY2_VU0_NATIVE})")
 else()
     message(STATUS "games/scus_97316_sly2_band_of_thieves: no recomp/MANIFEST.sha256 yet -- first generation; record one from ${_gen}")
 endif()
