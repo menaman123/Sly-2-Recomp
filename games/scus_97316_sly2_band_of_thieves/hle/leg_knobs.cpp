@@ -25,6 +25,7 @@ LegKnobs LegKnobs::FromEnvironment() {
     k.gs_skip_class = Text(std::getenv("NATIVEEE_GS_SKIP_CLASS"));
     if (const char* env = std::getenv("NATIVEEE_DUMP_EVERY")) k.dump_every = std::max(1u, static_cast<uint32_t>(std::strtoul(env, nullptr, 10)));
     if (const char* env = std::getenv("NATIVEEE_DUMP_FROM")) k.dump_from = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
+    k.vif_census = Text(std::getenv("NATIVEEE_VIF_CENSUS"));
     k.gif_trace = std::getenv("NATIVEEE_GIF_TRACE") != nullptr;
     k.gif_trace_value = Text(std::getenv("NATIVEEE_GIF_TRACE"));
     k.gif_census = Text(std::getenv("NATIVEEE_GIF_CENSUS"));

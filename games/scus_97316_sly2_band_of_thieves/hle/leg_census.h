@@ -61,6 +61,9 @@ public:
         const ps2r::app::DisplaySequence* verify_display_sequence = nullptr;
         // Set later by the composition: the frame-rate policy's row (frame_rate=).
         std::function<std::string()> frame_rate = {};
+        // Set later by the composition: the native VIF/DMAC path's row (native_vif=), which also refreshes
+        // its NativeCensus details before the native= row is written.
+        std::function<std::string()> native_vif = {};
         // Set later by RunLeg (the agent control plane, leg_agent.h; null = off).
         const LegAgent* agent = nullptr;
         // Set by RunLeg: the title.native.* switches in force (the `native=` row, native/README.md).
@@ -69,6 +72,7 @@ public:
     void SetNativeKnobs(const NativeKnobs& k) { p_.native = k; }
     void SetDisplaySequence(const ps2r::app::DisplaySequence* seq) { p_.verify_display_sequence = seq; }
     void SetFrameRateCensus(std::function<std::string()> row) { p_.frame_rate = std::move(row); }
+    void SetNativeVifCensus(std::function<std::string()> row) { p_.native_vif = std::move(row); }
     void SetAgent(const LegAgent* agent) { p_.agent = agent; }
 
     explicit LegCensus(const Phases& p) : p_(p) {}

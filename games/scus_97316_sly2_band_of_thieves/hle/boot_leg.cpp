@@ -51,6 +51,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/native_knobs.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/vif/native_vif.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_core.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_devices.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_disc.h"
@@ -168,6 +169,13 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     auto native_detail = [&]() {   // the census detail strings, written once the game stopped
         if (native_gif) NativeCensus::Instance().SetDetail(NativeUnit::Gif, native_gif->Detail());
     };
+    // vif + dmac: the VIF1 chain executor on the DMAC walker (inline feed only; the MTVU worker keeps the model).
+    // Also the VIF chain census (NATIVEEE_VIF_CENSUS=<file>), which installs the same executor read-only.
+    NativeVif native_vif(core.ram, core.spad, devices.vif, devices.dmac.walker(),
+                         NativeVif::Options{native_knobs.dmac, native_knobs.vif, knobs.vif_census ? *knobs.vif_census : std::string()});
+    if (native_vif.Installed() && mtvu.mtvu)
+        std::fprintf(stderr, "nativeee: native vif/dmac: the MTVU worker owns the VIF1 feed -- the native chain executor is idle\n");
+    census.SetNativeVifCensus([&native_vif] { return native_vif.Census(); });
     LegParkSink park_sink(host, census, park, play, disc, iop);
     LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);
     if (verify.Failed()) return 2;
