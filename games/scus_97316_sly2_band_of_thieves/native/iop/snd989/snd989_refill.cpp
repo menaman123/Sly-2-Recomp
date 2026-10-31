@@ -414,8 +414,11 @@ void fn_49c58(IopContext& c) {
         }
     }
     if (Ld32(f.At(0x14)) != 0) {
-        const uint32_t hr2 = Ld32(slot);
-        St32(hr2, Ld32(hr2) | 0x40);
+        // 0x49fd4-0x49ff4: the ENDED flag goes on the VOICE RECORD (hr[0x10]), not on the half record hr itself
+        // (the first site above, 0x49f60, is the one that marks hr). Found by the binocucom leg: hr is st+0x3c for
+        // half 1, so the wrong target showed as st[0x3c]=0x40 with st[0] missing 0x40 -> fn_45ccc never polled ENVX.
+        const uint32_t st2 = Ld32(Ld32(slot) + 0x10);
+        St32(st2, Ld32(st2) | 0x40);
     }
     finish();
 }
