@@ -62,10 +62,10 @@ void fn_3318c(IopContext& c) {
     const uint32_t tag = A0(c), op = A1(c), p0 = A2(c), p1 = A3(c);
     const uint32_t s0 = StackArg(c, 0), s1 = StackArg(c, 1), s2 = StackArg(c, 2);
     Frame f(c, 0x30);
-    const uint32_t rec = Call(c, iop_snd989::iop_func_00033148, tag);
+    const uint32_t rec = Call(c, 0x33148, tag);
     if (rec == 0) {
         St32(f.At(0x10), 0);
-        Call(c, iop_snd989::iop_func_00035140, 3, tag, tag, 0);
+        Call(c, 0x35140, 3, tag, tag, 0);
         Ret(c, 0);
         return;
     }
@@ -75,7 +75,7 @@ void fn_3318c(IopContext& c) {
         return;
     }
     St32(f.At(0x10), 0);
-    Call(c, iop_snd989::iop_func_00035140, 4, tag, 0, 0);
+    Call(c, 0x35140, 4, tag, 0, 0);
     Ret(c, 0);
 }
 
@@ -86,7 +86,7 @@ void fn_344c4(IopContext& c) {
     St32(f.At(0x10), Ld32(b + 0x10));
     St32(f.At(0x14), Ld32(b + 0x14));
     St32(f.At(0x18), Ld32(b + 0x18));
-    const uint32_t r = Call(c, iop_snd989::iop_func_0003318c, Ld32(b), Ld32(b + 4), Ld32(b + 8), Ld32(b + 0xc));
+    const uint32_t r = Call(c, 0x3318c, Ld32(b), Ld32(b + 4), Ld32(b + 8), Ld32(b + 0xc));
     St32(Ld32(G::kResultPtr), r);
 }
 
@@ -102,7 +102,7 @@ void fn_3e610(IopContext& c) {
 // fn_34184(buff): fno 91's shim -- the result stored.
 void fn_34184(IopContext& c) {
     Frame f(c, 0x18);
-    const uint32_t r = Call(c, iop_snd989::iop_func_0003e610);
+    const uint32_t r = Call(c, 0x3e610);
     St32(Ld32(G::kResultPtr), r);
 }
 
@@ -122,7 +122,7 @@ void fn_3e5c0(IopContext& c) {
 void fn_34158(IopContext& c) {
     const uint32_t b = A0(c);
     Frame f(c, 0x18);
-    Call(c, iop_snd989::iop_func_0003e5c0, Ld32(b), Ld32(b + 4));
+    Call(c, 0x3e5c0, Ld32(b), Ld32(b + 4));
 }
 
 // fn_39b24(bank, index): the 'SBlk' sound block's entry flag bit 0 (12-byte entries at bank[0x1c]).
@@ -142,7 +142,7 @@ void fn_3fac8(IopContext& c) {
         return;
     }
     if (Ld32(bank) == 0x6b6c4253u) {
-        Call(c, iop_snd989::iop_func_00039b24, bank, static_cast<uint32_t>(index));
+        Call(c, 0x39b24, bank, static_cast<uint32_t>(index));
         return;
     }
     if (!(index < Lds16(bank + 0x14)) || index < 0) {
@@ -164,7 +164,7 @@ void fn_3fac8(IopContext& c) {
 void fn_338bc(IopContext& c) {
     const uint32_t b = A0(c);
     Frame f(c, 0x18);
-    const uint32_t r = Call(c, iop_snd989::iop_func_0003fac8, Ld32(b), Ld32(b + 4));
+    const uint32_t r = Call(c, 0x3fac8, Ld32(b), Ld32(b + 4));
     St32(Ld32(G::kResultPtr), r);
 }
 
@@ -175,7 +175,7 @@ void fn_35200(IopContext& c) { Ret(c, static_cast<uint32_t>(Lds16(G::kVolumeCurv
 void fn_33534(IopContext& c) {
     const uint32_t b = A0(c);
     Frame f(c, 0x18);
-    Call(c, iop_snd989::iop_func_0004e100, Ld32(b), Ld32(b + 4));
+    Call(c, 0x4e100, Ld32(b), Ld32(b + 4));
 }
 
 }  // namespace ps2r::title::sly2::snd989

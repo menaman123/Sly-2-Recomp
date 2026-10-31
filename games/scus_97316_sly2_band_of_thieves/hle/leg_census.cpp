@@ -45,8 +45,8 @@ void LegCensus::Write() {
     WriteDevices(meta);
     WriteVu1(meta);
     if (p_.native_vif) meta->Set("native_vif", p_.native_vif());
-    if (p_.native_iop) meta->Set("native_iop", p_.native_iop());
     if (p_.native_detail) p_.native_detail();
+    if (p_.native_iop) p_.native_iop(meta);
     // STAGE NATIVE: which title.native.* paths are on and what each served natively / fell back
     // (native/native_census.h grammar).
     meta->Set("native", NativeCensus::Instance().Row(p_.native));

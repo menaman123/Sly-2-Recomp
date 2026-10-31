@@ -68,7 +68,7 @@ void fn_377a4(IopContext& c) {
         return;
     }
     for (;;) {
-        const uint32_t r = Call(c, iop_snd989::iop_func_0003926c, h);
+        const uint32_t r = Call(c, 0x3926c, h);
         if (r != 0) {
             Ret(c, r);
             return;
@@ -91,7 +91,7 @@ void fn_4226c(IopContext& c) {
     Frame f(c, 0x20);
     const uint32_t child = Ld32(node + 0xc);
     if (child != 0) {
-        if (Call(c, iop_snd989::iop_func_0004226c, child, h) == 1) {
+        if (Call(c, 0x4226c, child, h) == 1) {
             Ret(c, 1);
             return;
         }
@@ -117,9 +117,9 @@ void fn_41da0(IopContext& c) {
     const uint32_t release = A2(c), why = A3(c);
     Frame f(c, 0x30);
     uint32_t stop_voices = 1, stopping = 0;
-    Call(c, iop_snd989::iop_func_00042f58, 0x4f);
+    Call(c, 0x42f58, 0x4f);
     if (Lds32(h) >= 0) {
-        Call(c, iop_snd989::iop_func_000430dc);
+        Call(c, 0x430dc);
         return;
     }
     const uint32_t flags = Ld8(h + 0x16);
@@ -130,12 +130,12 @@ void fn_41da0(IopContext& c) {
     St8(h + 0x16, flags | 4);
     if (force != 0) {
         for (uint32_t child = Ld32(h + 0x2c); child != 0; child = Ld32(child + 0x30))
-            Call(c, iop_snd989::iop_func_00041da0, child, force, release, why);
+            Call(c, 0x41da0, child, force, release, why);
     }
     const uint32_t id = Ld32(h);
     const uint32_t type = (id >> 24) & 0x1f;
     if (type == 4) {
-        Call(c, iop_snd989::iop_func_000453fc, id);
+        Call(c, 0x453fc, id);
         stop_voices = 0;
     } else if (type < 5) {
         if (type == 2) {
@@ -144,19 +144,19 @@ void fn_41da0(IopContext& c) {
         }
     } else if (type == 5) {
         if (stopping != 0) {
-            Call(c, iop_snd989::iop_func_00037870, h, 1, why);
-        } else if (Call(c, iop_snd989::iop_func_00037870, h, release, why) != 0) {
+            Call(c, 0x37870, h, 1, why);
+        } else if (Call(c, 0x37870, h, release, why) != 0) {
             stop_voices = 0;
         }
     }
     if (stop_voices != 0) {
-        Call(c, iop_snd989::iop_func_0004c1ac, 1, 0x4a);
-        if (release != 0 || (Ld8(h + 0x16) & 2)) Call(c, iop_snd989::iop_func_0004d5f0, h + 0x18, 1);
-        else Call(c, iop_snd989::iop_func_0004d438, h + 0x18, 1);
-        Call(c, iop_snd989::iop_func_0004c2f8);
-        if (Lds32(h) < 0) Call(c, iop_snd989::iop_func_0004144c, h, 0);
+        Call(c, 0x4c1ac, 1, 0x4a);
+        if (release != 0 || (Ld8(h + 0x16) & 2)) Call(c, 0x4d5f0, h + 0x18, 1);
+        else Call(c, 0x4d438, h + 0x18, 1);
+        Call(c, 0x4c2f8);
+        if (Lds32(h) < 0) Call(c, 0x4144c, h, 0);
     }
-    Call(c, iop_snd989::iop_func_000430dc);
+    Call(c, 0x430dc);
 }
 
 // fn_4218c: one tick step over the sound-handle list g[kSoundList]: type 4 -> fn_45904; type 5 (unpaused) ->
@@ -167,15 +167,15 @@ void fn_4218c(IopContext& c) {
         uint32_t done = 0;
         const uint32_t type = Ld8(h + 3) & 0x1f;
         if (type == 4) {
-            Call(c, iop_snd989::iop_func_00045904, h);
+            Call(c, 0x45904, h);
         } else if (type == 5) {
-            if (!(Ld8(h + 0x16) & 2)) done = Call(c, iop_snd989::iop_func_000377a4, h);
+            if (!(Ld8(h + 0x16) & 2)) done = Call(c, 0x377a4, h);
         }
         if (done == 0) {
             const uint32_t tree = Ld32(h + 8);
-            if (tree != 0 && !(Ld8(h + 0x16) & 2)) done = Call(c, iop_snd989::iop_func_0004226c, tree, h);
+            if (tree != 0 && !(Ld8(h + 0x16) & 2)) done = Call(c, 0x4226c, tree, h);
         }
-        if (done != 0) Call(c, iop_snd989::iop_func_00041da0, h, 1, 0, 0);
+        if (done != 0) Call(c, 0x41da0, h, 1, 0, 0);
     }
 }
 
@@ -183,11 +183,11 @@ void fn_4218c(IopContext& c) {
 // record, [0x2c] next): fn_355a4 polls it; bit 0 -> fn_393b0(*record, 0x7fffffff, -2, 1), bit 1 -> fn_398cc(record).
 void fn_35a04(IopContext& c) {
     Frame f(c, 0x20);
-    if (Call(c, iop_snd989::iop_func_00043638) & 1) return;
+    if (Call(c, 0x43638) & 1) return;
     for (uint32_t n = Ld32(G::kEndHandlerList); n != 0; n = Ld32(n + 0x2c)) {
-        const uint32_t r = Call(c, iop_snd989::iop_func_000355a4, n);
-        if (r & 1) Call(c, iop_snd989::iop_func_000393b0, Ld32(Ld32(n + 0x28)), 0x7fffffff, 0xfffffffeu, 1);
-        if (r & 2) Call(c, iop_snd989::iop_func_000398cc, Ld32(n + 0x28));
+        const uint32_t r = Call(c, 0x355a4, n);
+        if (r & 1) Call(c, 0x393b0, Ld32(Ld32(n + 0x28)), 0x7fffffff, 0xfffffffeu, 1);
+        if (r & 2) Call(c, 0x398cc, Ld32(n + 0x28));
     }
 }
 

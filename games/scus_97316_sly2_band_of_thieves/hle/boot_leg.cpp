@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <memory>
 #include <stdexcept>
@@ -50,10 +51,8 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_agent.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/native_iop_frame.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/native_iop.h"
-#if PS2R_SLY2_NATIVE_IOP
-#include "games/scus_97316_sly2_band_of_thieves/native/iop/snd989/snd989_native.h"
-#endif
 #include "games/scus_97316_sly2_band_of_thieves/native/native_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vif/native_vif.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vu0/native_vu0.h"
@@ -197,15 +196,31 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         nd.rpc_trace = iop.rpc_trace_file;
         native_iop = NativeIop::Install(native_knobs, std::move(nd));
     }
-    // STAGE NATIVE-3: the hosted IOP modules' ported functions as host bodies in the recompiled TUs' per-function
-    // seam (native/iop/; NATIVEEE_IOP_NATIVE selects; the recompiled bodies stay the fallback and the oracle).
-#if PS2R_SLY2_NATIVE_IOP
-    {
-        const snd989::NativeOptions snd_opt = snd989::NativeOptions::FromEnv(knobs.iop_native ? knobs.iop_native->c_str() : nullptr);
-        snd989::InstallNative(snd_opt);
-        census.SetNativeIopCensus([] { return snd989::NativeCensusRow(); });
-    }
-#endif
+    // title.native.iopsys: the hosted IOP modules' functions as native host bodies through the per-function
+    // seam of the recompiled TUs (native/iop/native_iop_frame.h); the recompiled bodies stay the fallback and
+    // the oracle. The frame is built whether or not the knob is on (its census counts the recompiled calls;
+    // NATIVEEE_IOP_TRACE records the call stream either way).
+    NativeIopFrame native_iop_frame([&] {
+        NativeIopFrame::Deps fd;
+        fd.enabled = native_knobs.iopsys;
+        for (const IopHost::SeamTable& t : IopHost::SeamTables()) fd.tables.push_back(NativeIopModule::Table{t.slots, t.count});
+        fd.trace_path = knobs.iop_trace ? knobs.iop_trace->c_str() : nullptr;
+        fd.trace.now_us = [&kernel = iop.iop_host.Table().Kernel()] { return kernel.Clock().NowUs(); };
+        fd.trace.current_tid = [&kernel = iop.iop_host.Table().Kernel()] { return kernel.CurrentTid(); };
+        fd.set_step_provider = [&iop](std::function<ps2r::iop::IopKernel::StepBody(uint32_t, const ps2r::iop::IopContext&)> p) {
+            iop.iop_host.SetStepProvider(std::move(p));
+        };
+        return fd;
+    }());
+    census.SetNativeIopCensus([&native_iop_frame](ps2r::verify::RunMeta* meta) {
+        meta->Set("native_iop", native_iop_frame.Census());
+        meta->Set("native_iop_remaining", native_iop_frame.Remaining());
+        meta->Set("native_iop_filter", native_iop_frame.Filter().Spec().empty() ? std::string("all") : native_iop_frame.Filter().Spec());
+        meta->Set("native_iop_trace_rows", std::to_string(IopCallTrace::Rows()));
+        // NATIVEEE_IOP_SLOT_REPORT=<file>: every slot's counts (the reachability census across legs).
+        if (const char* rep = std::getenv("NATIVEEE_IOP_SLOT_REPORT"))
+            meta->Set("native_iop_slot_report", native_iop_frame.WriteSlotReport(rep) ? rep : "unwritable");
+    });
     // VU0: the six VCALLMS microprograms as generated host bodies on the EE-side VU0 unit (title.native.vu0).
     NativeVu0 native_vu0;
     native_vu0.Install(native_knobs, devices.vu0);

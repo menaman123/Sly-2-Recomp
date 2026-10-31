@@ -20,7 +20,7 @@ void fn_417f8(IopContext& c) {
     }
     auto error = [&](uint32_t code) {
         St32(f.At(0x10), 0);
-        Call(c, iop_snd989::iop_func_00035140, code, 0, 0, 0);
+        Call(c, 0x35140, code, 0, 0, 0);
         Ret(c, 0);
     };
     if (h == 0xffffffffu) {
@@ -60,7 +60,7 @@ void fn_3fa7c(IopContext& c) {
         Ret(c, 0);
         return;
     }
-    Ret(c, Call(c, iop_snd989::iop_func_000417f8, h) != 0 ? h : 0);
+    Ret(c, Call(c, 0x417f8, h) != 0 ? h : 0);
 }
 
 // fn_3a90c(timer_arg): the hard-timer beat (240 Hz): unless the tick is being held off (g[kTickHold] > 0 -> set it to

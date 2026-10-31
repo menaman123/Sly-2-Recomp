@@ -39,6 +39,8 @@ struct Namespace {
     InitializeFn initialize;
     const iop_lgaud::ImportStub* stubs;   // the same POD layout in every namespace
     uint32_t stub_count;
+    iop_seam::IopFnSlot* slots;           // the --seam slot table
+    uint32_t slot_count;
 };
 
 // The generated TUs' tables, one per hosted module. ImportStub has the same layout in
@@ -46,15 +48,19 @@ struct Namespace {
 const Namespace kNamespaces[] = {
     {"fileio", iop_fileio::kBase, iop_fileio::kBase + iop_fileio::kLoadExtent, &iop_fileio::iop_recompiled_functions,
      &iop_fileio::initialize_iop_recompiled_functions,
-     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_fileio::kImportStubs), iop_fileio::kImportStubCount},
+     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_fileio::kImportStubs), iop_fileio::kImportStubCount,
+     iop_fileio::iop_fn_slots, iop_fileio::kFunctionCount},
     {"lgaud", iop_lgaud::kBase, iop_lgaud::kBase + iop_lgaud::kLoadExtent, &iop_lgaud::iop_recompiled_functions,
-     &iop_lgaud::initialize_iop_recompiled_functions, iop_lgaud::kImportStubs, iop_lgaud::kImportStubCount},
+     &iop_lgaud::initialize_iop_recompiled_functions, iop_lgaud::kImportStubs, iop_lgaud::kImportStubCount,
+     iop_lgaud::iop_fn_slots, iop_lgaud::kFunctionCount},
     {"snd989", iop_snd989::kBase, iop_snd989::kBase + iop_snd989::kLoadExtent, &iop_snd989::iop_recompiled_functions,
      &iop_snd989::initialize_iop_recompiled_functions,
-     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_snd989::kImportStubs), iop_snd989::kImportStubCount},
+     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_snd989::kImportStubs), iop_snd989::kImportStubCount,
+     iop_snd989::iop_fn_slots, iop_snd989::kFunctionCount},
     {"spiop", iop_spiop::kBase, iop_spiop::kBase + iop_spiop::kLoadExtent, &iop_spiop::iop_recompiled_functions,
      &iop_spiop::initialize_iop_recompiled_functions,
-     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_spiop::kImportStubs), iop_spiop::kImportStubCount},
+     reinterpret_cast<const iop_lgaud::ImportStub*>(iop_spiop::kImportStubs), iop_spiop::kImportStubCount,
+     iop_spiop::iop_fn_slots, iop_spiop::kFunctionCount},
 };
 
 void InitializeNamespaces() {
@@ -228,6 +234,12 @@ void IopHost::AfterSectionRestore() {
 IopHost::~IopHost() {
     table_.Shutdown();
     iop::IopAbiSurface::Unbind();
+}
+
+std::vector<IopHost::SeamTable> IopHost::SeamTables() {
+    std::vector<SeamTable> out;
+    for (const Namespace& n : kNamespaces) out.push_back(SeamTable{n.id, n.slots, n.slot_count});
+    return out;
 }
 
 GuestFunction IopHost::ResolveGuestFn(uint32_t addr) {
@@ -501,6 +513,17 @@ void IopHost::WriteCensus(verify::RunMeta* meta) {
     meta->Set("iop_rpc_stalls", std::to_string(table_.Rpc().Stalls()));
     meta->Set("iop_printf_calls", std::to_string(stdio_.Calls()));
     meta->Set("iop_timer_beats", std::to_string(table_.Kernel().TimerBeats()));
+    // The host cost of the IOP's dispatch (a census, never an input): per-boundary = ns / pumps.
+    {
+        const iop::IopModuleTable::DispatchCost& c = table_.Cost();
+        const uint64_t boundaries = table_.Kernel().Clock().Frames();
+        meta->Set("iop_dispatch", "ns=" + std::to_string(c.ns) + ",passes=" + std::to_string(c.passes) + ",pumps=" +
+                                      std::to_string(c.pumps) + ",coro_switches=" + std::to_string(table_.Kernel().CoroutineSwitches()) +
+                                      ",step_runs=" + std::to_string(table_.Kernel().StepRuns()) + ",step_threads=" +
+                                      std::to_string(thbase_.StepThreadsArmed()) + ",ns_per_pump=" +
+                                      std::to_string(c.pumps ? c.ns / c.pumps : 0) + ",ns_per_boundary=" +
+                                      std::to_string(boundaries ? c.ns / boundaries : 0) + ",boundaries=" + std::to_string(boundaries));
+    }
     // The IOP frame clock's quanta: one per boundary, the same count as the SPU's mixer pumps.
     meta->Set("iop_frame_quanta", std::to_string(table_.Kernel().Clock().Frames()));
     // The libsd services the hosted 989snd reached (ordinal:count) and the voice-transfer bytes.

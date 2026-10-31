@@ -1,12 +1,13 @@
 // snd989_abi.h -- how a native 989snd body sits in the recompiled module's seat (STAGE NATIVE-3, track snd989).
 //
-// A ported function is a host body installed in the module's per-function seam (iop_snd989::iop_seam_install):
-// it receives the SAME IopContext the recompiled body would (args in $a0..$a3 and the caller's stack from
+// A ported function is a host body installed in the module's per-function seam (iop_seam::InstallPlain through
+// NativeIopModule::Add, native/iop/native_iop_module.h): it receives the SAME IopContext the recompiled body would (args in $a0..$a3 and the caller's stack from
 // sp+0x10, result in $v0, the saved registers $s0..$s7/$fp/$gp/$sp preserved) and reads/writes the SAME IOP RAM
 // (the module's .data/.bss at 0x50000.., its heap blocks, the voice table), so the two bodies are interchangeable
 // at any call and the module's RAM stays the one state. Callees -- ported or not -- are reached by the same
-// register-level call the recompiled caller makes (`Call(ctx, iop_snd989::iop_func_X, a0, ...)`: the callee's
-// own seam routes it), library imports by the same `import_call("lib", index)` the recompiled JAL site makes
+// register-level call the recompiled caller makes (`Call(ctx, 0x4b374, a0, ...)` resolves the address through
+// IopAbiSurface::Resolve to the callee's seam wrapper, exactly as a recompiled JAL site's direct call lands there;
+// this TU needs no generated header), library imports by the same `import_call("lib", index)` the recompiled JAL site makes
 // (same ordinal, args, order: the libsd op stream is the per-function oracle).
 //
 // What a native body may differ in (not guest-observable, not an oracle): the stack bytes below the caller's
@@ -19,12 +20,12 @@
 
 #include "engine/iop/abi/iop_abi_surface.h"
 #include "engine/iop/iop_context.h"
-#include "snd989/iop_recompiled.h"
+#include "engine/iop/iop_memory.h"
 
 namespace ps2r::title::sly2::snd989 {
 
 using IopContext = ps2r::iop::IopContext;
-using IopFn = void (*)(IopContext&);
+using PlainFn = void (*)(IopContext&);   // a native body (iop_seam::PlainFn)
 
 // IOP RAM through the bound surface (the same accessor the generated code uses).
 inline uint32_t Ld32(uint32_t a) { return ps2r::iop::IopAbiSurface::Memory().Read<uint32_t>(a); }
@@ -72,22 +73,17 @@ private:
     uint32_t bytes_;
 };
 
-// A call to a module function (ported or recompiled: its seam decides) with the register arguments set.
-// Stack arguments (the 5th on) are written by the caller into its Frame at 0x10.. before calling.
-inline uint32_t Call(IopContext& c, IopFn fn, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 = 0, uint32_t a3 = 0) {
-    c.gpr[4] = a0;
-    c.gpr[5] = a1;
-    c.gpr[6] = a2;
-    c.gpr[7] = a3;
-    fn(c);
-    c.FixZero();
-    return c.gpr[2];
+// A call to a module function at `target` (ported or recompiled: its seam decides) with the register arguments
+// set. Stack arguments (the 5th on) are written by the caller into its Frame at 0x10.. before calling. The same
+// function serves the recompiled jalr (CallAddr: a function pointer held in module RAM -- iop_resolve over every
+// hosted module + the import stubs); an unknown target is reported like the generated code does and returns $v0
+// unchanged. RULE (found on the lane, fn_3926c): at an indirect call pass $a0..$a3 exactly as the original has
+// them at the jalr -- the callee's arity is not visible at the call site (the sequencer's event handlers take a
+// third argument in $a2).
+uint32_t Call(IopContext& c, uint32_t target, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 = 0, uint32_t a3 = 0);
+inline uint32_t CallAddr(IopContext& c, uint32_t target, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 = 0, uint32_t a3 = 0) {
+    return Call(c, target, a0, a1, a2, a3);
 }
-// A call through a function pointer held in module RAM (the recompiled jalr: iop_resolve over every hosted module +
-// the import stubs). An unknown target is reported like the generated code does and returns $v0 unchanged.
-// RULE (found on the lane, fn_3926c): pass $a0..$a3 exactly as the original has them at the jalr -- the callee's
-// arity is not visible at the call site (the sequencer's event handlers take a third argument in $a2).
-uint32_t CallAddr(IopContext& c, uint32_t target, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 = 0, uint32_t a3 = 0);
 // A library import, exactly the recompiled JAL site's import_call("lib", index).
 inline uint32_t Import(IopContext& c, const char* lib, uint32_t index, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 = 0,
                        uint32_t a3 = 0) {

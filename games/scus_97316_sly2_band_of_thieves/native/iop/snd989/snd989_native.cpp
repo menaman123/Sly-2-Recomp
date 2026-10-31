@@ -1,10 +1,7 @@
-// snd989_native.cpp -- the installer, the ported-function table, CallAddr, and the census row (snd989_native.h).
+// snd989_native.cpp -- the ported-function table, its registration on the module (snd989_native.h), and Call.
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/snd989/snd989_native.h"
 
-#include <algorithm>
 #include <cstdio>
-#include <cstdlib>
-#include <string>
 
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/snd989/snd989_bodies.h"
 
@@ -63,7 +60,7 @@ const PortedFn kPortedFns[] = {
 };
 const uint32_t kPortedFnCount = sizeof(kPortedFns) / sizeof(kPortedFns[0]);
 
-uint32_t CallAddr(IopContext& c, uint32_t target, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+uint32_t Call(IopContext& c, uint32_t target, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
     c.gpr[4] = a0;
     c.gpr[5] = a1;
     c.gpr[6] = a2;
@@ -78,92 +75,19 @@ uint32_t CallAddr(IopContext& c, uint32_t target, uint32_t a0, uint32_t a1, uint
     return c.gpr[2];
 }
 
-NativeOptions NativeOptions::FromEnv(const char* env_value) {
-    NativeOptions o;
-    if (!env_value) return o;
-    std::string s(env_value);
-    size_t pos = 0;
-    while (pos <= s.size()) {
-        size_t end = s.find(';', pos);
-        if (end == std::string::npos) end = s.size();
-        const std::string entry = s.substr(pos, end - pos);
-        pos = end + 1;
-        const size_t eq = entry.find('=');
-        if (eq == std::string::npos || entry.substr(0, eq) != "snd989") continue;
-        const std::string v = entry.substr(eq + 1);
-        if (v == "off" || v == "0") {
-            o.enabled = false;
-        } else if (v == "on" || v == "1" || v.empty()) {
-            o.enabled = true;
-        } else {
-            o.enabled = true;
-            size_t p = 0;
-            while (p <= v.size()) {
-                size_t e = v.find(',', p);
-                if (e == std::string::npos) e = v.size();
-                const std::string a = v.substr(p, e - p);
-                p = e + 1;
-                if (!a.empty()) o.only.push_back(static_cast<uint32_t>(std::strtoul(a.c_str(), nullptr, 16)));
-            }
-        }
-    }
-    return o;
-}
-
-int InstallNative(const NativeOptions& opt) {
-    int n = 0;
-    for (uint32_t i = 0; i < kPortedFnCount; ++i) {
-        const PortedFn& p = kPortedFns[i];
-        const bool wanted = opt.enabled && (opt.only.empty() || std::find(opt.only.begin(), opt.only.end(), p.addr) != opt.only.end());
-        if (!wanted) {
-            iop_snd989::iop_seam_install(p.addr, nullptr);
-            continue;
-        }
-        if (iop_snd989::iop_seam_install(p.addr, p.body)) ++n;
-        else std::fprintf(stderr, "snd989 native: no recompiled function at 0x%x (%s)\n", p.addr, p.name);
-    }
-    return n;
-}
-
-void UninstallNative() {
-    for (uint32_t i = 0; i < kPortedFnCount; ++i) iop_snd989::iop_seam_install(kPortedFns[i].addr, nullptr);
-}
-
-std::string NativeCensusRow() {
-    uint64_t native = 0, recompiled = 0;
-    uint32_t installed = 0;
-    struct Hot { uint32_t addr; uint64_t calls; };
-    std::vector<Hot> hot;
-    for (uint32_t k = 0; k < iop_snd989::kFnSlotCount; ++k) {
-        const IopFnSlot& s = iop_snd989::iop_fn_slots[k];
-        native += s.native_calls;
-        recompiled += s.recompiled_calls;
-        if (s.native) ++installed;
-        if (s.recompiled_calls) hot.push_back({s.addr, s.recompiled_calls});
-    }
-    std::sort(hot.begin(), hot.end(), [](const Hot& a, const Hot& b) { return a.calls != b.calls ? a.calls > b.calls : a.addr < b.addr; });
-    // NATIVEEE_IOP_NATIVE_REPORT=<file>: every slot's counts (addr size native recompiled), the port's work list.
-    if (const char* rep = std::getenv("NATIVEEE_IOP_NATIVE_REPORT")) {
-        if (std::FILE* f = std::fopen(rep, "w")) {
-            for (uint32_t k = 0; k < iop_snd989::kFnSlotCount; ++k) {
-                const IopFnSlot& s = iop_snd989::iop_fn_slots[k];
-                std::fprintf(f, "%05x %5u %10llu %10llu\n", s.addr, s.size / 4, static_cast<unsigned long long>(s.native_calls),
-                             static_cast<unsigned long long>(s.recompiled_calls));
-            }
-            std::fclose(f);
-        }
-    }
-    std::string row = "snd989:" + std::to_string(native) + "/" + std::to_string(recompiled) + ":fns=" + std::to_string(installed) + "/" +
-                      std::to_string(iop_snd989::kFnSlotCount);
-    if (!hot.empty()) {
-        row += ":top=";
-        char buf[48];
-        for (size_t i = 0; i < hot.size() && i < 5; ++i) {
-            std::snprintf(buf, sizeof(buf), "%s%xx%llu", i ? "," : "", hot[i].addr, static_cast<unsigned long long>(hot[i].calls));
-            row += buf;
-        }
-    }
-    return row;
-}
-
 }  // namespace ps2r::title::sly2::snd989
+
+namespace ps2r::title::sly2 {
+
+void RegisterSnd989Natives(NativeIopModule& m) {
+    for (uint32_t i = 0; i < snd989::kPortedFnCount; ++i) {
+        const snd989::PortedFn& p = snd989::kPortedFns[i];
+        // A function another registration already covers (the frame's Snd989Lock: fn_42f58 / fn_430dc) keeps that body.
+        bool taken = false;
+        for (const NativeIopModule::Candidate& cnd : m.Candidates())
+            if (cnd.addr == p.addr) taken = true;
+        if (!taken) m.Add(p.addr, p.body, p.name);
+    }
+}
+
+}  // namespace ps2r::title::sly2

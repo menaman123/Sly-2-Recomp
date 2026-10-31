@@ -55,7 +55,7 @@ void fn_42f58(IopContext& c) {
         imp::CpuResumeIntr(c, Ld32(f.At(0x18)));
         if (imp::WaitSema(c, Ld32(G::kLockSema)) != 0) {
             St32(f.At(0x10), 0);
-            Call(c, iop_snd989::iop_func_00035140, 0xbb8, 0, 0, 0);
+            Call(c, 0x35140, 0xbb8, 0, 0, 0);
         }
         St32(G::kLockOwner, imp::GetThreadId(c));
     }
@@ -72,7 +72,7 @@ void fn_430dc(IopContext& c) {
     const uint32_t tid = imp::GetThreadId(c);
     if (tid != Ld32(G::kLockOwner)) {
         St32(f.At(0x10), 0);
-        Call(c, iop_snd989::iop_func_00035140, 0x7b, 0, 0, 0);
+        Call(c, 0x35140, 0x7b, 0, 0, 0);
         return;
     }
     const int32_t depth = Lds32(G::kLockDepth);
@@ -82,7 +82,7 @@ void fn_430dc(IopContext& c) {
     St32(G::kLockTag, 0);
     if (nd < 0) {
         St32(f.At(0x10), 0);
-        Call(c, iop_snd989::iop_func_00035140, 0x24, 0, 0, 0);
+        Call(c, 0x35140, 0x24, 0, 0, 0);
     } else if (nd < 32) {
         St32(G::kLockTags + 4 * static_cast<uint32_t>(nd), 0);
     }
@@ -181,7 +181,7 @@ void fn_4d184(IopContext& c) {
     const int v = static_cast<int32_t>(A0(c));
     Frame f(c, 0x28);
     const uint32_t rec = G::Voice(v);
-    if (Ld8(rec + G::kVoicePrio) != 0x7f) Call(c, iop_snd989::iop_func_0004dec0, static_cast<uint32_t>(v));
+    if (Ld8(rec + G::kVoicePrio) != 0x7f) Call(c, 0x4dec0, static_cast<uint32_t>(v));
     const uint32_t cb = Ld32(rec + G::kVoiceCb);
     if (cb != 0) CallAddr(c, cb, static_cast<uint32_t>(v), Ld32(rec + G::kVoiceCbArg), 2);
     St32(rec + G::kVoiceCb, 0);
@@ -206,7 +206,7 @@ void fn_4325c(IopContext& c) {
     }
     St32(G::kTickBusy, 1);
     if (Ld32(G::kTickNoLock) == 0) {
-        if (Call(c, iop_snd989::iop_func_000431bc) == 0) {
+        if (Call(c, 0x431bc) == 0) {
             const int32_t n = Lds32(G::kTickPending) + 1;
             St32(G::kTickPending, static_cast<uint32_t>(n));
             if (n == (n / 480) * 480) {
@@ -233,25 +233,25 @@ void fn_4325c(IopContext& c) {
             continue;
         }
         if (Ld32(G::kVoicesEnding + core * 4) & mask) {
-            Call(c, iop_snd989::iop_func_0004d184, static_cast<uint32_t>(v));
+            Call(c, 0x4d184, static_cast<uint32_t>(v));
             continue;
         }
         if (Ld32(G::kVoicesOn + core * 4) & mask) {
             St8(silent, Ld8(silent) - 1);
             const int32_t left = Lds8(silent);
-            if (left == 0) Call(c, iop_snd989::iop_func_0004d318, static_cast<uint32_t>(v));
+            if (left == 0) Call(c, 0x4d318, static_cast<uint32_t>(v));
             else if (left < 0) St8(silent, 4);
         }
     }
     if (Lds32(G::kTickPending) > 0) {
         do {
             St32(G::kTickCount, Ld32(G::kTickCount) + 1);
-            Call(c, iop_snd989::iop_func_0004218c);
-            Call(c, iop_snd989::iop_func_0004d074);
-            Call(c, iop_snd989::iop_func_0004cf5c);
-            Call(c, iop_snd989::iop_func_00040f64);
-            Call(c, iop_snd989::iop_func_00035a04);
-            if ((Ld32(G::kTickCount) & 3) == 0) Call(c, iop_snd989::iop_func_0004efb4);
+            Call(c, 0x4218c);
+            Call(c, 0x4d074);
+            Call(c, 0x4cf5c);
+            Call(c, 0x40f64);
+            Call(c, 0x35a04);
+            if ((Ld32(G::kTickCount) & 3) == 0) Call(c, 0x4efb4);
             St32(G::kTickPending, static_cast<uint32_t>(Lds32(G::kTickPending) - 1));
         } while (Lds32(G::kTickPending) > 0);
     }
@@ -267,7 +267,7 @@ void fn_4325c(IopContext& c) {
         }
     }
     St32(G::kTickBusy, 0);
-    Call(c, iop_snd989::iop_func_000430dc);
+    Call(c, 0x430dc);
     Ret(c, 0);
 }
 

@@ -10,11 +10,11 @@
 namespace ps2r::title::sly2::snd989 {
 
 struct PortedFn {
-    uint32_t addr;        // the function's address (iop_snd989::iop_fn_slots[].addr)
-    IopFn body;           // the host body
+    uint32_t addr;        // the function's address in the module (its seam slot)
+    PlainFn body;         // the host body
     const char* name;     // the role (OpenGOAL's name where it has one)
 };
-// Every ported function, in address order. The installer (snd989_native.cpp) installs each unless filtered.
+// Every ported function, in address order. RegisterSnd989Natives (snd989_native.cpp) Add()s each to the module.
 extern const PortedFn kPortedFns[];
 extern const uint32_t kPortedFnCount;
 

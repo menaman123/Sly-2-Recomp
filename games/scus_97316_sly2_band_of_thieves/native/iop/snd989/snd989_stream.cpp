@@ -59,9 +59,9 @@ void fn_44768(IopContext& c) {
     if (Ld32(h + 0x70) == 0) return;
     uint32_t two = 0;
     const uint32_t first = Ld32(h + 4);
-    if (Call(c, iop_snd989::iop_func_0004b374, first) == 2) two = (Ld32(first + 0x10) & 0x100) == 0 ? 1 : 0;
+    if (Call(c, 0x4b374, first) == 2) two = (Ld32(first + 0x10) & 0x100) == 0 ? 1 : 0;
     St32(f.At(0x10), static_cast<uint32_t>(Lds8(h + 0x17)));
-    if (Call(c, iop_snd989::iop_func_00043d2c, loc_a, loc_b, two, Ld32(first + 0x10) & 0x100) == 0) return;
+    if (Call(c, 0x43d2c, loc_a, loc_b, two, Ld32(first + 0x10) & 0x100) == 0) return;
     auto fill = [&](uint32_t loc) {
         const uint32_t rec = Ld32(loc);
         St32(rec, Ld32(rec) | 0x10);
@@ -70,7 +70,7 @@ void fn_44768(IopContext& c) {
         uint32_t q = Ld32(h + 0x70);
         St32(f.At(0x10), 1);
         St32(f.At(0x14), kind);
-        Call(c, iop_snd989::iop_func_00044a58, h, rec, Ld32(q + 4), Ld32(q + 8));
+        Call(c, 0x44a58, h, rec, Ld32(q + 4), Ld32(q + 8));
         q = Ld32(h + 0x70);
         St8(rec + 0xc5, Ld8(q + 0xd));
         if (Ld8(h + 0x16) & 0x10) {
@@ -83,7 +83,7 @@ void fn_44768(IopContext& c) {
     };
     fill(loc_a);
     if (two != 0) fill(loc_b);
-    Call(c, iop_snd989::iop_func_0004aa70, Ld32(loc_a) + 0x10);
+    Call(c, 0x4aa70, Ld32(loc_a) + 0x10);
     St32(h + 0x6c, Ld32(loc_a));
     imp::SignalSema(c, Ld32(G::kStreamSema));
 }
@@ -165,7 +165,7 @@ void fn_45ccc(IopContext& c) {
             }
             if (error) {
                 St32(f.At(0x10), 0);
-                Call(c, iop_snd989::iop_func_00035140, code, Ld32(Ld32(st + 0xd0)), a2, 0);
+                Call(c, 0x35140, code, Ld32(Ld32(st + 0xd0)), a2, 0);
                 Ret(c, 0xfffffffeu);
                 return;
             }
@@ -199,14 +199,14 @@ void fn_45ccc(IopContext& c) {
             // only an older request (or none) lets this one through.
             bool request = true;
             if (Ld32(st + 0x70) != 0) {
-                const uint32_t now = Call(c, iop_snd989::iop_func_00043638);
+                const uint32_t now = Call(c, 0x43638);
                 if (!(Ld32(st + 0x70) + 10 < now)) {
                     request = false;
                     const int32_t stalls = Lds32(st + 0x74) + 1;
                     St32(st + 0x74, static_cast<uint32_t>(stalls));
                     if (!(stalls < 9)) {
                         St32(f.At(0x10), 0);
-                        Call(c, iop_snd989::iop_func_00035140, 0x36, Ld32(Ld32(st + 0xd0)), 0, 0);
+                        Call(c, 0x35140, 0x36, Ld32(Ld32(st + 0xd0)), 0, 0);
                         Ret(c, 0xfffffffeu);
                         return;
                     }
@@ -215,11 +215,11 @@ void fn_45ccc(IopContext& c) {
             if (request) {
                 bool ok = true;
                 if ((Ld32(st + 0x10) & 0x300) != 0x100)
-                    ok = Call(c, iop_snd989::iop_func_0004a9d4, st + 0x10 + Ld32(st + 0x68) * 0x2c) != 0;
+                    ok = Call(c, 0x4a9d4, st + 0x10 + Ld32(st + 0x68) * 0x2c) != 0;
                 if (ok) {
                     flag = 1;
                     St32(st + 0x68, half);
-                    St32(st + 0x70, Call(c, iop_snd989::iop_func_00043638));
+                    St32(st + 0x70, Call(c, 0x43638));
                 } else {
                     result = 0xfffffffeu;
                 }
@@ -230,11 +230,11 @@ void fn_45ccc(IopContext& c) {
             if (last != 0 && pos < last && !(Ld32(st + 0x10) & 0x800)) {
                 St32(f.At(0x10), 0);
                 result = 0xfffffffeu;
-                Call(c, iop_snd989::iop_func_00035140, 0x37, Ld32(Ld32(st + 0xd0)), 0, 0);
+                Call(c, 0x35140, 0x37, Ld32(Ld32(st + 0xd0)), 0, 0);
             }
             St32(st + 0x6c, pos);
         }
-        if (result == 0) Call(c, iop_snd989::iop_func_000461e8, st, pos);
+        if (result == 0) Call(c, 0x461e8, st, pos);
     }
     const uint32_t w = Ld32(st);
     if ((w & 6) == 6 && !(w & 0x10)) St32(st, (w & ~2u) | 8);
@@ -252,22 +252,22 @@ void fn_45904(IopContext& c) {
     const uint32_t loc_flag = f.At(0xd8), loc_intr = f.At(0xdc), loc_kind = f.At(0xe0), voices = f.At(0x18);
     St32(loc_flag, 0);
     if (Ld8(h + 0x16) & 4) {
-        if (Call(c, iop_snd989::iop_func_000454cc, h) != 0) return;
-        if (Call(c, iop_snd989::iop_func_00045470, h) != 0) return;
-        Call(c, iop_snd989::iop_func_0004555c, Ld32(h), 1);
+        if (Call(c, 0x454cc, h) != 0) return;
+        if (Call(c, 0x45470, h) != 0) return;
+        Call(c, 0x4555c, Ld32(h), 1);
         return;
     }
     const uint32_t first = Ld32(h + 4);
     St32(loc_kind, Ld32(first) & 0x1f800);
     uint32_t r = 0;
     for (uint32_t st = first; st != 0; st = Ld32(st + 0xc8)) {
-        r = Call(c, iop_snd989::iop_func_00045ccc, st, loc_flag);
+        r = Call(c, 0x45ccc, st, loc_flag);
         if (r != 0) break;
     }
     St32(first + 0x74, 0);
     if (r == 0xffffffffu) {
         if (Ld32(first) & 0x400) {
-            Call(c, iop_snd989::iop_func_00049198, h);
+            Call(c, 0x49198, h);
         } else {
             const uint32_t stereo_pair = Ld32(first + 0x10) & 0x100;
             uint32_t n = 0;
@@ -275,13 +275,13 @@ void fn_45904(IopContext& c) {
                 St32(voices + n * 4, Ld32(st + 0x7c));
                 St32(st, 1);
                 if (stereo_pair != 0) {
-                    Call(c, iop_snd989::iop_func_0004d318, Ld32(st + 0x7c));
-                    Call(c, iop_snd989::iop_func_0004de04, Ld32(st + 0x7c));
+                    Call(c, 0x4d318, Ld32(st + 0x7c));
+                    Call(c, 0x4de04, Ld32(st + 0x7c));
                     St8(G::Voice(Lds32(st + 0x7c)) + G::kVoicePrio, 0);
                     St32(st + 0x7c, 0xffffffffu);
                 }
             }
-            if (Ld32(h + 0x70) != 0) Call(c, iop_snd989::iop_func_00044768, h, Ld32(loc_kind));
+            if (Ld32(h + 0x70) != 0) Call(c, 0x44768, h, Ld32(loc_kind));
             const uint32_t next = Ld32(h + 0x6c);
             if (next != 0) {
                 St32(h + 4, next);
@@ -296,20 +296,20 @@ void fn_45904(IopContext& c) {
                     }
                 }
                 if (rekey != 0) {
-                    Call(c, iop_snd989::iop_func_0004a050, Ld32(h + 4), 1);
+                    Call(c, 0x4a050, Ld32(h + 4), 1);
                     St32(h + 0x6c, 0);
                 } else {
                     const uint32_t id = Ld32(h);
                     St8(h + 0x16, Ld8(h + 0x16) | 2);
-                    Call(c, iop_snd989::iop_func_000450c4, id);
+                    Call(c, 0x450c4, id);
                     St32(h + 0x6c, 0);
                 }
             } else {
                 const uint32_t suspended = imp::CpuSuspendIntr(c, loc_intr);
                 const int helper = Lds32(h + 0x38);
                 if (helper != -1) {
-                    Call(c, iop_snd989::iop_func_0004d318, static_cast<uint32_t>(helper));
-                    Call(c, iop_snd989::iop_func_0004de04, Ld32(h + 0x38));
+                    Call(c, 0x4d318, static_cast<uint32_t>(helper));
+                    Call(c, 0x4de04, Ld32(h + 0x38));
                     St8(G::Voice(Lds32(h + 0x38)) + G::kVoicePrio, 0);
                     St32(h + 0x38, 0xffffffffu);
                 }
@@ -317,8 +317,8 @@ void fn_45904(IopContext& c) {
                     const int v = Lds32(st + 0x7c);
                     St32(st, 1);
                     if (v != -1) {
-                        Call(c, iop_snd989::iop_func_0004d318, static_cast<uint32_t>(v));
-                        Call(c, iop_snd989::iop_func_0004de04, Ld32(st + 0x7c));
+                        Call(c, 0x4d318, static_cast<uint32_t>(v));
+                        Call(c, 0x4de04, Ld32(st + 0x7c));
                         St8(G::Voice(Lds32(st + 0x7c)) + G::kVoicePrio, 0);
                         St32(st + 0x7c, 0xffffffffu);
                     }
@@ -327,12 +327,12 @@ void fn_45904(IopContext& c) {
                     St32(G::kStreamVoiceCount, count - 1);
                 }
                 if (suspended == 0) imp::CpuResumeIntr(c, Ld32(loc_intr));
-                Call(c, iop_snd989::iop_func_0004144c, h, 0);
+                Call(c, 0x4144c, h, 0);
             }
         }
     } else if (r == 0xfffffffeu) {
-        if (Call(c, iop_snd989::iop_func_000454cc, h) == 0 && Call(c, iop_snd989::iop_func_00045470, h) == 0) {
-            Call(c, iop_snd989::iop_func_0004555c, Ld32(h), 1);
+        if (Call(c, 0x454cc, h) == 0 && Call(c, 0x45470, h) == 0) {
+            Call(c, 0x4555c, Ld32(h), 1);
         } else {
             St8(h + 0x16, Ld8(h + 0x16) | 4);
         }
@@ -340,7 +340,7 @@ void fn_45904(IopContext& c) {
     } else {
         if (Ld32(loc_flag) != 0) imp::SignalSema(c, Ld32(G::kRampWaiterSema));
     }
-    if (Ld32(h + 0x74) != 0) Call(c, iop_snd989::iop_func_00044768, h, Ld32(loc_kind));
+    if (Ld32(h + 0x74) != 0) Call(c, 0x44768, h, Ld32(loc_kind));
 }
 
 }  // namespace ps2r::title::sly2::snd989

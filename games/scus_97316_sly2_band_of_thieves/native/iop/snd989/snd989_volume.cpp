@@ -25,14 +25,14 @@ void fn_4c1ac(IopContext& c) {
         const uint32_t suspended = imp::CpuSuspendIntr(c, f.At(0x18));
         if (suspended != 0) {
             St32(f.At(0x10), 0);
-            Call(c, iop_snd989::iop_func_00035140, 0x7c, tag, 0, 0);
+            Call(c, 0x35140, 0x7c, tag, 0, 0);
         } else {
             imp::CpuResumeIntr(c, Ld32(f.At(0x18)));
         }
         const uint32_t r = imp::WaitSema(c, Ld32(G::kVLockSema));
         if (r != 0) {
             St32(f.At(0x10), 0);
-            Call(c, iop_snd989::iop_func_00035140, 0x50, r, 0, 0);
+            Call(c, 0x35140, 0x50, r, 0, 0);
             Ret(c, 0);
             return;
         }
@@ -92,7 +92,7 @@ void fn_369c8(IopContext& c) {
             } else if (v < target) {
                 v = target;
             }
-            Call(c, iop_snd989::iop_func_00040eb8, i, static_cast<uint32_t>(v), static_cast<uint32_t>(Lds16(curR)));
+            Call(c, 0x40eb8, i, static_cast<uint32_t>(v), static_cast<uint32_t>(Lds16(curR)));
             if (v == Lds32(G::kRampTargetL + s)) St32(G::kRampStepL + s, 0);
         }
         const int32_t stepR = Lds32(G::kRampStepR + s);
@@ -104,7 +104,7 @@ void fn_369c8(IopContext& c) {
             } else if (v < target) {
                 v = target;
             }
-            Call(c, iop_snd989::iop_func_00040eb8, i, static_cast<uint32_t>(Lds16(curL)), static_cast<uint32_t>(v));
+            Call(c, 0x40eb8, i, static_cast<uint32_t>(Lds16(curL)), static_cast<uint32_t>(v));
             if (v == Lds32(G::kRampTargetR + s)) St32(G::kRampStepR + s, 0);
         }
     }
@@ -126,10 +126,10 @@ void fn_40f64(IopContext& c) {
         imp::SdSetCoreAttr(c, 2 + core, 1);
         if (suspended == 0) imp::CpuResumeIntr(c, Ld32(f.At(0x10)));
         const uint32_t id = Ld32(G::kMasterRampId + core * 4);
-        Call(c, iop_snd989::iop_func_0003e1cc, id - 1);
+        Call(c, 0x3e1cc, id - 1);
         St32(G::kMasterRampId + core * 4, 0);
     }
-    Call(c, iop_snd989::iop_func_000369c8);
+    Call(c, 0x369c8);
 }
 
 // 1 << (n & 31): MIPS sllv takes the low five bits of the shift amount.
@@ -142,7 +142,7 @@ static inline uint32_t Bit(int32_t n) { return 1u << (static_cast<uint32_t>(n) &
 void fn_4efb4(IopContext& c) {
     Frame f(c, 0x60);
     uint32_t playing = 0;   // bit per voice group id (rec[0x1b]) with a playing, unpaused voice
-    Call(c, iop_snd989::iop_func_0004c1ac, 1, 0x8b);
+    Call(c, 0x4c1ac, 1, 0x8b);
     for (int v = 0; v < 48; ++v) {
         const uint32_t rec = G::Voice(v);
         const uint32_t st = Ld32(rec + G::kVoiceState);
@@ -152,7 +152,7 @@ void fn_4efb4(IopContext& c) {
         if (Ld8(owner + 0x16) & 2) continue;
         playing |= Bit(Lds8(rec + G::kVoiceGroup));
     }
-    Call(c, iop_snd989::iop_func_0004c2f8);
+    Call(c, 0x4c2f8);
     const uint32_t local = f.At(0x10);   // 15 words: the new group levels
     for (uint32_t i = 0; i < 15; ++i) St32(local + i * 4, 0x10000);
     for (uint32_t k = 0; k < 4; ++k) {
@@ -192,7 +192,7 @@ void fn_4efb4(IopContext& c) {
             changed |= 1u << g;
         }
     }
-    if (changed != 0) Call(c, iop_snd989::iop_func_0004edbc, changed);
+    if (changed != 0) Call(c, 0x4edbc, changed);
 }
 
 // fn_4edbc(groups): re-apply VOLL / VOLR of every playing, unpaused voice whose group is in `groups` (the group
@@ -200,7 +200,7 @@ void fn_4efb4(IopContext& c) {
 void fn_4edbc(IopContext& c) {
     const uint32_t groups = A0(c);
     Frame f(c, 0x40);
-    Call(c, iop_snd989::iop_func_0004c1ac, 1, 0x8a);
+    Call(c, 0x4c1ac, 1, 0x8a);
     const uint32_t suspended = imp::CpuSuspendIntr(c, f.At(0x10));
     for (int v = 0; v < 48; ++v) {
         const uint32_t rec = G::Voice(v);
@@ -211,13 +211,13 @@ void fn_4edbc(IopContext& c) {
         const int32_t grp = Lds8(rec + G::kVoiceGroup);
         if (!(groups & Bit(grp))) continue;
         const uint32_t entry = static_cast<uint32_t>(VoiceCore(v)) | (static_cast<uint32_t>(VoiceBit(v)) << 1);
-        uint32_t vol = Call(c, iop_snd989::iop_func_0004ed08, static_cast<uint32_t>(Lds16(rec + G::kVoiceVolL)), static_cast<uint32_t>(grp));
+        uint32_t vol = Call(c, 0x4ed08, static_cast<uint32_t>(Lds16(rec + G::kVoiceVolL)), static_cast<uint32_t>(grp));
         imp::SdSetParam(c, entry & 0xffff, (vol & 0xffff) >> 1);
-        vol = Call(c, iop_snd989::iop_func_0004ed08, static_cast<uint32_t>(Lds16(rec + G::kVoiceVolR)), static_cast<uint32_t>(grp));
+        vol = Call(c, 0x4ed08, static_cast<uint32_t>(Lds16(rec + G::kVoiceVolR)), static_cast<uint32_t>(grp));
         imp::SdSetParam(c, (entry | 0x100) & 0xffff, (vol & 0xffff) >> 1);
     }
     if (suspended == 0) imp::CpuResumeIntr(c, Ld32(f.At(0x10)));
-    Call(c, iop_snd989::iop_func_0004c2f8);
+    Call(c, 0x4c2f8);
 }
 
 }  // namespace ps2r::title::sly2::snd989
