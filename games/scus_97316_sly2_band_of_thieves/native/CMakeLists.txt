@@ -46,6 +46,7 @@ add_library(ps2r_title_native STATIC
     # lgaud track (iop/native_lgaud.h): lgAud + FILEIO_service bodies
     iop/native_lgaud.cpp
     iop/native_fileio.cpp
+    iop/native_fileio_threads.cpp
 )
 target_include_directories(ps2r_title_native PUBLIC ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/..)
 # -ffp-contract=off: the float contract spelled for every compiler (the engine's rule for GNU; Clang's

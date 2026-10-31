@@ -105,5 +105,7 @@ private:
 };
 
 void RegisterFileioNatives(NativeIopModule& fileio);
+// native_fileio_threads.cpp: the module's threads in the step form (registered by RegisterFileioNatives).
+void RegisterFileioThreads(NativeIopModule& fileio);
 
 }  // namespace ps2r::title::sly2

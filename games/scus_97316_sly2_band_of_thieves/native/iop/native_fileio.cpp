@@ -79,7 +79,10 @@ void NativeFileio::Register(NativeIopModule& m) {
     m.Add(kHeapServerThread, &M::Thunk<F, &F::HeapServerThread>, "heap_server_thread", &g_fileio);
 }
 
-void RegisterFileioNatives(NativeIopModule& fileio) { NativeFileio::Register(fileio); }
+void RegisterFileioNatives(NativeIopModule& fileio) {
+    NativeFileio::Register(fileio);
+    RegisterFileioThreads(fileio);
+}
 
 // _start at 0x20000 (frame 0x38): QueryBootMode(3) may forbid SIF / fileio; else the two server threads.
 void NativeFileio::Entry(IopContext& ctx) {
