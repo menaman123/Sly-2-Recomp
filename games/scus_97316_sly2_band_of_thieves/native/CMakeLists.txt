@@ -43,9 +43,11 @@ add_library(ps2r_title_native STATIC
     iop/snd989/snd989_native.cpp
     iop/snd989/snd989_misc.cpp
     iop/snd989/snd989_param.cpp
+    iop/snd989/snd989_play.cpp
     iop/snd989/snd989_refill.cpp
     iop/snd989/snd989_rpc.cpp
     iop/snd989/snd989_seq.cpp
+    iop/snd989/snd989_seqev.cpp
     iop/snd989/snd989_stream.cpp
     iop/snd989/snd989_tick.cpp
     iop/snd989/snd989_voice.cpp

@@ -121,6 +121,38 @@ void fn_4a7c4(IopContext&);   // adpcm_FixFlags(buf, size, more, mark_end)
 void fn_4a9d4(IopContext&);   // refill_Queue(hr)
 void fn_4aa70(IopContext&);   // start_Queue(hr)
 
+// snd989_seqev.cpp -- the sequence event handlers (rec, def, entry).
+void fn_3821c(IopContext&);   // seqev_RandomRepeat
+void fn_3832c(IopContext&);   // seqev_RandomDelay
+void fn_38074(IopContext&);   // seqev_Nop0
+void fn_3807c(IopContext&);   // seqev_Nop1
+void fn_38084(IopContext&);   // seqev_EndScan
+void fn_38378(IopContext&);   // seqev_RandomPitch
+void fn_38578(IopContext&);   // seqev_RandomVolumeByte
+void fn_38998(IopContext&);   // seqev_Repeat
+void fn_37f4c(IopContext&);   // seqev_Modulator
+void fn_397d4(IopContext&);   // seq_SetPitchOffset(h, cents)
+
+// snd989_play.cpp -- the play request, the handle pool, the CD side, group volume.
+void fn_33770(IopContext&);   // shim_Play(buff)
+void fn_37000(IopContext&);   // seq_Start(bank, index, vol, pan, req)
+void fn_3dcb8(IopContext&);   // loader_PushStatus(which, status)
+void fn_3eda0(IopContext&);   // movie_GroupVolume(group)
+void fn_3f820(IopContext&);   // snd_Play(req)
+void fn_4111c(IopContext&);   // handle_Alloc(table, count, type, stride)
+void fn_41334(IopContext&);   // seq_AllocHandle(def)
+void fn_413a8(IopContext&);   // sndlist_Link(rec)
+void fn_4144c(IopContext&);   // handle_Release(rec, force)
+void fn_42d3c(IopContext&);   // timer_Insert(node)
+void fn_44a58(IopContext&);   // stream_SetupRecord(h, st, source, a3, pair, flags)
+void fn_464e0(IopContext&);   // snd_IsStarted(h)
+void fn_46d8c(IopContext&);   // cd_Wait(mode)
+void fn_46ed0(IopContext&);   // cd_IssueRead()
+void fn_4a8a8(IopContext&);   // stream_AllocRecord(kind)
+void fn_4b24c(IopContext&);   // stream_ChainRecord(h, st)
+void fn_4e02c(IopContext&);   // voice_RequestKeyOff(core, bit)
+void fn_4e100(IopContext&);   // group_SetVolume(group, vol)
+
 // snd989_misc.cpp -- handle validation, the timer / CD callbacks, group scaling, the owned-voice scan.
 void fn_3a90c(IopContext&);   // tick_TimerBeat(arg)
 void fn_3a9dc(IopContext&);   // stream_CdReadDone(status)
