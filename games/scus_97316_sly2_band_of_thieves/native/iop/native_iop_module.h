@@ -65,7 +65,8 @@ public:
     };
     struct Candidate {
         uint32_t addr;
-        iop_seam::NativeFn fn;
+        iop_seam::NativeFn fn;      // the self form, or nullptr when `plain` is set
+        iop_seam::PlainFn plain;    // the plain `void(IopContext&)` form
         void* self;
         const char* name;
         bool installed;
@@ -84,8 +85,10 @@ public:
     void Bind(Table t) { table_ = t; }
     const Table& Bound() const { return table_; }
 
-    // A native body for the guest function at `addr` (`self` defaults to this module).
+    // A native body for the guest function at `addr` (`self` defaults to this module) -- or the plain
+    // `void(IopContext&)` form (a free function over the module's RAM; no object).
     void Add(uint32_t addr, iop_seam::NativeFn fn, const char* name, void* self = nullptr);
+    void Add(uint32_t addr, iop_seam::PlainFn fn, const char* name);
     // Member-function trampoline: Add(addr, &Thunk<T, &T::Body>, name, this).
     template <class T, void (T::*Body)(IopContext&)>
     static void Thunk(IopContext& ctx, void* self) { (static_cast<T*>(self)->*Body)(ctx); }

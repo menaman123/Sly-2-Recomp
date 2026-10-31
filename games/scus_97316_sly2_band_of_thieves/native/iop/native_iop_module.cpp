@@ -74,11 +74,24 @@ void NativeIopModule::Add(uint32_t addr, iop_seam::NativeFn fn, const char* name
     for (Candidate& c : candidates_) {
         if (c.addr != addr) continue;
         c.fn = fn;
+        c.plain = nullptr;
         c.self = self ? self : this;
         c.name = name;
         return;
     }
-    candidates_.push_back(Candidate{addr, fn, self ? self : this, name ? name : "", false});
+    candidates_.push_back(Candidate{addr, fn, nullptr, self ? self : this, name ? name : "", false});
+}
+
+void NativeIopModule::Add(uint32_t addr, iop_seam::PlainFn fn, const char* name) {
+    for (Candidate& c : candidates_) {
+        if (c.addr != addr) continue;
+        c.fn = nullptr;
+        c.plain = fn;
+        c.self = nullptr;
+        c.name = name;
+        return;
+    }
+    candidates_.push_back(Candidate{addr, nullptr, fn, nullptr, name ? name : "", false});
 }
 
 int NativeIopModule::Install(const NativeIopFilter& filter) {
@@ -92,8 +105,8 @@ int NativeIopModule::Install(const NativeIopFilter& filter) {
                          c.name);
             continue;
         }
-        s->native = c.fn;
-        s->self = c.self;
+        if (c.plain) iop_seam::InstallPlain(*s, c.plain);
+        else iop_seam::Install(*s, c.fn, c.self);
         c.installed = true;
         ++installed_;
     }
@@ -104,10 +117,7 @@ void NativeIopModule::Uninstall() {
     if (table_.slots) {
         for (Candidate& c : candidates_) {
             if (!c.installed) continue;
-            if (iop_seam::IopFnSlot* s = iop_seam::Find(table_.slots, table_.count, c.addr)) {
-                s->native = nullptr;
-                s->self = nullptr;
-            }
+            if (iop_seam::IopFnSlot* s = iop_seam::Find(table_.slots, table_.count, c.addr)) iop_seam::Uninstall(*s);
             c.installed = false;
         }
     }
