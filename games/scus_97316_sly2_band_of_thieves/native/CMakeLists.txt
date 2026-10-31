@@ -50,6 +50,20 @@ if(TARGET ps2r_title_recomp)
     # target_sources(ps2r_title_native PRIVATE native_vu1.cpp ...)
     # target_link_libraries(ps2r_title_native PUBLIC ps2r_vu ps2r_gif ...)
     add_subdirectory(vu0)
+    # The CLOSURE check (STAGE NATIVE-2, native/COVERAGE.md): closure_check.py re-derives from the disc (or the ELF)
+    # the inputs the game can hand to VU1 / VU0 / IOP -- the .vutext programs, the VCALLMS and MSCAL entry sets, the
+    # IRX modules, the level streams -- and FAILS when one has no native path (images.txt row + generated TU + block).
+    # With the disc (NATIVEEE_DISC) it also decompresses the ELF-tabled level streams and proves they carry no
+    # microcode; --full (not run by ctest: minutes) covers every stream and the raw region.
+    set(_closure_args --generated "${PS2R_TITLE_GEN_ROOT}/games/${PS2R_TITLE}/native/vu1")
+    if(NATIVEEE_DISC AND EXISTS "${NATIVEEE_DISC}")
+        list(APPEND _closure_args --iso "${NATIVEEE_DISC}" --quick)
+    else()
+        list(APPEND _closure_args --elf "${PS2R_TITLE_ELF}")
+    endif()
+    add_test(NAME Sly2_NativeClosure
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/closure_check.py" ${_closure_args})
+    set_tests_properties(Sly2_NativeClosure PROPERTIES TIMEOUT 600 LABELS "native;closure" DEPENDS Vu1NativeCorpus)
 endif()
 # The seams the native paths plug into: the DMAC chain walker, the VIF unit, the VU units.
 
