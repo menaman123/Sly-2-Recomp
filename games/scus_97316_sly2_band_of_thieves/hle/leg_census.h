@@ -64,8 +64,6 @@ public:
         // Set later by the composition: the native VIF/DMAC path's row (native_vif=), which also refreshes
         // its NativeCensus details before the native= row is written.
         std::function<std::string()> native_vif = {};
-        // Set later by the composition: the hosted IOP modules' native ports' row (native_iop=).
-        std::function<std::string()> native_iop = {};
         // Set later by the composition: refreshes the other native paths' NativeCensus details (the GIF
         // builder's counters) before the native= row is written.
         std::function<void()> native_detail = {};
@@ -78,7 +76,6 @@ public:
     void SetDisplaySequence(const ps2r::app::DisplaySequence* seq) { p_.verify_display_sequence = seq; }
     void SetFrameRateCensus(std::function<std::string()> row) { p_.frame_rate = std::move(row); }
     void SetNativeVifCensus(std::function<std::string()> row) { p_.native_vif = std::move(row); }
-    void SetNativeIopCensus(std::function<std::string()> row) { p_.native_iop = std::move(row); }
     void SetNativeDetail(std::function<void()> fn) { p_.native_detail = std::move(fn); }
     void SetAgent(const LegAgent* agent) { p_.agent = agent; }
 

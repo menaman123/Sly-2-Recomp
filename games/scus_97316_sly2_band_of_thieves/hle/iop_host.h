@@ -90,10 +90,6 @@ public:
 
     iop::IopModuleTable& Table() { return table_; }
     iop::IopMemory& Memory() { return mem_; }
-    // A hosted module's address -> body map (the resolver's table for `id`: "fileio", "lgaud", "snd989",
-    // "spiop"), so a native port can replace entries (native/iop/*: a root reached through the resolver --
-    // an RPC handler, a thread body, a callback -- then runs native). Null for an unknown id.
-    static std::map<uint32_t, std::function<void(iop::IopContext&)>>* GuestFunctions(const char* id);
     // The libsd face the hosted 989snd drives (its op tap is the census / the native-path oracle).
     iop::hle::LibsdModule& Libsd() { return libsd_; }
     // The EE-facing server of a hosted module's sceSifRegisterRpc record, by server id (nullptr = none).

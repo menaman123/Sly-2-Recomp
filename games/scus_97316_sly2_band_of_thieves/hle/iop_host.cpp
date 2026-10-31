@@ -85,13 +85,6 @@ const GuestFunction* IopHost::ResolveGuest(uint32_t addr) {
     return nullptr;
 }
 
-std::map<uint32_t, GuestFunction>* IopHost::GuestFunctions(const char* id) {
-    InitializeNamespaces();
-    for (const Namespace& n : kNamespaces)
-        if (std::strcmp(n.id, id) == 0) return n.functions;
-    return nullptr;
-}
-
 IopHost::IopHost(const Config& cfg, MainMemory& ram, RpcRouter& router, sound::SpuCore& spu,
                          cdvd::CdvdReader* reader, ExpectedHashes hashes)
     : ram_(ram),

@@ -51,7 +51,6 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/native_iop.h"
-#include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop/spiop_native.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/native_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vif/native_vif.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vu0/native_vu0.h"
@@ -149,13 +148,6 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegPlay play(cfg, title, core, gs, audio);
     if (play.Failed()) return 2;
     LegIop iop(cfg, knobs, core, devices, mtvu, interrupts, disc, services);
-    // NATIVEEE_SPIOP_NATIVE: the spiop module's functions as host C++ over its own IOP RAM (native/iop/spiop/):
-    // the resolver's entries for the ported roots are replaced; a root not installed stays recompiled.
-    std::string spiop_installed;
-    if (knobs.spiop_native) {
-        if (auto* fns = IopHost::GuestFunctions("spiop"))
-            spiop::InstallInto(*fns, *knobs.spiop_native, &spiop_installed);
-    }
     LegSaves saves(cfg, host, title, core, gs, devices, mtvu, services, iop, play, g_build_id);
     LegPad pad(cfg, title_dir, knobs, core, services, play);
     LegImage image(cfg, host, title, elf_path, title_dir, knobs, core, disc, services, iop);
@@ -186,7 +178,6 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     NativeVif native_vif(core.ram, core.spad, devices.vif, devices.dmac.walker(),
                          NativeVif::Options{native_knobs.dmac, native_knobs.vif, knobs.vif_census ? *knobs.vif_census : std::string()});
     census.SetNativeVifCensus([&native_vif] { return native_vif.Census(); });
-    if (!spiop_installed.empty()) census.SetNativeIopCensus([] { return spiop::CensusRow(); });
     // title.native.iop / .spu: the native 989snd RPC servers over the hosted module's router rows (native_iop.h).
     std::unique_ptr<NativeIop> native_iop;
     {

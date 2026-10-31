@@ -13,9 +13,6 @@ struct LegKnobs {
     // NATIVEEE_WATCH=<hexaddr>,<bytes>[;...][;max=<n>][;val=<hex>] -- store_watch.h (nullopt = unset);
     // NATIVEEE_WATCH=text[;<hexaddr>,<bytes>...][;every=<n>][;max=<n>][;ramdump=<file>] -- text_watch.h.
     std::optional<std::string> watch;
-    // NATIVEEE_SPIOP_NATIVE=all|<hex addr>[,<hex addr>...]|off: which of the spiop module's functions run as the
-    // title's host C++ (native/iop/spiop/) instead of the recompiled MIPS (nullopt = off: every body recompiled).
-    std::optional<std::string> spiop_native;
     // NATIVEEE_GS_VERTS=<key>: trace the draws of the frame ending at present key <key> (0 = off).
     uint32_t gs_verts_key = 0;
     // NATIVEEE_GS_VERTS_CAP=<n>: vertices printed per traced draw (default 64; shadow-volume draws have up
