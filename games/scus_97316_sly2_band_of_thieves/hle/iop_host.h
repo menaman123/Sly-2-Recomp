@@ -90,6 +90,7 @@ public:
     bool BootRebootImageModules(const uint8_t* image, size_t size);
 
     iop::IopModuleTable& Table() { return table_; }
+    iop::hle::SifcmdModule& Sifcmd() { return sifcmd_; }   // the step-form RPC server threads bind their loop context here
     iop::IopMemory& Memory() { return mem_; }
     // The libsd face the hosted 989snd drives (its op tap is the census / the native-path oracle).
     iop::hle::LibsdModule& Libsd() { return libsd_; }

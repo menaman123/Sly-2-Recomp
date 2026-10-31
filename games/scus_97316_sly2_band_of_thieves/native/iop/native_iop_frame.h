@@ -33,6 +33,11 @@ public:
         IopCallTrace::Deps trace;                       // the clock / tid for the trace rows
         // IopHost::SetStepProvider: the frame binds the step-thread provider (a module's AddThread entries).
         std::function<void(std::function<iop::IopKernel::StepBody(uint32_t entry, const IopContext& initial)>)> set_step_provider;
+        // The step-form RPC server loop (iop_step.h StepPark::RpcLoopEnter / RpcDrain): bind the running thread's
+        // register file as its sceSifRpcLoop context (SifcmdModule::SetLoopContext(kernel.CurrentTid(), ctx)) and
+        // drain the running thread's RPC queue once (SifRpcBridge::RpcServiceDrain).
+        std::function<void(const IopContext* loop_ctx)> rpc_loop_bind;
+        std::function<void()> rpc_drain;
     };
     explicit NativeIopFrame(Deps deps);
     ~NativeIopFrame();

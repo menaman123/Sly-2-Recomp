@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "games/scus_97316_sly2_band_of_thieves/iop/iop_modules.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/iop_step.h"
 
 namespace ps2r::title::sly2 {
 
@@ -14,6 +15,7 @@ NativeIopFrame::NativeIopFrame(Deps deps) : deps_(std::move(deps)), filter_(Nati
         modules_.push_back(std::make_unique<NativeIopModule>(order[i].id, order[i].base, order[i].extent));
         if (i < deps_.tables.size()) modules_.back()->Bind(deps_.tables[i]);
     }
+    StepPark::BindRpc(deps_.rpc_loop_bind, deps_.rpc_drain);
     RegisterNativeIopBodies(*this);
     if (deps_.trace_path && *deps_.trace_path) {
         IopCallTrace::Deps td = deps_.trace;

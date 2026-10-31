@@ -3,7 +3,10 @@
 // the NATIVEEE_IOP_NATIVE filter. Merge rule: append a line, never reorder.
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/native_iop_frame.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/snd989/snd989_native.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/native_fileio.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/native_lgaud.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/snd989_lock.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop/spiop_native.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/spiop_tray_thread.h"
 
 namespace ps2r::title::sly2 {
@@ -15,8 +18,11 @@ void RegisterNativeIopBodies(NativeIopFrame& frame) {
     SpiopTrayThread::Register(frame.Spiop());
     // snd989 track: the 989snd_Library bodies (native/iop/snd989/).
     RegisterSnd989Natives(frame.Snd989());
-    // spiop track:   RegisterSpiopNatives(frame.Spiop());
-    // lgaud track:   RegisterLgaudNatives(frame.Lgaud()); RegisterFileioNatives(frame.Fileio());
+    // spiop track (iop/spiop/README.md): the streaming module, 69 of 98 functions.
+    RegisterSpiopNatives(frame.Spiop());
+    // lgaud track: lgAud (native_lgaud.cpp) + FILEIO_service (native_fileio.cpp).
+    RegisterLgaudNatives(frame.Lgaud());
+    RegisterFileioNatives(frame.Fileio());
 }
 
 }  // namespace ps2r::title::sly2

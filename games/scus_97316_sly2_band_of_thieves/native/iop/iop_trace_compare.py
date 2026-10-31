@@ -29,6 +29,9 @@ Rows: E seq mod addr n|r a0 a1 a2 a3 sp ra t_us tid depth / X seq mod addr n|r v
                           no body's control flow depends on it)
 --compare-v1              compare $v1 at exit (default off: only a 64-bit result uses it; a recompiled
                           body leaves a scratch value there)
+--step-entries ADDR[,..]  thread entries run in the STEP form (NativeIopModule::AddThread): a step body never
+                          enters its seam wrapper, so the entry's E/X rows exist only in the coroutine arm --
+                          they are dropped from both files (the thread's imports and callees still compare)
 --summary                 per-function call counts of both files (native / recompiled) and exit
 Exit 0 = identical under the options, 1 = divergence found, 2 = usage / read error.
 """
@@ -55,6 +58,19 @@ IMPORT_ARITY = {
     'cdvdman:4': 1, 'cdvdman:6': 4, 'cdvdman:8': 0, 'cdvdman:10': 2, 'cdvdman:11': 1, 'cdvdman:12': 0, 'cdvdman:13': 1,
     'cdvdman:14': 2, 'cdvdman:15': 0, 'cdvdman:37': 1, 'cdvdman:39': 0, 'cdvdman:75': 1,
     'modload:17': 2, 'modload:18': 3,
+    # sysclib 1.04 (engine/iop/hle/sysclib/sysclib_module.cpp kOrdinals), usbd 1.01, ioman 1.04, loadcore:12 (lgaud track)
+    'sysclib:7': 1, 'sysclib:12': 3, 'sysclib:13': 3, 'sysclib:14': 3, 'sysclib:16': 3, 'sysclib:17': 2, 'sysclib:20': 2,
+    'sysclib:22': 2, 'sysclib:23': 2, 'sysclib:27': 1, 'sysclib:29': 3, 'sysclib:34': 2, 'sysclib:36': 3, 'sysclib:40': 3,
+    'usbd:4': 1, 'usbd:5': 1, 'usbd:6': 3, 'usbd:7': 2, 'usbd:8': 1, 'usbd:9': 2, 'usbd:10': 1, 'usbd:11': 4, 'usbd:12': 2,
+    'usbd:13': 2, 'usbd:18': 4,
+    'ioman:4': 3, 'ioman:5': 1, 'ioman:6': 3, 'ioman:7': 3, 'ioman:8': 3, 'ioman:9': 3, 'ioman:10': 1, 'ioman:11': 2,
+    'ioman:12': 1, 'ioman:13': 1, 'ioman:14': 1, 'ioman:15': 2, 'ioman:16': 2, 'ioman:17': 3, 'ioman:18': 4, 'ioman:20': 1,
+    'ioman:21': 1, 'ioman:25': 2, 'ioman:26': 1, 'ioman:27': 2, 'ioman:28': 4, 'ioman:29': 1, 'ioman:30': 4, 'ioman:31': 4,
+    'ioman:32': 2, 'ioman:33': 3, 'ioman:34': 4,
+    'loadcore:12': 1,
+    # stdio:4 printf: the format only (its register arguments are text, never state; the module's own variadic
+    # reporters are --variadic): the stock table's arity 4 would judge leftovers that only ever became text.
+    'stdio:4': 1,
     # libsd (export index): Init 1, SetParam 2, GetParam 1, SetSwitch 2, GetSwitch 1, SetAddr 2, GetAddr 1,
     # SetCoreAttr 2, Note2Pitch 1, ProcBatch 3, VoiceTrans 4, BlockTrans 4, VoiceTransStatus 2, BlockTransStatus 2,
     # SetTransCallback 2, SetEffectAttr 2, GetEffectAttr 2
@@ -64,7 +80,7 @@ IMPORT_ARITY = {
 }
 
 
-def parse(path):
+def parse(path, drop_entries=frozenset()):
     rows = []
     with open(path, 'r', errors='replace') as f:
         for line in f:
@@ -73,6 +89,8 @@ def parse(path):
             parts = line.split()
             if not parts:
                 continue
+            if drop_entries and parts[0] in ('E', 'X') and len(parts) > 3 and parts[3].lower() in drop_entries:
+                continue
             rows.append(parts)
     return rows
 
@@ -80,8 +98,10 @@ def parse(path):
 guest_arity = {}
 
 
-def key(row, opts, ignore_regs, ignore_imports):
-    """The comparable tuple of a row (the body column dropped; ignored columns blanked)."""
+def key(row, opts, ignore_regs, ignore_imports, next_row=None):
+    """The comparable tuple of a row (the body column dropped; ignored columns blanked). `next_row`: the row
+    after this one -- an import of a HOSTED module's export (snd989:93, lgaud:18 ...) is masked by the guest
+    arity of the export it enters (the E row that follows), since the stock table cannot know it."""
     kind = row[0]
     if kind == 'E':
         # E seq mod addr body a0 a1 a2 a3 sp ra t tid depth
@@ -104,7 +124,11 @@ def key(row, opts, ignore_regs, ignore_imports):
         if imp in ignore_imports:
             regs = ['-'] * 4
         elif not opts.all_import_regs:
-            arity = IMPORT_ARITY.get(imp, 4)
+            arity = IMPORT_ARITY.get(imp)
+            if arity is None and next_row is not None and next_row[0] == 'E' and len(next_row) > 3:
+                arity = guest_arity.get(next_row[3].lower())
+            if arity is None:
+                arity = 4
             regs = regs[:arity] + ['-'] * (4 - arity)
         return ('I', imp, regs[0], regs[1], regs[2], regs[3], t if opts.time else '-', depth)
     if kind == 'J':
@@ -166,6 +190,7 @@ def main():
     ap.add_argument('--all-import-regs', action='store_true')
     ap.add_argument('--guest-arity', metavar='FILE')
     ap.add_argument('--summary', action='store_true')
+    ap.add_argument('--step-entries', action='append', default=[], metavar='ADDR[,ADDR...]')
     opts = ap.parse_args()
     ignore_regs = {}
     for spec in opts.ignore_regs:
@@ -182,9 +207,15 @@ def main():
                 if len(parts) >= 2 and not parts[0].startswith('#'):
                     a = parts[0].lower()
                     guest_arity[a[2:] if a.startswith('0x') else a] = int(parts[1])
+    step_entries = set()
+    for spec in opts.step_entries:
+        for x in spec.split(','):
+            x = x.strip().lower()
+            if x:
+                step_entries.add(x[2:] if x.startswith('0x') else x)
     try:
-        a = parse(opts.off)
-        b = parse(opts.on)
+        a = parse(opts.off, frozenset(step_entries))
+        b = parse(opts.on, frozenset(step_entries))
     except OSError as e:
         print(f"iop_trace_compare: {e}", file=sys.stderr)
         return 2
@@ -193,8 +224,8 @@ def main():
         summary(b, opts.on)
     n = min(len(a), len(b))
     for i in range(n):
-        ka = key(a[i], opts, ignore_regs, ignore_imports)
-        kb = key(b[i], opts, ignore_regs, ignore_imports)
+        ka = key(a[i], opts, ignore_regs, ignore_imports, a[i + 1] if i + 1 < len(a) else None)
+        kb = key(b[i], opts, ignore_regs, ignore_imports, b[i + 1] if i + 1 < len(b) else None)
         if ka == kb:
             continue
         print(f"DIVERGE at row {i} (seq OFF={a[i][1]} ON={b[i][1]})")

@@ -524,6 +524,20 @@ void IopHost::WriteCensus(verify::RunMeta* meta) {
                                       std::to_string(c.pumps ? c.ns / c.pumps : 0) + ",ns_per_boundary=" +
                                       std::to_string(boundaries ? c.ns / boundaries : 0) + ",boundaries=" + std::to_string(boundaries));
     }
+    // Per thread: entry address, coroutine switches into it, step-body runs (which threads still pay the coroutine
+    // switch = which module thread entries lack a step form; iop_dispatch coro_switches is their sum).
+    {
+        std::string rows;
+        const iop::IopKernel& k = table_.Kernel();
+        for (int tid = 1; tid < iop::IopKernel::kMaxThreads; ++tid) {
+            const uint32_t entry = thbase_.ThreadEntry(tid);
+            const uint64_t cs = k.ThreadCoroutineSwitches(tid), sr = k.ThreadStepRuns(tid);
+            if (!entry && !cs && !sr) continue;
+            if (!rows.empty()) rows += ',';
+            rows += "t" + std::to_string(tid) + "@" + Hex(entry) + ":coro=" + std::to_string(cs) + ":step=" + std::to_string(sr);
+        }
+        meta->Set("iop_threads", rows);
+    }
     // The IOP frame clock's quanta: one per boundary, the same count as the SPU's mixer pumps.
     meta->Set("iop_frame_quanta", std::to_string(table_.Kernel().Clock().Frames()));
     // The libsd services the hosted 989snd reached (ordinal:count) and the voice-transfer bytes.

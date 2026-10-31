@@ -94,6 +94,46 @@ void IopCallTrace::OnCall(const iop_seam::IopFnSlot& slot, bool native, bool ent
     if (entry) ++depth_;
 }
 
+void IopCallTrace::StepEntry(uint32_t addr, const iop::IopContext& initial) {
+    if (!file_) return;
+    const char* mod = ModuleOf(addr);
+    if (ModuleTraced(mod) && (max_depth_ < 0 || depth_ <= max_depth_)) {
+        const uint64_t t = deps_.now_us ? deps_.now_us() : 0;
+        std::fprintf(file_, "E %llu %s %x n %x %x %x %x %x %x %llu %d %d\n", static_cast<unsigned long long>(seq_), mod, addr,
+                     initial.gpr[4], initial.gpr[5], initial.gpr[6], initial.gpr[7], initial.gpr[29], initial.gpr[31],
+                     static_cast<unsigned long long>(t), deps_.current_tid ? deps_.current_tid() : 0, depth_);
+        ++rows_;
+    }
+    ++seq_;
+    ++depth_;   // the thread never exits its entry on the lanes; an Exit park does not pop it (nor does the coroutine form's)
+}
+
+void IopCallTrace::StepImport(const char* lib, uint32_t index, const iop::IopContext& ctx) {
+    if (!file_ || !imports_) return;
+    if (max_depth_ >= 0 && depth_ > max_depth_) {
+        ++seq_;
+        return;
+    }
+    const uint64_t t = deps_.now_us ? deps_.now_us() : 0;
+    std::fprintf(file_, "I %llu %s:%u %x %x %x %x %llu %d\n", static_cast<unsigned long long>(seq_), lib, index, ctx.gpr[4],
+                 ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], static_cast<unsigned long long>(t), depth_);
+    ++rows_;
+    ++seq_;
+}
+
+void IopCallTrace::StepImportExit(const char* lib, uint32_t index, uint32_t v0) {
+    if (!file_ || !imports_) return;
+    if (max_depth_ >= 0 && depth_ > max_depth_) {
+        ++seq_;
+        return;
+    }
+    const uint64_t t = deps_.now_us ? deps_.now_us() : 0;
+    std::fprintf(file_, "J %llu %s:%u %x %llu\n", static_cast<unsigned long long>(seq_), lib, index, v0,
+                 static_cast<unsigned long long>(t));
+    ++rows_;
+    ++seq_;
+}
+
 void IopCallTrace::OnImport(const char* lib, uint32_t index, bool entry, iop::IopContext& ctx) {
     if (!file_) return;
     if (max_depth_ >= 0 && depth_ > max_depth_) {

@@ -39,6 +39,15 @@ add_library(ps2r_title_native STATIC
     iop/iop_call_trace.cpp
     iop/snd989_lock.cpp
     iop/spiop_tray_thread.cpp
+    iop/iop_step.cpp
+    # spiop track (iop/spiop/README.md): the streaming module
+    iop/spiop/spiop_native.cpp
+    iop/spiop/spiop_threads.cpp
+    iop/spiop/spiop_libc.cpp
+    # lgaud track (iop/native_lgaud.h): lgAud + FILEIO_service bodies
+    iop/native_lgaud.cpp
+    iop/native_fileio.cpp
+    iop/native_fileio_threads.cpp
     # snd989 track: the 989snd_Library bodies over the module's RAM (native/iop/snd989/; no generated header needed).
     iop/snd989/snd989_native.cpp
     iop/snd989/snd989_control.cpp
@@ -112,3 +121,14 @@ target_compile_options(sly2_test_snd_replay PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(sly2_test_snd_replay PRIVATE ps2r_title_native)
 add_test(NAME Sly2_SndReplaySelfCheck COMMAND sly2_test_snd_replay)
 set_tests_properties(Sly2_SndReplaySelfCheck PROPERTIES TIMEOUT 60)
+
+# spiop's libc half (native/iop/spiop/spiop_libc.cpp) against the recompiled bodies: both arms on the same RAM
+# image for random and edge inputs (no game data: synthesized bit patterns). Needs the generated spiop TU.
+if(TARGET ps2r_title_iop_spiop)
+    add_executable(sly2_test_spiop_libc iop/spiop/test_spiop_libc.cpp)
+    target_include_directories(sly2_test_spiop_libc PRIVATE ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/..)
+    target_compile_options(sly2_test_spiop_libc PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(sly2_test_spiop_libc PRIVATE ps2r_title_native ps2r_title_iop_spiop)
+    add_test(NAME Sly2_SpiopLibcDifferential COMMAND sly2_test_spiop_libc)
+    set_tests_properties(Sly2_SpiopLibcDifferential PROPERTIES TIMEOUT 120 LABELS "native;iop")
+endif()
