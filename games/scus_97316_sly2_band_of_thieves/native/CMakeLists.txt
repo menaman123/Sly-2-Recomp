@@ -31,6 +31,7 @@ target_link_libraries(ps2r_title_native PUBLIC ps2r_core ps2r_host)
 # The per-unit native paths that need the title's recompiled code / build-time generated data
 # (never committed: generated like the recomp shards, MANIFEST-pinned). Tracks add theirs here.
 if(TARGET ps2r_title_recomp)
-    # target_sources(ps2r_title_native PRIVATE native_vu1.cpp ...)
-    # target_link_libraries(ps2r_title_native PUBLIC ps2r_vu ps2r_gif ...)
+    # vu1/ -> ps2r_title_native_vu1: the title's VU1 microprograms generated at build time from the kick
+    # corpus (native/vu1/CMakeLists.txt; linked into ps2r_title_play by hle/CMakeLists.txt).
+    add_subdirectory(vu1)
 endif()

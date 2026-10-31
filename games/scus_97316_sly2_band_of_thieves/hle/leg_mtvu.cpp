@@ -12,6 +12,7 @@
 #include "engine/gs/hle/queue/draw_ir_thread_queue.h"
 #include "engine/gs/state/gs_priv_regs.h"
 #include "engine/vu/tiers/vu_tier_dispatch.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/native_knobs.h"
 
 namespace ps2r::title::sly2 {
 
@@ -26,6 +27,15 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
     // NATIVEEE_MTVU=1|0 forces the worker on or off in every mode; =1 under the deterministic profile checks
     // the worker's frames against the inline path.
     const bool mtvu_wanted = knobs.mtvu_set ? knobs.mtvu_on : (cfg.engine.mtvu && core.play_mode);
+    // STAGE NATIVE: title.native.vu1 -- the registry of the build-time generated microprograms, filled on
+    // every VU1 unit that may kick (the inline unit now, the worker's below before it starts).
+    const bool native_vu1_on = NativeKnobs::From(cfg).vu1;
+    if (native_vu1_on) {
+        native_vu1 = std::make_unique<NativeVu1>();
+        std::string nnote;
+        native_vu1->Install(devices.vu1, &nnote);
+        PS2R_LOG(HOST, Info, "%s", nnote.c_str());
+    }
     if (mtvu_wanted) {
         MtvuSettings mtvu_settings;
         mtvu_settings.enabled = true;
@@ -34,6 +44,11 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
         mtvu = std::make_unique<MtvuStack>(devices.vif, devices.dmac.walker(), devices.gif_arbiter, devices.vu1.dispatch(),
                                            devices.vu1.dispatch().settings(), title.quirks.xgkick_defer, mtvu_settings, &core.running);
         mtvu->SetKickDrop(false);
+        if (native_vu1) {
+            std::string nnote;
+            native_vu1->Install(mtvu->WorkerVu1(), &nnote);
+            PS2R_LOG(HOST, Info, "%s", nnote.c_str());
+        }
         // engine.mtvu_early_finish (default off). The early FINISH applies wherever the worker runs; the
         // deferred boundary (no terminal sync, no VSync fence, composed GIF_STAT) only in paced play, so the
         // headless grab still reads the frame its boundary closed.
@@ -99,7 +114,8 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
                                                : Vu1AotTier::Fallback::Block);
         live.dispatch().aot().set_assume_verified(!cfg.engine.vu1_aot_verify);
     }
-    if (devices.vu1.dispatch().settings().vu1_mode == VuTierMode::Aot && cfg.engine.vu1_aot_verify) {
+    // (Not with title.native.vu1: the registry is the generated table; nothing is collected, verified or compiled.)
+    if (devices.vu1.dispatch().settings().vu1_mode == VuTierMode::Aot && cfg.engine.vu1_aot_verify && !native_vu1) {
         VuUnit& live = LiveVu1();
         ps2r::app::Vu1AotCache::Settings aot_settings;
         aot_settings.root = (cfg.paths.user_data.empty() ? std::string(".") : cfg.paths.user_data) + "/vu1_aot";

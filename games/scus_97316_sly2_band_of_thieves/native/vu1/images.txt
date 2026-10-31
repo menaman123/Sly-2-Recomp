@@ -1,0 +1,20 @@
+# games/scus_97316_sly2_band_of_thieves/native/vu1/images.txt -- the AUTHORITATIVE list of Sly 2's VU1
+# microprogram images (STAGE NATIVE). One row per image: <VuImageHash::Fast, 16 hex> then facts.
+# Hashes, counts and entry addresses only -- never the image bytes (game data; the corpus under
+# ~/recomp-agent-data/scus_97316/corpora/vu1/ carries them for the build-time generator).
+# Source: the native= census of the boot lane (600 / 1200 frames, boot.pad) and the Paris lane (hub_ep1_fix + sm_paris.pad,
+# 1200 frames) on the native build -- progs=<hash>x<kicks>/<bundles> (nat-vu1.md, 2026-10-30) -- plus the kick corpus
+# (vp_cases_all 721 + ud_jitfix 90 + the NATIVEEE_VU1_CAP windows paris_cap1/paris_cap2/boot_cap1) and the user's pack_int6.
+# `blocks`/`ops` = the generated TU with the full corpus (vu1_native_images.txt of the build).
+#
+# hash              kicks: boot 1200 f | Paris 1200 f     role / notes
+3326286ecab9d6f6    648497 | 2338535     the main renderer image (720 of the 721 vp_cases_all cases; ~60 % of boot kicks, 89 % of Paris)
+73186dffb4c76bef    179251 | 36          boot-heavy (menus / 2D), rare in Paris
+29679015777598ee    163777 | 178965
+7e5686216fd46a10     93822 | 81186
+980abf796e0b0e23      5485 | 354
+55c3d2c682bf6fc1         1 | 0           a 2-op stub image (one kick at boot)
+c588629b9ade2d4d         0 | 22942       Paris only (7 entries, 44 blocks)
+c3bb48b698950cb9         0 | 9556        Paris only (1 entry, 14 blocks)
+67658fd6db08e764         0 | 0           in the user's corpus (ud_jitfix, 12 cases) -- not seen on either lane
+f35598e56b90e6ae         0 | 0           in the user's corpus (ud_jitfix, 16 cases) -- not seen on either lane
