@@ -513,6 +513,14 @@ void IopHost::WriteCensus(verify::RunMeta* meta) {
     meta->Set("iop_rpc_stalls", std::to_string(table_.Rpc().Stalls()));
     meta->Set("iop_printf_calls", std::to_string(stdio_.Calls()));
     meta->Set("iop_timer_beats", std::to_string(table_.Kernel().TimerBeats()));
+    // The host cost of the IOP's dispatch (a census, never an input): per-boundary = ns / pumps.
+    {
+        const iop::IopModuleTable::DispatchCost& c = table_.Cost();
+        meta->Set("iop_dispatch", "ns=" + std::to_string(c.ns) + ",passes=" + std::to_string(c.passes) + ",pumps=" +
+                                      std::to_string(c.pumps) + ",coro_switches=" + std::to_string(table_.Kernel().CoroutineSwitches()) +
+                                      ",step_runs=" + std::to_string(table_.Kernel().StepRuns()) + ",step_threads=" +
+                                      std::to_string(thbase_.StepThreadsArmed()));
+    }
     // The IOP frame clock's quanta: one per boundary, the same count as the SPU's mixer pumps.
     meta->Set("iop_frame_quanta", std::to_string(table_.Kernel().Clock().Frames()));
     // The libsd services the hosted 989snd reached (ordinal:count) and the voice-transfer bytes.
