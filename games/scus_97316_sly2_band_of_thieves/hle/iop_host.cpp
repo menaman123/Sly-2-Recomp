@@ -532,10 +532,11 @@ void IopHost::WriteCensus(verify::RunMeta* meta) {
         const iop::IopKernel& k = table_.Kernel();
         for (int tid = 1; tid < iop::IopKernel::kMaxThreads; ++tid) {
             const uint32_t entry = thbase_.ThreadEntry(tid);
-            const uint64_t cs = k.ThreadCoroutineSwitches(tid), sr = k.ThreadStepRuns(tid);
+            const uint64_t cs = k.ThreadCoroutineSwitches(tid), sr = k.ThreadStepRuns(tid), sb = k.ThreadStepBlocks(tid);
             if (!entry && !cs && !sr) continue;
             if (!rows.empty()) rows += ',';
             rows += "t" + std::to_string(tid) + "@" + Hex(entry) + ":coro=" + std::to_string(cs) + ":step=" + std::to_string(sr);
+            if (sb) rows += ":blocks=" + std::to_string(sb);   // a step body whose callee parked: this thread's form is not exact here
         }
         meta->Set("iop_threads", rows);
     }
