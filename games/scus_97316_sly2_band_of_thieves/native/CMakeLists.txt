@@ -27,8 +27,9 @@ add_library(ps2r_title_native STATIC
     vif/vif_native_chains.cpp
     vif/vif_native_spans.cpp
     vif/vif_unpack_native.cpp
+    # iop + spu (track iop-spu, then snd): the native 989snd RPC server on the RpcRouter seam (snd/README.md)
     native_iop.cpp
-    iop/native_snd_server.cpp
+    snd/native_snd_server.cpp
 )
 target_include_directories(ps2r_title_native PUBLIC ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/..)
 # -ffp-contract=off: the float contract spelled for every compiler (the engine's rule for GNU; Clang's
@@ -77,3 +78,12 @@ target_link_libraries(sly2_test_native_vif PRIVATE ps2r_title_native ps2r_gs_ir)
 add_test(NAME Sly2_NativeVifChains COMMAND sly2_test_native_vif)
 set_tests_properties(Sly2_NativeVifChains PROPERTIES TIMEOUT 120)
 # The IOP / SPU2 native path's seams: RpcRouter (ps2r_sif), LibsdModule (ps2r_iop), SpuCore (ps2r_sound).
+# The 989snd RPC-replay oracle test (snd/test_snd_replay.cpp): without arguments a synthetic self-check of the
+# reply-buffer model (what ctest runs: no game data); with a NATIVEEE_RPC_TRACE file [+ --iop-ram <dump>.iop] the
+# recorded hosted lane replayed through Snd989Server (replies + libsd op sequences compared; snd/README.md).
+add_executable(sly2_test_snd_replay snd/test_snd_replay.cpp)
+target_include_directories(sly2_test_snd_replay PRIVATE ${CMAKE_SOURCE_DIR} ${PS2R_GAMES_DIR}/..)
+target_compile_options(sly2_test_snd_replay PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(sly2_test_snd_replay PRIVATE ps2r_title_native)
+add_test(NAME Sly2_SndReplaySelfCheck COMMAND sly2_test_snd_replay)
+set_tests_properties(Sly2_SndReplaySelfCheck PROPERTIES TIMEOUT 60)

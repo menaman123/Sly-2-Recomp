@@ -187,6 +187,10 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         nd.set_server_observer = [&iop](NativeIop::ServerObserver o) { iop.iop_host.SetServerObserver(std::move(o)); };
         nd.spu = &services.spu_core;
         nd.ee_ram = [&ram = core.ram](uint32_t addr, uint32_t size) -> uint8_t* { return ram.Pointer(MainMemory::Phys(addr), size); };
+        nd.iop_ram = [&mem = iop.iop_host.Memory()](uint32_t addr, uint32_t size) -> uint8_t* {
+            return mem.Pointer(addr & ps2r::iop::IopMemory::kMask, size);
+        };
+        nd.drain_kernel = [&kernel = iop.iop_host.Table().Kernel()] { (void)kernel.Dispatch(); };
         nd.rpc_trace = iop.rpc_trace_file;
         native_iop = NativeIop::Install(native_knobs, std::move(nd));
     }
@@ -196,6 +200,14 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegParkSink park_sink(host, census, park, play, disc, iop);
     LegVerifySlot verify(cfg, host, knobs, core, gs, mtvu, services, audio, play, saves, park, census, text_watch);
     if (verify.Failed()) return 2;
+    // NATIVEEE_RAM_DUMP's companion: the IOP's 2 MiB (the hosted 989snd's state for native/snd's replay test).
+    verify.SetExtraRamDump([&iop](const std::string& path) {
+        if (std::FILE* f = std::fopen(path.c_str(), "wb")) {
+            const uint8_t* p = iop.iop_host.Memory().Pointer(0, ps2r::iop::IopMemory::kSize);
+            if (p) std::fwrite(p, 1, ps2r::iop::IopMemory::kSize, f);
+            std::fclose(f);
+        }
+    });
     // The agent control plane (NATIVEEE_AGENT_SOCKET): after the Verify slot so it owns the completed-boundary
     // consumer in headless runs; its state.load is a live restore supervised below.
     LegAgent agent(cfg, host, title, knobs, core, gs, mtvu, services, audio, saves, pad, park, verify, g_build_id);
