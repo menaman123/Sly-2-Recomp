@@ -145,6 +145,7 @@ const PortedFn kPortedFns[] = {
     {0x46ed0, &fn_46ed0, "cd_IssueRead"},
     {0x471a0, &fn_471a0, "refill_Dispatch"},
     {0x47950, &fn_47950, "stream_ChunkCallback"},
+    {0x47fec, &fn_47fec, "thread_CdStream"},
     {0x47a88, &fn_47a88, "refill_Memory"},
     {0x493b0, &fn_493b0, "cd_ReadFailed"},
     {0x49428, &fn_49428, "thread_Refill"},

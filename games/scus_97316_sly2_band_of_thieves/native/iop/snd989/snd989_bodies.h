@@ -215,6 +215,9 @@ void fn_49854(IopContext&);   // thread_Transfer()
 void fn_411f8(IopContext&);   // seq_MaySupersede(def, vol, by_origin, *out)
 void fn_49428(IopContext&);   // thread_Refill()
 
+// snd989_cdthread.cpp -- the CD stream thread.
+void fn_47fec(IopContext&);   // thread_CdStream()
+
 // snd989_misc.cpp -- handle validation, the timer / CD callbacks, group scaling, the owned-voice scan.
 void fn_3a90c(IopContext&);   // tick_TimerBeat(arg)
 void fn_3a9dc(IopContext&);   // stream_CdReadDone(status)
