@@ -47,6 +47,13 @@ public:
     static bool IsOpen() { return file_ != nullptr; }
     static uint64_t Rows() { return rows_; }
 
+    // The STEP-form thread's rows (iop_step.h): a step body is called by the kernel directly, never through its
+    // seam wrapper, and parks by returning instead of calling the blocking import -- so it writes the entry row
+    // and its parks' import rows itself, in the same format, so the two forms' traces compare row for row.
+    static void StepEntry(uint32_t addr, const iop::IopContext& initial);          // E (body 'n')
+    static void StepImport(const char* lib, uint32_t index, const iop::IopContext& ctx);   // I
+    static void StepImportExit(const char* lib, uint32_t index, uint32_t v0);     // J
+
 private:
     static void OnCall(const iop_seam::IopFnSlot& slot, bool native, bool entry, iop::IopContext& ctx);
     static void OnImport(const char* lib, uint32_t index, bool entry, iop::IopContext& ctx);

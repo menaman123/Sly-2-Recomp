@@ -57,6 +57,9 @@ IMPORT_ARITY = {
     'ioman:21': 1, 'ioman:25': 2, 'ioman:26': 1, 'ioman:27': 2, 'ioman:28': 4, 'ioman:29': 1, 'ioman:30': 4, 'ioman:31': 4,
     'ioman:32': 2, 'ioman:33': 3, 'ioman:34': 4,
     'loadcore:12': 1,
+    # stdio:4 printf: the format only (its register arguments are text, never state; the module's own variadic
+    # reporters are --variadic): the stock table's arity 4 would judge leftovers that only ever became text.
+    'stdio:4': 1,
     'libsd:4': 1, 'libsd:5': 2, 'libsd:6': 1, 'libsd:7': 2, 'libsd:8': 1, 'libsd:9': 2, 'libsd:10': 1, 'libsd:11': 2,
     'libsd:13': 1, 'libsd:15': 3, 'libsd:17': 4, 'libsd:18': 4, 'libsd:19': 2, 'libsd:20': 2, 'libsd:23': 2,
     'libsd:25': 2, 'libsd:26': 2,
