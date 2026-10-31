@@ -203,6 +203,16 @@ void fn_4e0b0(IopContext&);   // voice_ResetSlots()
 void fn_4e220(IopContext&);   // group_GetVolume(group)
 void fn_4e23c(IopContext&);   // snd_SetPanMode(mode)
 
+// snd989_threads.cpp -- the thread bodies (coroutine form), the loader open/close, the library registration.
+void fn_349e4(IopContext&);   // thread_RpcServer0()
+void fn_34ba0(IopContext&);   // thread_RpcServer1()
+void fn_39f0c(IopContext&);   // snd_RegisterLibrary()
+void fn_3a8d8(IopContext&);   // thread_Tick()
+void fn_3ac34(IopContext&);   // load_OpenCd(sector, offset)
+void fn_3aca0(IopContext&);   // load_Close()
+void fn_46520(IopContext&);   // thread_StreamReader()
+void fn_49854(IopContext&);   // thread_Transfer()
+
 // snd989_misc.cpp -- handle validation, the timer / CD callbacks, group scaling, the owned-voice scan.
 void fn_3a90c(IopContext&);   // tick_TimerBeat(arg)
 void fn_3a9dc(IopContext&);   // stream_CdReadDone(status)

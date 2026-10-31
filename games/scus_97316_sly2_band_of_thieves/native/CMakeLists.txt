@@ -51,6 +51,7 @@ add_library(ps2r_title_native STATIC
     iop/snd989/snd989_seqev.cpp
     iop/snd989/snd989_stream.cpp
     iop/snd989/snd989_stream2.cpp
+    iop/snd989/snd989_threads.cpp
     iop/snd989/snd989_tick.cpp
     iop/snd989/snd989_voice.cpp
     iop/snd989/snd989_volume.cpp
