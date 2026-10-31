@@ -25,6 +25,7 @@ bool Snd989Server::IsNativeFno(uint32_t fno) {
     case snd989::kBankSoundQuery:
     case snd989::kMovieSoundPush:
     case snd989::kMovieSoundReadPos:
+    case snd989::kExternalCommand:
         return true;
     default:
         return false;
@@ -172,6 +173,32 @@ bool Snd989Server::BodyBankSoundIsValid(const uint8_t* body, uint32_t size, uint
     return true;
 }
 
+// fno 76 (fn_3318c): the external command. Native for spiop's two pure SUKR handlers (op 0x0b / 0x0c: a word of the
+// spiop context); the lookup mirrors fn_33148 and the handler ADDRESS is checked against this spiop image's, so a
+// record of any other shape goes to the module. The shim stores the result.
+bool Snd989Server::BodyExternalCommand(const uint8_t* body, uint32_t size, uint32_t& result) {
+    if (size < 8 || !body) return false;
+    const uint32_t tag = snd989::ReadWord(body, 0);
+    const uint32_t op = snd989::ReadWord(body, 4);
+    if (tag != snd989::kSukrTag) return false;
+    if (op != snd989::kSukrStatus && op != snd989::kSukrPoll) return false;
+    bool ok = true;
+    uint32_t rec = Iop32(Image::kExtModuleList, ok);
+    for (int guard = 0; ok && rec != 0 && guard < 16; guard++) {
+        if (Iop32(rec + Image::kExtRecTag, ok) == tag) break;
+        rec = Iop32(rec + Image::kExtRecNext, ok);
+    }
+    if (!ok || rec == 0) return false;                                   // unregistered: the module prints its error
+    if (Iop32(rec + Image::kExtRecCount, ok) != snd989::SpiopImage::kOpCount) return false;
+    const uint32_t handler = Iop32(rec + Image::kExtRecHandlers + op * 4, ok);
+    const uint32_t want = op == snd989::kSukrStatus ? snd989::SpiopImage::kHandlerOpB : snd989::SpiopImage::kHandlerOpC;
+    if (!ok || handler != want) return false;
+    const uint32_t ctx = Iop32(snd989::SpiopImage::kCtxPtr, ok);
+    if (!ok || ctx == 0) return false;                                   // first use allocates the context: the module's
+    result = Iop32(ctx + (op == snd989::kSukrStatus ? snd989::SpiopImage::kOpBWord : snd989::SpiopImage::kOpCWord), ok);
+    return ok;
+}
+
 // fno 90 (fn_3e5c0): SdVoiceTrans(chan, 0, iop_buf, spu_base + offset, size); SdVoiceTransStatus(chan, 1). Void.
 bool Snd989Server::BodyMoviePush(const uint8_t* body, uint32_t size, bool dry) {
     if (size < 8 || !body) return false;
@@ -210,6 +237,10 @@ bool Snd989Server::Serve(uint32_t fno, const uint8_t* body, uint32_t body_size, 
         return true;
     case snd989::kBankSoundQuery:
         if (!BodyBankSoundIsValid(body, body_size, result)) return false;
+        has_result = true;
+        return true;
+    case snd989::kExternalCommand:
+        if (!BodyExternalCommand(body, body_size, result)) return false;
         has_result = true;
         return true;
     case snd989::kMovieSoundPush:
@@ -323,6 +354,7 @@ void Snd989Server::Call(const RpcRouter::CallRequest& req) {
 
 std::string Snd989Server::Detail() const {
     return "fno10=" + std::to_string(ServedFno(snd989::kQuery10)) + ":fno26=" + std::to_string(ServedFno(snd989::kBankSoundQuery)) +
+           ":fno76=" + std::to_string(ServedFno(snd989::kExternalCommand)) +
            ":fno90=" + std::to_string(ServedFno(snd989::kMovieSoundPush)) + ":fno91=" + std::to_string(ServedFno(snd989::kMovieSoundReadPos)) +
            ":batch=" + std::to_string(batches_served_) + "/" + std::to_string(batches_forwarded_);
 }

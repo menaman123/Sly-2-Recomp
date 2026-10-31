@@ -64,12 +64,33 @@ struct Image {
     static constexpr uint32_t kSoundTypeOff = 0x0, kSoundPtrOff = 0x4, kSoundFlagOff = 0x12;
     static constexpr uint32_t kBlockSoundEntryBytes = 12, kBlockSoundFlagsOff = 6;
 
+    // --- fno 76 / 104: the external-command dispatch (fn_3318c / fn_33250) ---------------------------
+    // fn_33148(tag): walk the registered module records from g[kExtModuleList] (rec[0] = tag, rec[4] = op count,
+    // rec[8] = next, rec[0x10 + op*4] = handler); fno 76's shim calls handler(buff[2], buff[3], buff[4], buff[5], buff[6])
+    // and STORES the result; an unknown tag / op >= count -> 0 (stored). fno 104's shim: handler(buff[2], &buff[3], 0, 0, 0).
+    static constexpr uint32_t kExtModuleList = kData + 0x644;
+    static constexpr uint32_t kExtRecTag = 0, kExtRecCount = 4, kExtRecNext = 8, kExtRecHandlers = 0x10;
+
     // The voice entry (libsd low byte) of a 989snd voice index: core = v / 24, voice = v % 24.
     static constexpr uint32_t VoiceEntryLow(int voice_index) {
         const uint32_t core = static_cast<uint32_t>(voice_index / 24);
         const uint32_t v = static_cast<uint32_t>(voice_index - static_cast<int>(core) * 24);
         return core | (v << 1);
     }
+};
+
+// spiop (Sucker Punch's streaming module, v1.00, recompiled at base 0x5a000): its 'SUKR' record = {'SUKR', 14,
+// handlers[14]} (built at fn_5a30c from .data 0x5f4e8). The two PURE handlers (a word of the module's context, which
+// fn_5a3bc allocates on first use at g[kCtxPtr]; the context = 0 means "not yet": the module's own path answers):
+//   op 0x0b (0x5a29c): ctx[0x20];   op 0x0c (0x5a2c0, the per-frame poll): ctx[0x2c].
+// Every other op mutates stream state (open 0x01 fn_5a7f4, close 0x02, 0x03/0x04, set 0x05/0x06, start 0x07 fn_5ab10,
+// 0x08, 0x09, init 0x00/0x0a, 0x0d) and stays with the module until the stream path is ported whole.
+struct SpiopImage {
+    static constexpr uint32_t kBase = 0x5a000;
+    static constexpr uint32_t kCtxPtr = 0x5f524;
+    static constexpr uint32_t kOpCount = 14;
+    static constexpr uint32_t kHandlerOpB = 0x5a29c, kOpBWord = 0x20;
+    static constexpr uint32_t kHandlerOpC = 0x5a2c0, kOpCWord = 0x2c;
 };
 
 }  // namespace ps2r::title::sly2::snd989

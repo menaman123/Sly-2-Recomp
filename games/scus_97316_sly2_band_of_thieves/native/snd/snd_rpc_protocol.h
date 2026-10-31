@@ -58,8 +58,10 @@ enum Fno : uint32_t {
 constexpr uint32_t kBankLoadFromEe = 3;
 
 constexpr uint32_t kSukrTag = 0x524B5553u;   // 'SUKR' as the request's little-endian word
-enum SukrOp : uint32_t { kSukrInit = 0x00, kSukrOpen = 0x01, kSukrClose = 0x02, kSukrSet = 0x06, kSukrStart = 0x07,
-                         kSukrStatus = 0x08, kSukrInit2 = 0x0a, kSukrPoll = 0x0c };
+// spiop's 14 handlers (snd989_image.h SpiopImage): 0x0b and 0x0c are pure reads of the module's context.
+enum SukrOp : uint32_t { kSukrInit = 0x00, kSukrOpen = 0x01, kSukrClose = 0x02, kSukrOp3 = 0x03, kSukrOp4 = 0x04, kSukrSet5 = 0x05,
+                         kSukrSet = 0x06, kSukrStart = 0x07, kSukrOp8 = 0x08, kSukrOp9 = 0x09, kSukrInit2 = 0x0a,
+                         kSukrStatus = 0x0b, kSukrPoll = 0x0c, kSukrOpD = 0x0d };
 
 // libsd entry codes the movie-sound path programs (SD_VA_* | SD_VOICE(core, v): the 0x40 is the
 // address-register selector, the low bits core | voice<<1).

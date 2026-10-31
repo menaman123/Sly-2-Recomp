@@ -142,6 +142,7 @@ private:
     // The bodies (snd989_image.h documents each). `ok` false = cannot answer (forward).
     bool BodySystemParam(const uint8_t* body, uint32_t size, uint32_t& result);
     bool BodyBankSoundIsValid(const uint8_t* body, uint32_t size, uint32_t& result);
+    bool BodyExternalCommand(const uint8_t* body, uint32_t size, uint32_t& result);
     bool BodyMoviePush(const uint8_t* body, uint32_t size, bool dry);
     bool BodyMovieReadPos(uint32_t& result, bool dry);
 
