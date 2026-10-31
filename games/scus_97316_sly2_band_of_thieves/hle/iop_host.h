@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "engine/core/config/config.h"
+#include "engine/iop/abi/host_app/iop_seam.h"
 #include "engine/iop/hle/cdvdman/cdvdman_module.h"
 #include "engine/iop/hle/intrman/intrman_module.h"
 #include "engine/iop/hle/ioman/ioman_module.h"
@@ -103,6 +104,14 @@ public:
     iop::IopHostSection& Section() { return *section_; }
     // run.meta rows: iop_hosted=, iop_libraries=, iop_rpc_servers=, ...
     void WriteCensus(verify::RunMeta* meta);
+    // The per-function seam tables of the four recompiled modules (iop_<id>::iop_fn_slots, --seam), in
+    // iop_modules.h order (fileio, lgaud, snd989, spiop): what native/iop/'s frame installs bodies into.
+    struct SeamTable {
+        const char* id;
+        iop_seam::IopFnSlot* slots;
+        uint32_t count;
+    };
+    static std::vector<SeamTable> SeamTables();
 
 private:
     struct Hosted {

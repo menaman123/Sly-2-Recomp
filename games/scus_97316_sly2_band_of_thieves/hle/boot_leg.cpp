@@ -50,6 +50,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_agent.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_census.h"
+#include "games/scus_97316_sly2_band_of_thieves/native/iop/native_iop_frame.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/native_iop.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/native_knobs.h"
 #include "games/scus_97316_sly2_band_of_thieves/native/vif/native_vif.h"
@@ -194,6 +195,25 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
         nd.rpc_trace = iop.rpc_trace_file;
         native_iop = NativeIop::Install(native_knobs, std::move(nd));
     }
+    // title.native.iopsys: the hosted IOP modules' functions as native host bodies through the per-function
+    // seam of the recompiled TUs (native/iop/native_iop_frame.h); the recompiled bodies stay the fallback and
+    // the oracle. The frame is built whether or not the knob is on (its census counts the recompiled calls;
+    // NATIVEEE_IOP_TRACE records the call stream either way).
+    NativeIopFrame native_iop_frame([&] {
+        NativeIopFrame::Deps fd;
+        fd.enabled = native_knobs.iopsys;
+        for (const IopHost::SeamTable& t : IopHost::SeamTables()) fd.tables.push_back(NativeIopModule::Table{t.slots, t.count});
+        fd.trace_path = knobs.iop_trace ? knobs.iop_trace->c_str() : nullptr;
+        fd.trace.now_us = [&kernel = iop.iop_host.Table().Kernel()] { return kernel.Clock().NowUs(); };
+        fd.trace.current_tid = [&kernel = iop.iop_host.Table().Kernel()] { return kernel.CurrentTid(); };
+        return fd;
+    }());
+    census.SetNativeIopCensus([&native_iop_frame](ps2r::verify::RunMeta* meta) {
+        meta->Set("native_iop", native_iop_frame.Census());
+        meta->Set("native_iop_remaining", native_iop_frame.Remaining());
+        meta->Set("native_iop_filter", native_iop_frame.Filter().Spec().empty() ? std::string("all") : native_iop_frame.Filter().Spec());
+        meta->Set("native_iop_trace_rows", std::to_string(IopCallTrace::Rows()));
+    });
     // VU0: the six VCALLMS microprograms as generated host bodies on the EE-side VU0 unit (title.native.vu0).
     NativeVu0 native_vu0;
     native_vu0.Install(native_knobs, devices.vu0);
