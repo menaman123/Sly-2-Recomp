@@ -85,6 +85,7 @@ uint32_t Snd989Server::LibsdFace::VoiceTransStatus(uint32_t chan, uint32_t flag)
 }
 
 uint32_t Snd989Server::SpuCoreFace::GetAddr(uint32_t entry) {
+    NativeCensus::Instance().Served(NativeUnit::Spu);
     const uint32_t v0 = spu_.GetAddr(entry);
     if (tap_) {
         OpEvent ev;
@@ -98,6 +99,7 @@ uint32_t Snd989Server::SpuCoreFace::GetAddr(uint32_t entry) {
 uint32_t Snd989Server::SpuCoreFace::VoiceTrans(uint32_t chan, uint32_t mode, uint32_t iop_addr, uint32_t spu_addr, uint32_t size) {
     // The direct face: the bytes move now; the module's completion handler for this channel is what the
     // open programmed (the movie open clears it), so no deferred completion is modelled here.
+    NativeCensus::Instance().Served(NativeUnit::Spu);
     uint32_t moved = 0;
     uint8_t* host = iop_ram_ ? iop_ram_(iop_addr, size) : nullptr;
     if (host) moved = spu_.VoiceTrans(static_cast<int>(chan & 1), mode, host, spu_addr, size);
@@ -110,6 +112,7 @@ uint32_t Snd989Server::SpuCoreFace::VoiceTrans(uint32_t chan, uint32_t mode, uin
     return moved;
 }
 uint32_t Snd989Server::SpuCoreFace::VoiceTransStatus(uint32_t chan, uint32_t flag) {
+    NativeCensus::Instance().Served(NativeUnit::Spu);
     const uint32_t v0 = static_cast<uint32_t>(spu_.VoiceTransStatus(static_cast<int>(chan & 1), static_cast<int>(flag)));
     if (tap_) {
         OpEvent ev;
