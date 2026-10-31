@@ -212,6 +212,8 @@ void fn_3ac34(IopContext&);   // load_OpenCd(sector, offset)
 void fn_3aca0(IopContext&);   // load_Close()
 void fn_46520(IopContext&);   // thread_StreamReader()
 void fn_49854(IopContext&);   // thread_Transfer()
+void fn_411f8(IopContext&);   // seq_MaySupersede(def, vol, by_origin, *out)
+void fn_49428(IopContext&);   // thread_Refill()
 
 // snd989_misc.cpp -- handle validation, the timer / CD callbacks, group scaling, the owned-voice scan.
 void fn_3a90c(IopContext&);   // tick_TimerBeat(arg)
