@@ -25,6 +25,14 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
     gs_queue_split_image = core.play_mode && cfg.video.backend != ps2r::VideoBackend::Soft &&
                            cfg.gs.queue == ps2r::GsQueue::Pipelined;
     if (gs_queue_split_image) pipeline_vram = std::make_unique<ps2r::gs::VramImage>();
+    {
+        VideoStack::MetalOptions mo;
+        mo.gpu_timing = knobs.gpu_timing;
+        mo.commit_draws = knobs.metal_commit_draws;
+        mo.hw_depth = knobs.metal_hw_depth;
+        video.SetMetalOptions(mo);
+    }
+    frame_hash_full = knobs.frame_hash_full;
     video_live = core.want_video && cfg.video.backend != ps2r::VideoBackend::Soft &&
                  video.Create(cfg.video, "Sly 2 -- NativeEE (GS)", pipeline_vram ? *pipeline_vram : gs_state.Vram(), core.play_mode);
     if (core.want_video && !video_live) std::fprintf(stderr, "nativeee: no video stack (video=stub; see the log)\n");
@@ -65,7 +73,7 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         hooks.owned_frame = [this](bool, ps2r::gs::DrawPipeline::Frame*) {
             if (const int scale = scale_request.exchange(0, std::memory_order_relaxed)) {
                 video.ApplyScale(scale);
-                if (consumer) consumer->SetFrameHashScale(video.Scale());
+                if (consumer) consumer->SetFrameHashScale(FrameHashScale());
                 PS2R_LOG(HOST, Info, "video: internal scale %dx", video.Scale());
             }
             return false;
@@ -73,7 +81,7 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         consumer = std::make_unique<ps2r::gs::DrawIrQueueConsumer>(*video.Pipe(), std::move(hooks));
         latency_tap.next = consumer.get();
         // Play hashes the grab on the consumer thread; the boundary reads only the header and hash.
-        if (!gs_queue_lockstep) consumer->SetFrameHashScale(video.Scale());
+        if (!gs_queue_lockstep) consumer->SetFrameHashScale(FrameHashScale());
         // Pipelined play queues the frame-end grab on the GPU and publishes it one boundary late, so the
         // consumer never stalls on glReadPixels. Lockstep and headless keep the synchronous grab.
         if (core.play_mode && knobs.gs_consumer_levers && !gs_queue_lockstep && gs_queue_split_image) {

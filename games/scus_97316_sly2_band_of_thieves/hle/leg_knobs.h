@@ -127,6 +127,19 @@ struct LegKnobs {
     // NATIVEEE_GL_SHADER_BLEND=1: blend every blended draw in the shader (no fixed-function path): the
     // per-pixel reference the Metal identity judge compares against.
     bool gl_shader_blend = false;
+    // NATIVEEE_GPU_TIMING=1: the Metal arm samples GPU timestamps at every render / blit pass's stage
+    // boundaries (run.meta gpu_pass= / gpu_frame= rows). Diagnostics; a little per-pass cost.
+    bool gpu_timing = false;
+    // NATIVEEE_METAL_COMMIT_DRAWS=<n>: draws per command buffer before the Metal arm's mid-frame commit
+    // (0 = one command buffer per frame). Unset = the backend's default.
+    std::optional<uint32_t> metal_commit_draws;
+    // NATIVEEE_METAL_HW_DEPTH=1: the Metal register program leaves the window depth to the rasterizer
+    // (A/B only: ULP ties against the shader-written depth).
+    bool metal_hw_depth = false;
+    // NATIVEEE_FRAME_HASH_FULL=1: the frames lane hashes EVERY physical pixel of the grab (scale 1 sampling
+    // over the physical image) instead of one texel per native pixel -- the scaled-rendering oracle. The
+    // frames.fhash values differ from the lane's own (the header carries the physical size).
+    bool frame_hash_full = false;
     // NATIVEEE_WATCHDOG_S=<s> (default 60; 0 = off) / NATIVEEE_RAM_DUMP=<file> at the watchdog park.
     uint64_t watchdog_s = 60;
     std::optional<std::string> ram_dump;

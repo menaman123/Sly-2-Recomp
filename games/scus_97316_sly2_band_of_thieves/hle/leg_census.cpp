@@ -244,6 +244,14 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
                                             ":state_sets=" + std::to_string(bc->state_sets) + ":uniform_sets=" + std::to_string(bc->uniform_sets));
             }
         }
+        // The Metal arm's per-frame distribution (gpu_frame=) and, under NATIVEEE_GPU_TIMING, the per-pass fold
+        // (gpu_pass=): the renderer's budget rows at the configured video.scale.
+        {
+            std::string gpu_frame, gpu_pass;
+            gs.video.GpuRows(&gpu_frame, &gpu_pass);
+            meta->Set("gpu_frame", gpu_frame);
+            meta->Set("gpu_pass", gpu_pass);
+        }
         if (gs.gs_queue) {
             const ps2r::gs::DrawIrThreadQueue::Counters& q = gs.gs_queue->Count();
             meta->Set("gs_queue", std::string(gs.gs_queue->policy() == ps2r::gs::DrawIrThreadQueue::Policy::Lockstep ? "lockstep" : "pipelined") +

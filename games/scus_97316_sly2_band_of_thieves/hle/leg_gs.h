@@ -83,6 +83,10 @@ public:
     // Whether anything reads the display grab (harness lanes, F5, frame dumps). A player's session
     // needs none, so the grab and its hash are skipped. Set before the first frame.
     std::atomic<bool> grab_wanted{true};
+    // NATIVEEE_FRAME_HASH_FULL: the frames lane samples every physical pixel (scale 1 over the physical
+    // grab) instead of one per native pixel -- the scaled-rendering oracle.
+    bool frame_hash_full = false;
+    int FrameHashScale() const { return frame_hash_full ? 1 : video.Scale(); }
     // The internal scale the Display page asked for (1..4; 0 = none), taken by the Verify slot at a boundary
     // and applied by the consumer at its next frame end.
     std::atomic<int> scale_request{0};
