@@ -209,13 +209,20 @@ void Mods::OnBoundary(uint64_t boundary) {
             std::fprintf(stderr, "nativeee: mods: skip refused: %s\n", why.c_str());
         }
     }
-    // The fast-forward runs while the cutscene holds the player; its end is the census's clear.
+    // The cutscene predicate's first set -> clear transition (the census: the boundary and the wall ms since
+    // the first boundary -- the fast-forward's proof is the same boundary reached in less wall time).
+    const bool cutscene = CutscenePlaying();
+    if (first_boundary_wall_ == std::chrono::steady_clock::time_point{}) first_boundary_wall_ = std::chrono::steady_clock::now();
+    if (cutscene) cutscene_seen_ = true;
+    else if (cutscene_seen_ && cutscene_clear_at_ == 0) {
+        cutscene_clear_at_ = boundary;
+        cutscene_clear_wall_ms_ = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - first_boundary_wall_).count());
+    }
+    // The fast-forward runs while the cutscene holds the player.
     if (ff_active_) {
         ++ff_frames_;
-        if (!CutscenePlaying() || MoviePlaying()) {
-            cutscene_clear_at_ = boundary;
-            SetFastForward(false, boundary);
-        }
+        if (!cutscene || MoviePlaying()) SetFastForward(false, boundary);
     }
     if (session_) session_->SetModsState(static_cast<int>(Read32(kCurrentWid)), MoviePlaying() || CutscenePlaying(), ff_active_);
 }
@@ -236,7 +243,7 @@ std::string Mods::Census() const {
                     ":warps=" + std::to_string(warps_) + ":refused=" + std::to_string(refused_) + ":skips=" + std::to_string(skips_) +
                     ":fmv_skips=" + std::to_string(fmv_skips_) + ":ff=" + std::to_string(ff_starts_) + ":ff_frames=" +
                     std::to_string(ff_frames_) + ":ff_wall_ms=" + std::to_string(ff_wall_ms_) + ":cutscene_clear_at=" +
-                    std::to_string(cutscene_clear_at_) + ":last_wid=" + std::to_string(last_warp_wid_) +
+                    std::to_string(cutscene_clear_at_) + ":cutscene_clear_wall_ms=" + std::to_string(cutscene_clear_wall_ms_) + ":last_wid=" + std::to_string(last_warp_wid_) +
                     ":schedule=" + (spec_.empty() ? std::string("none") : spec_);
     if (!last_refusal_.empty()) {
         std::string why = last_refusal_;

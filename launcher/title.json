@@ -300,6 +300,18 @@
             ]
           }
         ]
+      },
+      {
+        "title": "Mods",
+        "rows": [
+          {
+            "key": "mods.enabled",
+            "label": "Testing aids",
+            "kind": "switch",
+            "default": "off",
+            "help": "Adds a 'Mods (for testing)' section to the game's menu (press Esc while playing): a level select that jumps to any of the game's levels or hubs the way the game itself loads them, and a Skip cutscene button. Backspace, or Select and Start together on the controller, skips the movie or cutscene playing. A level the story has not reached may be missing its objects or its mission; your saved progress is used as it is. Off is the game as it ships."
+          }
+        ]
       }
     ]
   },

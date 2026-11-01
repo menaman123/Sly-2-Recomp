@@ -63,10 +63,11 @@ ROWS = {
     "qol.fast_forward": ("4", None),
     "fixes.look_rest_seconds": ("on", None),
     "fixes.skid_mark_init": ("on", None),
+    "mods.enabled": ("on", None),   # fingerprint-excluded (STAGE FIX-2): judged through run.meta mods_enabled=
     "paths.user_data": ("<folder>/data", None),
 }
 # Rows judged by a key other than env_ps2 (paths.* are not in the fingerprint).
-META_KEY = {"paths.user_data": "user_data_root"}
+META_KEY = {"paths.user_data": "user_data_root", "mods.enabled": "mods_enabled"}
 # User-facing rows the judge does not drive (path plumbing the leg pins itself).
 NOT_JUDGED = {"paths.mc_dir": "the leg's memory card", "paths.save_dir": "the leg's out dir",
               "paths.texture_packs": "path plumbing", "paths.game_files": "the build's ELF", "paths.iso": "the leg's --iso"}

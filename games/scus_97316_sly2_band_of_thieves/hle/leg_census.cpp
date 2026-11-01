@@ -56,6 +56,7 @@ void LegCensus::Write() {
     WritePlay(meta);
     if (p_.frame_rate) meta->Set("frame_rate", p_.frame_rate());
     if (p_.mods) meta->Set("mods", p_.mods());
+    meta->Set("mods_enabled", p_.cfg.mods.enabled ? "on" : "off");   // the settings judge's row (the knob is not in env_ps2)
     WriteDevices(meta);
     WriteVu1(meta);
     if (p_.native_vif) meta->Set("native_vif", p_.native_vif());

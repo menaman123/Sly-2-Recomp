@@ -28,7 +28,7 @@
 //
 //   NATIVEEE_MODS=warp=<wid>@<frame>[,skip@<frame>...]   the lane schedule: the same acts at boundaries.
 //   run.meta mods=: off | on:levels=..:cur=..:warps=..:refused=..:skips=..:fmv_skips=..:ff=..:ff_frames=..
-//                   :ff_wall_ms=..:cutscene_clear_at=..:schedule=<spec>
+//                   :ff_wall_ms=..:cutscene_clear_at=..:cutscene_clear_wall_ms=..:schedule=<spec>
 #pragma once
 
 #include <cstdint>
@@ -112,7 +112,9 @@ private:
     std::chrono::steady_clock::time_point ff_start_;
     uint64_t ff_start_boundary_ = 0, boundary_ = 0;
     uint64_t warps_ = 0, refused_ = 0, skips_ = 0, fmv_skips_ = 0, ff_starts_ = 0, ff_frames_ = 0, ff_wall_ms_ = 0;
-    uint64_t cutscene_clear_at_ = 0;
+    uint64_t cutscene_clear_at_ = 0, cutscene_clear_wall_ms_ = 0;
+    bool cutscene_seen_ = false;
+    std::chrono::steady_clock::time_point first_boundary_wall_{};
     int last_warp_wid_ = -1;
     std::string last_refusal_;
 };
