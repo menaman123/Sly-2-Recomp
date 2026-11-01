@@ -10,6 +10,7 @@ namespace ps2r::title::sly2 {
 
 LegAudio::LegAudio(const ps2r::Config& cfg, const LegKnobs& knobs, const LegCore& core, ps2r::sound::SpuCore& spu) : spu_core(spu) {
     if (knobs.spu_trace && spu_trace.Open(knobs.spu_trace->c_str())) spu_core.SetTrace(&spu_trace);
+    ps2r::sound::SpuCore::SetFastMix(knobs.mixer_fast);   // NATIVEEE_MIXER_FAST=0 = the sample-major oracle
     const bool device = core.play_mode && cfg.audio.enabled;
     dump_mixer = knobs.audio_dump && (knobs.audio_dump_mixer || !device);
     if (dump_mixer && !audio_dump.Open(knobs.audio_dump->c_str())) dump_mixer = false;

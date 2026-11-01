@@ -60,6 +60,9 @@ struct LegKnobs {
     // NATIVEEE_EE_YIELD_SPIN_GATE=1|0: override engine.ee_yield_spin_gate.
     bool yield_spin_gate_set = false;
     bool yield_spin_gate_on = false;
+    // NATIVEEE_MIXER_FAST=0: the SPU mixer's sample-major pump (the oracle) instead of the voice-major one
+    // (SpuCore::SetFastMix; PERF-1 io track). Output-identical by construction; default on.
+    bool mixer_fast = true;
     // NATIVEEE_MEM_LANE=1|0: force the harness mem lane (a 34 MB guest-RAM hash every 60 boundaries, ~40 ms
     // on the boundary thread). Default: on headless, off in play.
     bool mem_lane_set = false;

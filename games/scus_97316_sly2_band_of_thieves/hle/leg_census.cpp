@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "engine/sound/spu_core.h"
 #include "engine/sound/voice.h"
 
 #include "engine/cdvd/hle/libcdvd_bindings.h"
@@ -420,7 +421,12 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
                                         ":lead=" + std::to_string(audio.audio_ring.LeadQuanta())
                                   : std::string("none"));
     meta->Set("audio_mixed", "pumps=" + std::to_string(p_.services.mixer.Pumps()) + ":frames=" + std::to_string(p_.services.mixer.FramesMixed()) +
-                                 ":interp=" + (ps2r::sound::Voice::Gaussian() ? "gaussian" : "linear"));
+                                 ":interp=" + (ps2r::sound::Voice::Gaussian() ? "gaussian" : "linear") +
+                                 ":pump=" + (ps2r::sound::SpuCore::FastMix() ? "voice_major" : "sample_major") +
+                                 ":fast_chunks=" + std::to_string(p_.services.spu_core.FastChunks()) +
+                                 ":pump_ms=" + std::to_string(p_.services.mixer.PumpNs() / 1000000) +
+                                 ":pump_us_per_boundary=" + std::to_string(p_.services.mixer.Pumps() ? p_.services.mixer.PumpNs() / 1000 / p_.services.mixer.Pumps() : 0) +
+                                 ":pump_max_us=" + std::to_string(p_.services.mixer.PumpMaxNs() / 1000));
     // The pace census (play; the pacer's protocol): boundaries that parked for the wall
     // edge / arrived late, the longest frame's work, the first long frames with the
     // TickProfile breakdown (Boundary / GifDrain / ... / other = recompiled code), the
