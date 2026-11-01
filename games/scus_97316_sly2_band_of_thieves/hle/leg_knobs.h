@@ -144,6 +144,9 @@ struct LegKnobs {
     // over the physical image) instead of one texel per native pixel -- the scaled-rendering oracle. The
     // frames.fhash values differ from the lane's own (the header carries the physical size).
     bool frame_hash_full = false;
+    // NATIVEEE_NATIVE_GRAB=1|0: force the frames-lane grab of a scaled target to the native (point-sampled)
+    // read / the physical rows regardless of the frame-dump rule (the identity test of the two).
+    std::optional<bool> native_grab;
     // NATIVEEE_WATCHDOG_S=<s> (default 60; 0 = off) / NATIVEEE_RAM_DUMP=<file> at the watchdog park.
     uint64_t watchdog_s = 60;
     std::optional<std::string> ram_dump;

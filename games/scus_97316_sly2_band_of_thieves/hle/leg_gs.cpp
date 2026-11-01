@@ -55,6 +55,10 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         // When no render target sits at the scanout base, grab like the CRTC: decode DISPFB from local
         // memory (movie frames are uploaded and shown without drawing). Fall back to the last drawn target.
         video.Pipe()->Scanout().SetGrabPolicy(ps2r::gs::ScanoutComposer::GrabPolicy::LocalMemory);
+        // The frames lane's grab of a scaled target reads one texel per logical pixel (the hash's own
+        // samples: 1 / scale^2 of the bytes) unless the physical rows are wanted: a frame dump
+        // (--dump-frames writes the f<key>.ppm at the physical size) or the full-pixel oracle hash.
+        video.Pipe()->Scanout().SetNativeGrab(knobs.native_grab ? *knobs.native_grab : (!frame_hash_full && core.dump_frames_dir.empty()));
         auto crtc_now = [this] {
             using P = ps2r::gs::GsPrivRegs;
             const P& p = gs_state.Priv();

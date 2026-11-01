@@ -255,7 +255,7 @@ void LegVerifySlot::VerifyStep(CpuContext& ctx) {
             if (fr->source == ps2r::gs::ScanoutComposer::Source::Mirror) ++gs_.grab_local_memory;
             if (fr->source_fallback) ++gs_.grab_fallback;
             if (wall_locked) host_.OnPresentHashed(present_key, fr->hashed ? fr->hash : 0, gs_.video.Renderer());
-            else host_.OnPresent(present_key, fr->rgba.data(), fr->w, fr->h, gs_.FrameHashScale(), gs_.video.Renderer());
+            else host_.OnPresent(present_key, fr->rgba.data(), fr->w, fr->h, fr->grab_step > 1 ? 1 : gs_.FrameHashScale(), gs_.video.Renderer());
             if (!wall_locked && gs_.frame_dump.Enabled() && gs_.DumpWanted(present_key)) {
                 gs_.frame_dump.Write("f", present_key, fr->w, fr->h, fr->rgba.data(), /*flip=*/false);
                 std::vector<uint8_t> presented;
