@@ -41,6 +41,28 @@ every rule the interpreter has is kept op for op and the corpus / lockstep oracl
   -- the block loop, the MAC-flag materialise, the XGKICK copy 2 %, the AOT tier's steady-clock pair 2 % --
   are small).
 
+## The generated shape (STAGE PERF-1, 2026-11-01; details in ~/ra-orch/notes/perf-worker.md)
+
+`vu1_native_gen`'s policy row (`vu1_native_images.txt`): `blocks=1:ops=48:taken=1:chain=1:mac_acc=1:sb_inline=1:cycle_local=1:
+entry_clamp=0:cluster_ops=160:clamp_mask=1`. What each buys (the engine's `Vu1AotRegionPolicy`, `engine/vu/vu1_aot/`):
+
+| Policy | What it changes | Why |
+|---|---|---|
+| `sb_inline` | the store-back statements emitted in place at every exit / chain (no `[&]` lambda) | the lambda captured every local by reference: the whole VU register file lived on the STACK for the function |
+| `cycle_local` | the VU clock a local, synced to the pipeline around its readers; the cold XGKICK calls take it by value (`Vu1AotXgkPace` / `Arm`, `preserve_all` under clang) | `++cycle` was a load / add / store per op (the data-memory byte stores may alias the pipeline); a plain out-of-line call per op made the allocator spill the live file before every cold branch |
+| `mac_acc` | the MAC results fold into a register-resident `FlagPipeline::LazyAcc` (OR / unsigned MAX / unsigned MIN accumulators) at their op | every result stayed live to the block end for its own fold (spills) |
+| `clamp_mask` | `Vu1State::vf_clamped` persists "this VF is clamped" across blocks (proofs: full clamped writes, a clamp that changed nothing on a never-written register; cleared at every kick / modelled bundle / raw write) | the vertex loops re-clamped their 10-20 matrix inputs at every block entry (~9 NEON ops each, per vertex) |
+| `cluster_ops=160` | PROFILE-GUIDED clusters: the generator replays the corpus on the block tier (`VuBlockTier::SetBlockObserver`), merges the hottest edges under the op cap into ONE function per cluster (every block once as a label; the entry pc in `st.native_exit_pc`), cold blocks stay singletons | the main renderer's per-vertex clip-and-kick loop (22 blocks of 2-8 ops) paid a store-back / reload / ring hand-off per block; bigger REGIONS (the old policy) duplicated the successors into every function and lost on text (2.4-8x) |
+| `entry_clamp` (off) | a never-written clamped-read register clamped once at entry | pays only with multi-block regions; raises the pressure with blocks=1 |
+
+Measured (`test_vu1_native_corpus --bench 7`, 7000 Paris kicks, under the host mutex at 1-min load < 6): old shape 4.57-4.69 ->
+3.22 ns/bundle; the Paris play lane at 60 Hz (900 frames, paired A/B, load 4-6): worker 5.85-6.42 -> 4.98-5.17 ms/frame,
+ns/bundle 4.45-4.48 -> 3.41-3.52. Every step: `Vu1NativeCorpus` 10811/10811 + the cap sweep, nat2_gate defaults = baseline,
+Paris hub 900 hashes = the reference's (MTVU=0 frames=a40be3683269, MTVU=1 frames=04628de650a0).
+
+A/B of a shape in one build dir: `cmake -DPS2R_SLY2_VU1_NATIVE_GEN_ARGS="--mac-acc;0" <build>` (;-separated extra generator
+args; non-empty skips the MANIFEST check), `ninja test_vu1_native_corpus`, then `test_vu1_native_corpus <paris corpora> --bench 7`.
+
 ## Portability
 
 Every hand-written TU here is C++17 with no POSIX / `_WIN32` / `__APPLE__` (the engine's

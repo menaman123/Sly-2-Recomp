@@ -28,6 +28,10 @@ set(_vu1_corpus_default "$ENV{NATIVEEE_VU1_CORPUS}")
 set(NATIVEEE_VU1_CORPUS "${_vu1_corpus_default}" CACHE STRING
     "VU1 kick corpus directories (Vu1Case records; game data outside the repository) the native VU1 code is generated from")
 set(PS2R_SLY2_VU1_NATIVE_CHAIN 1 CACHE STRING "vu1_native_gen --chain (block chaining with guaranteed tail calls; 0 for a compiler without musttail)")
+# STAGE PERF-1: extra generator policy arguments for an A/B of the generated shape (e.g. "--mac-acc;1" or
+# "--store-back-inline;0"; a ;-separated list). Non-empty = a non-default policy: the MANIFEST check is skipped
+# (it is recorded for the default policy). The shipped build leaves it empty.
+set(PS2R_SLY2_VU1_NATIVE_GEN_ARGS "" CACHE STRING "vu1_native_gen extra policy arguments (;-separated; empty = the recorded default policy)")
 if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC" AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set(PS2R_SLY2_VU1_NATIVE_CHAIN 0)
 endif()
@@ -92,9 +96,9 @@ endforeach()
 set(_generated ${_generated_tus} "${_gen}/vu1_native_images.cpp" "${_gen}/vu1_native_images.txt")
 add_custom_command(
     OUTPUT ${_generated}
-    COMMAND vu1_native_gen ${_corpus_args} --out "${_gen}" --images "${_images_txt}" --programs "${_disc_programs}" --chain ${PS2R_SLY2_VU1_NATIVE_CHAIN}
+    COMMAND vu1_native_gen ${_corpus_args} --out "${_gen}" --images "${_images_txt}" --programs "${_disc_programs}" --chain ${PS2R_SLY2_VU1_NATIVE_CHAIN} ${PS2R_SLY2_VU1_NATIVE_GEN_ARGS}
     DEPENDS vu1_native_gen "${_images_txt}" "${_disc_programs}"
-    COMMENT "Generating Sly 2's native VU1 microprograms -> ${_gen} (vu1_native_gen, ${_n_images} program(s), content identity, chain=${PS2R_SLY2_VU1_NATIVE_CHAIN})"
+    COMMENT "Generating Sly 2's native VU1 microprograms -> ${_gen} (vu1_native_gen, ${_n_images} program(s), content identity, chain=${PS2R_SLY2_VU1_NATIVE_CHAIN} ${PS2R_SLY2_VU1_NATIVE_GEN_ARGS})"
     VERBATIM)
 set_source_files_properties(${_generated} PROPERTIES GENERATED TRUE)
 add_custom_target(ps2r_title_native_vu1_generate DEPENDS ${_generated})
@@ -103,7 +107,7 @@ add_custom_target(ps2r_title_native_vu1_generate DEPENDS ${_generated})
 #   (cd ${_gen} && shasum -a 256 vu1_[0-9a-f]*.cpp vu1_native_images.cpp vu1_native_images.txt) > native/vu1/MANIFEST.sha256
 set(_manifest "${CMAKE_CURRENT_SOURCE_DIR}/MANIFEST.sha256")
 set(_verify_stamp "")
-if(EXISTS "${_manifest}" AND PS2R_SLY2_VU1_NATIVE_CHAIN EQUAL 1)
+if(EXISTS "${_manifest}" AND PS2R_SLY2_VU1_NATIVE_CHAIN EQUAL 1 AND PS2R_SLY2_VU1_NATIVE_GEN_ARGS STREQUAL "")
     set(_stamp "${CMAKE_CURRENT_BINARY_DIR}/manifest.verified")
     if(PS2R_RECOMP_CHECK_MANIFEST)
         set(_strict ON)
@@ -126,10 +130,12 @@ endif()
 
 # The engine's VU semantic flags for the generated bodies (engine/vu/CMakeLists.txt + the run-time
 # builder's command line: -O2 -fno-strict-aliasing -fwrapv; GNU adds -ffp-contract=off -frounding-math).
+# STAGE PERF-1: no stack protector on the generated bodies (every local array is a fixed VR_reg; the
+# canary was a load / compare per block function call, 24 of the main renderer's functions carried one).
 if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-    set(_vu_flags /w /O2 /clang:-fno-strict-aliasing /clang:-fwrapv /bigobj)
+    set(_vu_flags /w /O2 /GS- /clang:-fno-strict-aliasing /clang:-fwrapv /bigobj)
 else()
-    set(_vu_flags -w -O2 -fno-strict-aliasing -fwrapv)
+    set(_vu_flags -w -O2 -fno-strict-aliasing -fwrapv -fno-stack-protector)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         list(APPEND _vu_flags -ffp-contract=off -frounding-math)
     endif()

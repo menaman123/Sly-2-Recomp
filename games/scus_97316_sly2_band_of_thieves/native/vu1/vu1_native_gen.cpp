@@ -1,7 +1,8 @@
 // vu1_native_gen -- the BUILD-TIME generator of Sly 2's native VU1 microprograms.
 //
 //   vu1_native_gen --corpus <dir> [--corpus <dir>]... --out <gen dir> [--chain 0|1] [--mac-acc 0|1]
-//                  [--region-blocks N] [--region-ops N] [--region-taken 0|1] [--images <images.txt>]
+//                  [--region-blocks N] [--region-ops N] [--region-taken 0|1] [--store-back-inline 0|1]
+//                  [--cycle-local 0|1] [--entry-clamp 0|1] [--cluster-ops N] [--clamp-mask 0|1] [--images <images.txt>]
 //                  [--programs <disc_programs.txt>]
 //
 // CONTENT IDENTITY (--programs, STAGE NATIVE-2): the disc's VU programs (extract_images.py over the ELF's
@@ -50,8 +51,14 @@
 #include <system_error>
 #include <vector>
 
+#include "engine/gif/gif_arbiter.h"
+#include "engine/gif/gif_parser.h"
+#include "engine/gif/gif_regs.h"
+#include "engine/gif/null_gs_sink.h"
 #include "engine/vu/tiers/vu_block_tier.h"
+#include "engine/vu/tiers/vu_tier_dispatch.h"
 #include "engine/vu/vu1_aot/vu1_aot_block_gen.h"
+#include "engine/vu/vu_unit.h"
 #include "engine/vu/vu1_aot/vu1_aot_emitter.h"
 #include "engine/vu/vu1_aot/vu1_aot_verifier.h"
 #include "engine/vu/vu1_case.h"
@@ -82,15 +89,52 @@ struct Program {
     std::vector<uint8_t> bytes;
 };
 
+// The block profile of a program (Policy::cluster_ops): every case replayed once on the BLOCK tier with no
+// native code (every block passes the loop), the tier's observer counting block runs and the (from, to)
+// edges within a kick. Deterministic for a given corpus (the clusters, hence the TU text, are too).
+struct ProfileSink {
+    Vu1AotBlockProfile* prof;
+    uint32_t prev = 0xFFFFFFFFu;
+};
+void OnBlockRun(void* user, uint32_t pc) {
+    ProfileSink* ps = static_cast<ProfileSink*>(user);
+    pc &= VuBlockTier::kPcMask;
+    ++ps->prof->runs[pc];
+    if (ps->prev != 0xFFFFFFFFu) ++ps->prof->edges[{ps->prev, pc}];
+    ps->prev = pc;
+}
+void ProfileCases(const std::vector<const Vu1Case*>& cases, Vu1AotBlockProfile& prof) {
+    for (const Vu1Case* c : cases) {
+        NullGsSink null_sink;
+        GifRegs gif_regs;
+        GifParser parser(null_sink, gif_regs);
+        GifArbiter arbiter(parser);
+        VuUnit vu(1, &arbiter);
+        vu.LoadCase(*c);
+        VuSettings& settings = vu.dispatch().settings();
+        settings.vu1_mode = VuTierMode::Block;
+        settings.hle_enabled = false;
+        ProfileSink sink{&prof, 0xFFFFFFFFu};
+        vu.dispatch().block().SetBlockObserver(&OnBlockRun, &sink);
+        vu.Execute(c->start_pc);
+        arbiter.drain();
+    }
+}
+
 int Usage() {
     std::fprintf(stderr,
                  "usage: vu1_native_gen --corpus <dir>... --out <gen dir> [--images <images.txt>]\n"
-                 "                      [--chain 0|1] [--mac-acc 0|1] [--region-blocks N] [--region-ops N] [--region-taken 0|1]\n");
+                 "                      [--chain 0|1] [--mac-acc 0|1] [--region-blocks N] [--region-ops N] [--region-taken 0|1]\n"
+                 "                      [--store-back-inline 0|1] [--cycle-local 0|1] [--entry-clamp 0|1] [--cluster-ops N] [--clamp-mask 0|1]\n");
     return 2;
 }
 
 bool Parse(int argc, char** argv, Args* a) {
     a->region.chain = true;  // the recorded policy of the title's generated code (the engine's default engine.vu1_aot_chain=on)
+    // STAGE PERF-1: profile-guided clusters of 160 ops (the corpus replay is the profile; the engine's run-time
+    // builder has no profile and keeps blocks=1). Paris bench: 3.49 -> 3.22 ns/bundle (-8 %); caps 96 / 256 / 512
+    // measured 3.17-3.69 / 3.25-3.43 / 3.25-3.28 -- 160 the most stable of the three rounds.
+    a->region.cluster_ops = 160;
     for (int i = 1; i < argc; ++i) {
         const std::string s = argv[i];
         auto next = [&](std::string* dst) {
@@ -108,6 +152,11 @@ bool Parse(int argc, char** argv, Args* a) {
         else if (s == "--region-blocks") { if (!next(&v)) return false; a->region.block_cap = std::atoi(v.c_str()); }
         else if (s == "--region-ops") { if (!next(&v)) return false; a->region.op_cap = std::atoi(v.c_str()); }
         else if (s == "--region-taken") { if (!next(&v)) return false; a->region.taken_targets = std::atoi(v.c_str()) != 0; }
+        else if (s == "--store-back-inline") { if (!next(&v)) return false; a->region.store_back_inline = std::atoi(v.c_str()) != 0; }
+        else if (s == "--cycle-local") { if (!next(&v)) return false; a->region.cycle_local = std::atoi(v.c_str()) != 0; }
+        else if (s == "--entry-clamp") { if (!next(&v)) return false; a->region.entry_clamp = std::atoi(v.c_str()) != 0; }
+        else if (s == "--cluster-ops") { if (!next(&v)) return false; a->region.cluster_ops = std::atoi(v.c_str()); }
+        else if (s == "--clamp-mask") { if (!next(&v)) return false; a->region.clamp_mask = std::atoi(v.c_str()) != 0; }
         else return false;
     }
     return !a->corpus.empty() && !a->out.empty();
@@ -285,9 +334,11 @@ int main(int argc, char** argv) {
             uint64_t bundles = 0;
             bool refused = false;
             std::string variants;
+            Vu1AotBlockProfile profile;
             for (uint64_t ih : it->second) {
                 std::vector<const Vu1Case*> ptrs;
                 for (const auto& c : images[ih]) ptrs.push_back(c.get());
+                if (a.region.cluster_ops > 0) ProfileCases(ptrs, profile);
                 const Vu1AotVerifier::Result pre = Vu1AotVerifier::Verify(ptrs);
                 if (!pre.identical) {
                     std::printf("program=%s variant=%s cases=%zu REFUSED at the specialised-table gate: %s\n", hex.c_str(), Vu1AotEmitter::Hex16(ih).c_str(), ptrs.size(), pre.divergence.c_str());
@@ -334,6 +385,7 @@ int main(int argc, char** argv) {
             Vu1AotEmitter::Options opt;
             opt.engine_build = "title-native";
             opt.region = a.region;
+            if (a.region.cluster_ops > 0) opt.profile = &profile;
             std::string ent;
             for (uint32_t e : entry_set) ent += (ent.empty() ? "" : ",") + Hex4(e);
             opt.note = "Sly 2 (SCUS_973.16) VU1 program " + pr.id + " (content hash " + hex + ", " + std::to_string(pr.size) +

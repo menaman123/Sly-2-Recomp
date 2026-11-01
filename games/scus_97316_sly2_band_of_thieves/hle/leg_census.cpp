@@ -564,7 +564,9 @@ void LegCensus::WriteVu1(ps2r::verify::RunMeta* meta) {
                               // blocks= block executions (a delay slot counts one) / through a generated REGION function /
                               // ops run inside them / ops whose stall came from the static schedule / ops that consulted the model.
                               ":blocks=" + std::to_string(bs.blocks_run) + "/" + std::to_string(bs.blocks_native) + "/" +
-                              std::to_string(bs.ops_native) + "/" + std::to_string(bs.ops_static) + "/" + std::to_string(bs.ops_model) + xg);
+                              std::to_string(bs.ops_native) + "/" + std::to_string(bs.ops_static) + "/" + std::to_string(bs.ops_model) + xg +
+                              // mpg= micro-memory uploads / of them byte-identical (no generation bump, no image re-hash at the next kick).
+                              ":mpg=" + std::to_string(live_vu1.micro_writes()) + "/" + std::to_string(live_vu1.micro_writes_unchanged()));
     // diag.vu1_lockstep: the tier A/B census (kicks compared, divergent, the first divergent
     // kick's ordinal, the categories) -- the invariant's in-game oracle for a tier.
     if (const VuLockstep* ls = live_vu1.dispatch().lockstep()) meta->Set("vu1_lockstep", ls->Summary());
