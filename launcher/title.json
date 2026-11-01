@@ -239,6 +239,20 @@
             "label": "Vibration",
             "kind": "switch",
             "default": "on"
+          },
+          {
+            "key": "input.invert_camera_x",
+            "label": "Camera: invert left and right",
+            "kind": "switch",
+            "default": "off",
+            "help": "The camera during play is the controller's right stick, the mouse, or the I J K L keys. This flips its left and right in every part of the game. The buttons and keys themselves are rebound on the game's Controls page (press Esc in the game)."
+          },
+          {
+            "key": "input.invert_camera_y",
+            "label": "Camera: invert up and down",
+            "kind": "switch",
+            "default": "off",
+            "help": "Flips the camera's up and down (the right stick, the mouse, the I K keys) in every part of the game."
           }
         ]
       },
