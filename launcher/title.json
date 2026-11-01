@@ -141,6 +141,13 @@
             ]
           },
           {
+            "key": "video.hidpi",
+            "label": "Sharp on high-resolution displays",
+            "kind": "switch",
+            "default": "off",
+            "help": "Draws the window at the display's own pixels on a Retina or scaled screen, so Window and the finer settings show every pixel. Sharper; may cost a little smoothness. Applies when the game starts."
+          },
+          {
             "key": "video.backend",
             "label": "Graphics",
             "kind": "choice",
