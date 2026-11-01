@@ -51,6 +51,7 @@ LegKnobs LegKnobs::FromEnvironment() {
         k.yield_spin_gate_set = true;
         k.yield_spin_gate_on = std::string(env) == "1";
     }
+    if (const char* env = std::getenv("NATIVEEE_MIXER_FAST")) k.mixer_fast = std::string(env) != "0";
     if (const char* env = std::getenv("NATIVEEE_MEM_LANE")) {
         k.mem_lane_set = true;
         k.mem_lane_on = std::string(env) == "1";
