@@ -67,6 +67,7 @@ public:
         std::optional<uint32_t> commit_draws;
         bool hw_depth = false;
         bool exact_arms = true;
+        bool private_rt = true;
     };
     void SetMetalOptions(const MetalOptions& o) { metal_options_ = o; }
     // The Metal arm's per-frame / per-pass statistics as run.meta rows (gpu_frame= / gpu_pass=); the

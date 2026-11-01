@@ -80,13 +80,16 @@ bool VideoStack::CreateContext(const VideoConfig& video, const char* title) {
 
 // video.backend=metal: the Metal device (no window, no context; any thread may drive it).
 bool VideoStack::CreateMetal(const VideoConfig& video) {
-    (void)video;
+
 #if defined(PS2R_HAS_METAL)
     render::MetalDeviceSettings ms;
     ms.gpu_timing = metal_options_.gpu_timing;
     if (metal_options_.commit_draws) ms.commit_draws = *metal_options_.commit_draws;
-    if (metal_options_.hw_depth) ms.shader_depth = false;
+    // video.metal_hw_depth (the rasterizer's depth: HSR / early-Z) or the fragment-written depth; the
+    // NATIVEEE_METAL_HW_DEPTH env knob forces the rasterizer's for an A/B.
+    ms.shader_depth = !(video.metal_hw_depth || metal_options_.hw_depth);
     ms.exact_arms = metal_options_.exact_arms;
+    ms.private_attachments = metal_options_.private_rt;
     metal_ = std::make_unique<render::MetalDevice>(ms);
     if (!metal_->Init([this] { PresentWindow(); })) {
         PS2R_LOG(HOST, Warn, "video: MetalDevice::Init failed (stub present)");

@@ -31,6 +31,7 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         mo.commit_draws = knobs.metal_commit_draws;
         mo.hw_depth = knobs.metal_hw_depth;
         mo.exact_arms = knobs.metal_exact_arms;
+        mo.private_rt = knobs.metal_private_rt;
         video.SetMetalOptions(mo);
     }
     frame_hash_full = knobs.frame_hash_full;
@@ -79,6 +80,8 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
             }
             return false;
         };
+        // NATIVEEE_GS_ROUTES: the per-draw route trace is recorded only while armed (its cost per draw).
+        if (knobs.gs_routes) video.Pipe()->RouteTrace().Arm(true);
         consumer = std::make_unique<ps2r::gs::DrawIrQueueConsumer>(*video.Pipe(), std::move(hooks));
         latency_tap.next = consumer.get();
         // Play hashes the grab on the consumer thread; the boundary reads only the header and hash.

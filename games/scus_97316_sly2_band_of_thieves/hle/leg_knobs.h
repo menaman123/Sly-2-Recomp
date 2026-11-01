@@ -138,6 +138,8 @@ struct LegKnobs {
     bool metal_hw_depth = false;
     // NATIVEEE_METAL_EXACT_ARMS=0: the Metal register program without its exact fast arms (A/B only).
     bool metal_exact_arms = true;
+    // NATIVEEE_METAL_PRIVATE_RT=0: the Metal attachments in Shared storage (A/B only; default Private).
+    bool metal_private_rt = true;
     // NATIVEEE_FRAME_HASH_FULL=1: the frames lane hashes EVERY physical pixel of the grab (scale 1 sampling
     // over the physical image) instead of one texel per native pixel -- the scaled-rendering oracle. The
     // frames.fhash values differ from the lane's own (the header carries the physical size).
