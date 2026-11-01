@@ -136,6 +136,8 @@ struct LegKnobs {
     // NATIVEEE_METAL_HW_DEPTH=1: the Metal register program leaves the window depth to the rasterizer
     // (A/B only: ULP ties against the shader-written depth).
     bool metal_hw_depth = false;
+    // NATIVEEE_METAL_EXACT_ARMS=0: the Metal register program without its exact fast arms (A/B only).
+    bool metal_exact_arms = true;
     // NATIVEEE_FRAME_HASH_FULL=1: the frames lane hashes EVERY physical pixel of the grab (scale 1 sampling
     // over the physical image) instead of one texel per native pixel -- the scaled-rendering oracle. The
     // frames.fhash values differ from the lane's own (the header carries the physical size).

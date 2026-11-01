@@ -30,6 +30,7 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
         mo.gpu_timing = knobs.gpu_timing;
         mo.commit_draws = knobs.metal_commit_draws;
         mo.hw_depth = knobs.metal_hw_depth;
+        mo.exact_arms = knobs.metal_exact_arms;
         video.SetMetalOptions(mo);
     }
     frame_hash_full = knobs.frame_hash_full;

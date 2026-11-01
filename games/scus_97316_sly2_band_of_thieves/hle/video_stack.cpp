@@ -86,6 +86,7 @@ bool VideoStack::CreateMetal(const VideoConfig& video) {
     ms.gpu_timing = metal_options_.gpu_timing;
     if (metal_options_.commit_draws) ms.commit_draws = *metal_options_.commit_draws;
     if (metal_options_.hw_depth) ms.shader_depth = false;
+    ms.exact_arms = metal_options_.exact_arms;
     metal_ = std::make_unique<render::MetalDevice>(ms);
     if (!metal_->Init([this] { PresentWindow(); })) {
         PS2R_LOG(HOST, Warn, "video: MetalDevice::Init failed (stub present)");
