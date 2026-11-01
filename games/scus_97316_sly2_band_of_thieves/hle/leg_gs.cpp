@@ -82,6 +82,11 @@ LegGs::LegGs(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs&
                 if (consumer) consumer->SetFrameHashScale(FrameHashScale());
                 PS2R_LOG(HOST, Info, "video: internal scale %dx", video.Scale());
             }
+            if (const uint64_t out = present_output_request.exchange(0, std::memory_order_relaxed)) {
+                video.SetPresentOutput(static_cast<int>(out >> 32), static_cast<int>(out & 0xFFFFFFFFu));
+                PS2R_LOG(HOST, Info, "video: present output %dx%d (the host picture, bilinear)", video.PresentOutputW(),
+                         video.PresentOutputH());
+            }
             return false;
         };
         // NATIVEEE_GS_ROUTES: the per-draw route trace is recorded only while armed (its cost per draw).
