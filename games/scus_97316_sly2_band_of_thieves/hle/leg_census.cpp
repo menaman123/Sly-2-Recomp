@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,17 @@
 
 namespace ps2r::title::sly2 {
 namespace {
+// frame_budget= (PERF1 stress track): the per-unit ms PER FRAME derived from rows this census already wrote --
+// `key=value[:...]` text is searched for `needle` and the number after it read. No counter of its own.
+double RowNumber(const std::string& text, const std::string& row, const std::string& needle) {
+    const size_t line = text.find("\n" + row + "=");
+    if (line == std::string::npos) return 0.0;
+    const size_t end = text.find('\n', line + 1);
+    const size_t at = text.find(needle, line + 1);
+    if (at == std::string::npos || (end != std::string::npos && at > end)) return 0.0;
+    return std::strtod(text.c_str() + at + needle.size(), nullptr);
+}
+
 std::string FormatMs(double ms) {
     char b[32];
     std::snprintf(b, sizeof b, "%.2f", ms);
@@ -51,6 +63,28 @@ void LegCensus::Write() {
     // (native/native_census.h grammar).
     meta->Set("native", NativeCensus::Instance().Row(p_.native));
     p_.text_watch.Report(p_.host);   // text_watch= / text_watch_pages= (NATIVEEE_WATCH=text only)
+    WriteFrameBudget(meta);
+}
+
+// frame_budget= : THE PER-UNIT FRAME-TIME BUDGET ROW (PERF1). Every unit's time per frame boundary in ms, read back from
+// the rows above so the table other tracks quote is one line: ee = the EE thread's CPU (ee_cpu_ms total), worker = the MTVU
+// worker's busy time (mtvu worker_ns), drain = the GIF drain thread (mtvu drain_ns), consumer = the GS consumer thread's own
+// time (gs_queue consumer_ms_per_frame), gpu_sum = gs_backend gpu_ms (the SUM of command-buffer spans: over-counts when
+// buffers overlap -- a bound, not a measurement; the gpu_frame= span row is the GPU's), slept = the pacer's sleep (pace
+// slept_ms), wall = wall_ms. A play frame holds 60 Hz only while every unit is under 16.67 and the pipeline overlaps them.
+void LegCensus::WriteFrameBudget(ps2r::verify::RunMeta* meta) {
+    const std::string text = meta->Render();
+    const double frames = RowNumber(text, "boundaries", "boundaries=");
+    if (frames <= 0) return;
+    auto per = [&](const std::string& row, const std::string& needle, double scale) { return FormatMs(RowNumber(text, row, needle) * scale / frames); };
+    meta->Set("frame_budget", "frames=" + std::to_string(static_cast<unsigned long long>(frames)) +
+                                  ":ee_ms=" + per("ee_cpu_ms", "total=", 1.0) +                 // ee_cpu_ms=tid:ms,...;total=<ms>
+                                  ":worker_ms=" + per("mtvu", "worker_ns=", 1e-6) +            // mtvu=...,worker_ns=<busy>/<wait>/<spin>
+                                  ":drain_ms=" + per("mtvu", "drain_ns=", 1e-6) +              // mtvu=...,drain_ns=<ns>/<n>
+                                  ":consumer_ms=" + FormatMs(RowNumber(text, "gs_queue", "consumer_ms_per_frame=")) +
+                                  ":gpu_sum_ms=" + per("gs_backend", "gpu_ms=", 1.0) +
+                                  ":slept_ms=" + per("pace", "slept_ms=", 1.0) +
+                                  ":wall_ms=" + per("wall_ms", "wall_ms=", 1.0));
 }
 
 void LegCensus::WriteKernel(ps2r::verify::RunMeta* meta) {
