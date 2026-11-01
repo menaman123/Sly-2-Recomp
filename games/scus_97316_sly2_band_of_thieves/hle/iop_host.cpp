@@ -542,6 +542,15 @@ void IopHost::WriteCensus(verify::RunMeta* meta) {
     }
     // The IOP frame clock's quanta: one per boundary, the same count as the SPU's mixer pumps.
     meta->Set("iop_frame_quanta", std::to_string(table_.Kernel().Clock().Frames()));
+    // The clock's forced advances past the frame ceiling (a hosted RPC driven through time-parked threads, a
+    // park-loop pump): how many, the frames they skipped (follow=on: the base moved by that many; off: the
+    // boundaries the IOP sat dark for), the longest skip. iop_frame_quanta then counts boundaries + skipped frames.
+    {
+        const iop::IopClock& clk = table_.Kernel().Clock();
+        meta->Set("iop_clock_skips", "follow=" + std::string(clk.FrameBaseFollowsSkips() ? "on" : "off") + ":skips=" +
+                                         std::to_string(clk.Skips()) + ":skipped_frames=" + std::to_string(clk.SkippedFrames()) +
+                                         ":max_skip_us=" + std::to_string(clk.MaxSkipUs()));
+    }
     // The libsd services the hosted 989snd reached (ordinal:count) and the voice-transfer bytes.
     meta->Set("iop_libsd", libsd_.CallsCensus() + ":trans_bytes=" + std::to_string(libsd_.VoiceTransBytes()));
     // The modules' own disc traffic (spiop streams through cdvdman's sceCdRead).
