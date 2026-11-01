@@ -152,6 +152,12 @@ LegIop::LegIop(const ps2r::Config& cfg, const LegKnobs& knobs, LegCore& core, Le
         // acquire and no boundary since the last trip); otherwise it fires only fields the pacer already
         // noted. Census ee_yield= spin_trips/sched_trips/due_fields.
         yd.spin_gate = knobs.yield_spin_gate_set ? knobs.yield_spin_gate_on : cfg.engine.ee_yield_spin_gate;
+        // The progress gate (EeYieldPoint header; NATIVEEE_EE_YIELD_PROGRESS=0 off): under the spin gate a
+        // trip whose register file moved is a computation, not a spin (the FMV decode, a loader's byte loop)
+        // and passes no field; a pending INTC / DMAC interrupt is taken with no field. Census ee_yield=
+        // progress_trips/progress_parks/irq_trips/prompt_requests/prompt_trips.
+        yd.progress_gate = knobs.yield_progress_gate;
+        yd.dmac_pending = [&dmac] { return dmac.CheckInterrupt(); };
         // engine.vblank_wake_sync: the vblank sleeper is readied by the holder at the trip's field (the
         // last host-wake term of the deterministic lane; census vblank_waits= field_wakes).
         EeRunToken::Instance().SetVblankWakeSync(cfg.engine.vblank_wake_sync);

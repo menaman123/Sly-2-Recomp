@@ -2,6 +2,7 @@
 
 #include "engine/dmac/dmac_channel.h"
 #include "engine/ee/hle/syscall_table.h"
+#include "engine/ee/sched/ee_yield_point.h"
 #include "engine/gif/gif_regs.h"
 #include "engine/vif/vif.h"
 
@@ -31,7 +32,14 @@ LegDmaIpu::LegDmaIpu(const LegKnobs& knobs, LegCore& core, LegDevices& devices, 
     core.mmio.Register(0x1000F520u, 0x10u, dmac, "D_ENABLER");
     core.mmio.Register(0x1000F590u, 0x10u, dmac, "D_ENABLEW");
     dmac.SetGuestCall(core.guest_call);
-    dmac.SetInterruptRaise([this] { ++dmac_int1_raises; });
+    // A channel completion with its CIM bit set: the handler runs at the holder's next scheduling point
+    // (a syscall entry, a yield trip, the boundary). The game's movie decoder spins on a word its fromIPU
+    // completion handler bumps, with no kernel call in the loop: ask the yield point for the next back-edge
+    // (EeYieldPoint::RequestPromptTrip, a no-op without the progress gate) instead of 2^18 back-edges later.
+    dmac.SetInterruptRaise([this] {
+        ++dmac_int1_raises;
+        EeYieldPoint::Instance().RequestPromptTrip();
+    });
     // _EnableDmac / _DisableDmac are D_STAT.CIM on hardware: kernel word and register are one state.
     SyscallTable::Instance().SetDmacMaskSink([&dmac](int ch, bool enable) { dmac.SetChannelInterruptMask(ch, enable); });
     core.mmio.Register(0x10002000u, ps2r::ipu::IpuDevice::kWindowBytes, ipu, "IPU");

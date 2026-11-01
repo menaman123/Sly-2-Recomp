@@ -60,6 +60,10 @@ struct LegKnobs {
     // NATIVEEE_EE_YIELD_SPIN_GATE=1|0: override engine.ee_yield_spin_gate.
     bool yield_spin_gate_set = false;
     bool yield_spin_gate_on = false;
+    // NATIVEEE_EE_YIELD_PROGRESS=0: the yield point's progress gate off (EeYieldPoint header: every trip of a
+    // non-scheduling thread parks a wall field, the pre-FIX-2 Play schedule; the DMAC's prompt trip off too).
+    // Under the spin gate only; the deterministic profile pins the spin gate off, so the lanes never see it.
+    bool yield_progress_gate = true;
     // NATIVEEE_MIXER_FAST=0: the SPU mixer's sample-major pump (the oracle) instead of the voice-major one
     // (SpuCore::SetFastMix; PERF-1 io track). Output-identical by construction; default on.
     bool mixer_fast = true;
