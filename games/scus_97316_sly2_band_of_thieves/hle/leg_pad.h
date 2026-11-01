@@ -55,6 +55,8 @@ public:
     std::vector<KeyScriptStep> key_script;
     // The agent control plane's overlay (leg_agent.h), applied after the script at every stamp; unset = none.
     std::function<void(uint64_t stamp, PadProtocol::Input* in)> agent_overlay;
+    // The Mods' pad combo (Select + Start = Skip cutscene; hle/mods.h), live input only; unset = none.
+    std::function<void(uint16_t* buttons)> mods_combo;
 
 private:
     // NATIVEEE_LAT_PULSE's thread (play mode only).

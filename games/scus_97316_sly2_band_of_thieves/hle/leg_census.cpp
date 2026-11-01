@@ -55,6 +55,7 @@ void LegCensus::Write() {
     WriteGs(meta);
     WritePlay(meta);
     if (p_.frame_rate) meta->Set("frame_rate", p_.frame_rate());
+    if (p_.mods) meta->Set("mods", p_.mods());
     WriteDevices(meta);
     WriteVu1(meta);
     if (p_.native_vif) meta->Set("native_vif", p_.native_vif());

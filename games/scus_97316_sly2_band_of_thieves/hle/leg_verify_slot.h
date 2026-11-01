@@ -33,6 +33,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_saves.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_services.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/text_watch.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/mods.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/motion_blur.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/widescreen.h"
 
@@ -69,6 +70,8 @@ public:
     Widescreen* widescreen = nullptr;
     // The motion blur switch (bound by the composition after the ELF load; the session's setting at each boundary).
     MotionBlur* motion_blur = nullptr;
+    // The Mods (mods.enabled; bound by the composition): its boundary acts run before the frame-rate policy is applied.
+    Mods* mods = nullptr;
 
     // The agent control plane's session.quit: end the leg from the completed boundary (census written).
     [[noreturn]] void EndLegFromAgent(const char* detail) { EndLegFromBoundary(detail); }

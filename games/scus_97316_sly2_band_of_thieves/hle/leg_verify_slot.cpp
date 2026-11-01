@@ -177,6 +177,7 @@ void LegVerifySlot::VerifyStep(CpuContext& ctx) {
     using ps2r::ringlog::RingLog;
     ps2r::sound::Mixer& mixer = services_.mixer;
     HarnessVerbs(park_.boundaries);
+    if (mods) mods->OnBoundary(park_.boundaries);
     if (play_.session) {
         if (const int scale = play_.session->TakeScaleRequest()) gs_.scale_request.store(scale, std::memory_order_relaxed);
         if (const uint64_t out = play_.session->TakePresentOutputRequest()) gs_.present_output_request.store(out, std::memory_order_relaxed);
@@ -192,7 +193,9 @@ void LegVerifySlot::VerifyStep(CpuContext& ctx) {
     // FrameLimit lets one quantum through per 16.7 ms of wall time.
     if (!frame_limit || frame_limit->QuantumThisBoundary()) {
         mixer.Pump();
-        play_.PushAudioRing(mixer.Output());
+        // A Mods fast-forward mutes: the quanta are mixed (the hashed lane and the game's streams advance with
+        // the frames) but not fed to the device ring, which plays silence meanwhile.
+        if (!mods || !mods->FastForwarding()) play_.PushAudioRing(mixer.Output());
         audio_.TapMixer(mixer.Output());
     }
     const uint64_t boundary = host_.OnBoundary(mixer.Output(), ps2r::sound::Mixer::kFramesPerVsync, verify_spans);

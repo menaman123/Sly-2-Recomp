@@ -47,6 +47,7 @@
 #include "engine/title/title_profile.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/clock_tick.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/frame_limit.h"
+#include "games/scus_97316_sly2_band_of_thieves/hle/mods.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/motion_blur.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_agent.h"
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_audio.h"
@@ -277,6 +278,19 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     motion_blur.Set(cfg.video.motion_blur);
     verify.motion_blur = &motion_blur;
     if (play.session) play.session->ConfigureMotionBlur(cfg.video.motion_blur);
+    // The Mods (mods.enabled): the level select and the skip cutscene on the game's own machinery (hle/mods.h). Off, the
+    // object does nothing at the boundary and the census row reads "off".
+    Mods mods(cfg, core.ram, title_dir, knobs.mods ? knobs.mods->c_str() : nullptr);
+    if (mods.Enabled()) {
+        mods.BindFrameLimit(&frame_limit);
+        if (play.session) {
+            mods.BindSession(play.session.get());
+            play.session->ConfigureMods();
+            pad.mods_combo = [&mods](uint16_t* buttons) { mods.OnPadSample(buttons); };
+        }
+        verify.mods = &mods;
+    }
+    census.SetModsCensus([&mods] { return mods.Census(); });
     census.SetFrameRateCensus([&frame_limit, &clock_tick, &widescreen, &motion_blur] {
         return "limit=" + std::to_string(frame_limit.Limit()) + ":switches=" + std::to_string(frame_limit.Switches()) +
                ":k=" + std::to_string(frame_limit.K()) + ":uncapped_now=" + std::to_string(frame_limit.Uncapped()) +

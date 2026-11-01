@@ -61,6 +61,8 @@ public:
         const ps2r::app::DisplaySequence* verify_display_sequence = nullptr;
         // Set later by the composition: the frame-rate policy's row (frame_rate=).
         std::function<std::string()> frame_rate = {};
+        // Set later by the composition: the Mods row (mods=, hle/mods.h).
+        std::function<std::string()> mods = {};
         // Set later by the composition: the native VIF/DMAC path's row (native_vif=), which also refreshes
         // its NativeCensus details before the native= row is written.
         std::function<std::string()> native_vif = {};
@@ -77,6 +79,7 @@ public:
     void SetNativeKnobs(const NativeKnobs& k) { p_.native = k; }
     void SetDisplaySequence(const ps2r::app::DisplaySequence* seq) { p_.verify_display_sequence = seq; }
     void SetFrameRateCensus(std::function<std::string()> row) { p_.frame_rate = std::move(row); }
+    void SetModsCensus(std::function<std::string()> row) { p_.mods = std::move(row); }
     void SetNativeVifCensus(std::function<std::string()> row) { p_.native_vif = std::move(row); }
     void SetNativeDetail(std::function<void()> fn) { p_.native_detail = std::move(fn); }
     void SetNativeIopCensus(std::function<void(ps2r::verify::RunMeta*)> fn) { p_.native_iop = std::move(fn); }

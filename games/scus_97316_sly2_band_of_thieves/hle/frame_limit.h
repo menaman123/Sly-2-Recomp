@@ -47,6 +47,13 @@ public:
     void SetVu1Backlog(std::function<uint64_t()> backlog) { vu1_backlog_ = std::move(backlog); }
     // Game thread, at a boundary: the limit in force (0 = unlimited, 60 = console, > 60 uncapped at that rate).
     void Apply(int limit);
+    // Game thread, at a boundary, before Apply: the Mods fast-forward (hle/mods.h) -- `k` fields per wall
+    // field (0 = off). Unlike the uncapped limit the game's clock stays on the emulated Count (every frame
+    // a normal field of game time; the game runs k times faster, its state as at normal speed) and the IOP /
+    // SPU quantum advances with every boundary. The movie hold and the VU1 throttle apply as to the limit.
+    void SetFastForward(uint32_t k) { fast_forward_k_ = k; }
+    uint32_t FastForwardK() const { return fast_forward_k_; }
+    bool FastForwarding() const { return fast_forwarding_; }
     int Limit() const { return limit_; }
     bool Uncapped() const { return uncapped_; }
     // Game thread, once per boundary before the IOP's step: whether this boundary advances the IOP and the
@@ -78,6 +85,8 @@ private:
     uint64_t vu1_throttles_ = 0;
     uint64_t movie_count_ = 0;
     int movie_hold_ = 0;
+    uint32_t fast_forward_k_ = 0;
+    bool fast_forwarding_ = false;
     Clock::time_point next_quantum_{};
     uint64_t switches_ = 0;
 };

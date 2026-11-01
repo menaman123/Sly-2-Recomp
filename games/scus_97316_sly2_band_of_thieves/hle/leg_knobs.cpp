@@ -101,6 +101,7 @@ LegKnobs LegKnobs::FromEnvironment() {
     k.ram_dump = Text(std::getenv("NATIVEEE_RAM_DUMP"));
     k.nav = Text(std::getenv("NATIVEEE_NAV"));
     k.warp = Text(std::getenv("NATIVEEE_WARP"));
+    k.mods = Text(std::getenv("NATIVEEE_MODS"));
     k.unpaced = std::getenv("NATIVEEE_UNPACED") != nullptr;
     k.corpus = Text(std::getenv("NATIVEEE_CORPUS"));
     k.fn_ring = Text(std::getenv("NATIVEEE_FN_RING"));

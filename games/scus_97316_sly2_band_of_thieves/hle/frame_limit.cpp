@@ -17,21 +17,26 @@ void FrameLimit::Apply(int limit) {
             --movie_hold_;
         }
     }
-    const bool uncapped = limit != kConsole && movie_hold_ == 0;
+    // The fast-forward takes precedence over the limit: the clock stays emulated (uncapped = false).
+    const bool fast = fast_forward_k_ > 1 && movie_hold_ == 0;
+    const bool uncapped = !fast && limit != kConsole && movie_hold_ == 0;
+    const bool faster_than_wall = uncapped || fast;
     if (vu1_backlog_) {
         const uint64_t backlog = vu1_backlog_();
         vu1_backlog_bytes_ = backlog;
-        if (!vu1_throttled_ && uncapped && backlog > kVu1HighBytes) {
+        if (!vu1_throttled_ && faster_than_wall && backlog > kVu1HighBytes) {
             vu1_throttled_ = true;
             ++vu1_throttles_;
-        } else if (vu1_throttled_ && (backlog < kVu1LowBytes || !uncapped)) {
+        } else if (vu1_throttled_ && (backlog < kVu1LowBytes || !faster_than_wall)) {
             vu1_throttled_ = false;
         }
     }
-    const uint32_t k = !uncapped || vu1_throttled_ ? 1
+    const uint32_t k = !faster_than_wall || vu1_throttled_ ? 1
+                       : fast ? std::clamp<uint32_t>(fast_forward_k_, TickSource::kTurboKMin, TickSource::kTurboKMax)
                        : limit == 0 ? kUnlimitedK
                                     : std::clamp<uint32_t>(static_cast<uint32_t>((limit + kConsole / 2) / kConsole),
                                                            TickSource::kTurboKMin, TickSource::kTurboKMax);
+    fast_forwarding_ = fast && k > 1;
     if (uncapped == uncapped_ && k == k_) return;
     if (uncapped != uncapped_) {
         ++switches_;
