@@ -444,6 +444,10 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
         meta->Set("clock_field_hz", cc.FieldHzSeries().empty() ? std::string("none") : cc.FieldHzSeries());
         meta->Set("clock_render_fps", cc.RenderFpsSeries().empty() ? std::string("none") : cc.RenderFpsSeries());
         meta->Set("clock_ee_cpu_ms", cc.EeCpuMsSeries().empty() ? std::string("none") : cc.EeCpuMsSeries());
+        // ee_frame_cpu_us= (STAGE PERF-1, track ee): the EE unit's budget row -- the game thread's CPU per
+        // boundary as a distribution (p50 / p95 / p99 / max us, and the boundary index of the max): the worst
+        // frame the EE produced on this lane, independent of the host's load.
+        meta->Set("ee_frame_cpu_us", cc.FrameCpuRow());
         meta->Set("clock_gs_cpu_ms", cc.GsCpuMsSeries().empty() ? std::string("none") : cc.GsCpuMsSeries());
         meta->Set("clock_faults", cc.FaultsSeries().empty() ? std::string("none") : cc.FaultsSeries());
         meta->Set("clock_footprint_kb", cc.FootprintKbSeries().empty() ? std::string("none") : cc.FootprintKbSeries());

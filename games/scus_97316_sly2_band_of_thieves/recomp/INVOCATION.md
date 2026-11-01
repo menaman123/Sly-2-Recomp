@@ -44,6 +44,45 @@ CTC2 / VCALLMS / syscall / control flow / block end). The shards differ textuall
 same way from a `--vu0-native` generation. The report line is unchanged (6575 bodies, 72351 exact entries).
 The two settings must be run-equivalent: the determinism lane's mem/audio/frames hashes are the gate.
 
+## `--mem-window` (CMake `PS2R_SLY2_MEM_WINDOW`, default ON since STAGE PERF-1; OFF = the classic emission, the oracle)
+
+Adds `--mem-window` to the command above (STAGE PERF-1, track ee). Every generated body is emitted as
+`void FUN_x(CpuContext& PS2R_RECOMP_RESTRICT ctx, uint32_t addr)` -- the restrict qualifier states what is
+true of the engine: guest RAM and the scratchpad never overlap a `CpuContext`, so a guest store (a char-typed
+store through the RAM base, which the compiler must otherwise assume may alias anything) cannot change a
+guest register, and the compiler keeps register values in host registers across it. Every other path that
+changes the running context (a syscall, an interrupt dispatch, a yield point) is a call the body passes `ctx`
+to, which the compiler treats as a clobber. The prologue gains one inert local,
+`const memory::Window _mw = memory::window();` (the two inline bases of `FastMem`, read once per body), and a
+shard post-pass (`Recompiler::rewrite_memory_window_file`) rewrites every `memory::read<T>(..)` /
+`memory::write<T>(..)` / `memory::read_quad(..)` / `memory::write_quad(..)` site in the shard to the `Window`
+overload of `engine/ee/recomp_abi/host_app/memory.h` -- the same arms (main RAM, scratchpad, slow path) in the
+same order as `FastMem::Read/Write/ReadQuad/WriteQuad`, so the bytes the game reads and writes are the classic
+form's. The continuation tools accept both signatures and strip the `_mw` prologue token (the entry-switch
+audits are unchanged). Manifests: `MANIFEST.vu0_native.sha256` pins the DEFAULT build (`--vu0-native
+--mem-window`); `MANIFEST.sha256` pins the all-classic emission (`--no-vu0-native --no-mem-window`); the two
+mixed combinations have no pin (the check is skipped with a notice). The report line is unchanged (6575
+bodies, 72351 exact entries, 2 restartable wait thunks). The gate: the lane rows (nat2_gate defaults =
+baseline) and the Paris hub rows must be the classic emission's.
+
+## `--zero-fold` (CMake `PS2R_SLY2_ZERO_FOLD`, default ON since STAGE PERF-1)
+
+Adds `--zero-fold`: every rvalue read of `$zero` in a generated body (`ctx.cpuRegs.GPR.r[0].<view>[k]`) becomes a
+typed literal 0 (shard post-pass `Recompiler::rewrite_zero_fold_file`: 82,020 reads folded, 8 writes kept -- the
+four `dsra32`-form pairs `r[0].SD[0] = ...; r[0].UD[0] = 0;`, the only `$zero` writes in the emission, adjacent, no
+read between, so the register reads 0 at every read site). The continuation tools' restartable-wait-thunk match
+accepts both spellings (still 2 restartable wait thunks). Under `--mem-window` the common TU's shadow call stack is
+also ONE `thread_local` object (`EeShadowStack`; the two old names are macros, every other emitted line unchanged):
+one TLS address resolution per dispatch instead of up to four.
+
+## `--inline-leaves` (CMake `PS2R_SLY2_INLINE_LEAVES`, default OFF)
+
+Adds `--inline-leaves`: a JAL whose constant target is a trivial leaf (one block, <= 8 whitelisted straight-line
+instructions, `jr $ra`) is emitted as `if (g_recomp_fn_hooked[id]) recomp_hooked_dispatch(..); else { <the callee's
+instructions in place> }` (2,556 sites over 208 leaves on this ELF; e.g. the identity getter 0x2564b8 = 22 % of all
+calls on the lanes). Measured neutral on the Paris hub and a +14 % EE-CPU regression on hub_ep3 (the +1 MB of text
+costs more instruction-cache misses than the predicted calls it removes), so it is OFF; kept for a smaller bound.
+
 ## Re-recording the manifest
 
 When the generator or its flags change, the build fails the manifest check. Regenerate, review the diff,
