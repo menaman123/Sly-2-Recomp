@@ -100,13 +100,15 @@ the menu closed, or closing the window, quits.
 
 ### Keyboard and gamepad
 
-The defaults are `engine/platform/sdl/input/default_bindings.ini`; the launcher's Controls page rebinds them.
+The defaults are `engine/platform/sdl/input/default_bindings.ini`; the game's Controls page (Esc in the game, or the
+first-run screen's Controls page) rebinds every row below, the camera keys and the controller's sticks included.
 Left click captures the mouse for the camera, Escape releases it. An SDL game controller maps to the DualShock 2
-layout directly.
+layout directly: the right stick is the camera in every part of the game (the page can swap the two sticks); the
+launcher's Settings > Controls has the camera's invert left/right and up/down.
 
 | PS2 control | Keyboard / mouse | | PS2 control | Keyboard / mouse |
 |---|---|---|---|---|
-| Left stick (move) | W A S D | | Right stick (camera) | mouse |
+| Left stick (move) | W A S D | | Right stick (camera) | mouse, I J K L |
 | Cross (jump, advance text) | Space | | Square (attack) | Left Shift |
 | Circle (grab, interact) | right mouse button | | Triangle | E |
 | L1 / L2 | 1 / 2 | | R1 / R2 | 3 / 4 |
