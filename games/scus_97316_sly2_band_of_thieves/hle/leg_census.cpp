@@ -260,7 +260,9 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
                                     ":decodes=" + std::to_string(t.decodes) + ":decode_ms=" + std::to_string(t.decode_ns / 1000000u) +
                                     ":upload_ms=" + std::to_string(t.upload_ns / 1000000u) +
                                     ":prep_bytes=" + std::to_string(t.prep_bytes) + ":view_bytes=" + std::to_string(t.view_bytes) +
-                                    ":owned_serves=" + std::to_string(t.owned_serves) + ":owned_misses=" + std::to_string(t.owned_misses));
+                                    ":owned_serves=" + std::to_string(t.owned_serves) + ":owned_misses=" + std::to_string(t.owned_misses) +
+                                    ":gpu_idx_decodes=" + std::to_string(t.gpu_idx_decodes) +
+                                    ":gpu_idx_patch_texels=" + std::to_string(t.gpu_idx_patch_texels));
             const std::string warm = gs.video.Pipe()->Resolver().WarmSeries();
             meta->Set("texres_warm", warm.empty() ? std::string("none") : warm);
             // The consumer's work per 1 s window: frames/draws/draw_calls/uploads/upload_kb/
