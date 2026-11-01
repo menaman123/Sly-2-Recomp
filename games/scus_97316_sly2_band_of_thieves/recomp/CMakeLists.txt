@@ -30,24 +30,43 @@ option(PS2R_SLY2_VU0_NATIVE "Recompile the title with ps2r_recompiler_v2 --vu0-n
 # bases in host registers across guest stores. Default ON; OFF = the classic emission, the oracle
 # (`--set`-free: a build-time choice, so the lane gate + Paris rows prove it, see ../native/README.md rule 4).
 option(PS2R_SLY2_MEM_WINDOW "Recompile the title with ps2r_recompiler_v2 --mem-window" ON)
+# --zero-fold (STAGE PERF-1, track ee): every read of $zero emitted as a typed literal 0 (the emission never
+# writes $zero except the adjacent dsra32 pair), so the compiler deletes the load and the `+ 0` it fed.
+option(PS2R_SLY2_ZERO_FOLD "Recompile the title with ps2r_recompiler_v2 --zero-fold" ON)
+# --inline-leaves (STAGE PERF-1, track ee): a JAL to a trivial straight-line leaf (<= 8 whitelisted instructions,
+# `jr $ra`) is emitted in place behind the callee's hooked[] byte -- the raw dispatch (table, probe, shadow push/pop,
+# trace flag, indirect call) is skipped for the ~22 % of all calls that are one-liner getters/setters; a hooked body
+# still takes the classic dispatch. DEFAULT OFF: measured on the M4 (A/B ab_mw123, headless MTVU=1, 3 rounds, load
+# 4-6) it is neutral on the Paris hub (ee_ms/frame min 2.367 -> 2.364) and a REGRESSION on hub_ep3 (2.975 -> 3.405,
+# +14 %): the 2556 inlined copies (+1 MB of text) cost more in instruction-cache misses than the predicted calls they
+# replace. Kept as a flag for a smaller leaf bound / another host.
+option(PS2R_SLY2_INLINE_LEAVES "Recompile the title with ps2r_recompiler_v2 --inline-leaves" OFF)
 set(_vu0_native_flag --no-vu0-native)
 set(_mem_window_flag --no-mem-window)
+set(_zero_fold_flag --no-zero-fold)
+set(_inline_leaves_flag --no-inline-leaves)
+if(PS2R_SLY2_INLINE_LEAVES)
+    set(_inline_leaves_flag --inline-leaves)
+endif()
 if(PS2R_SLY2_VU0_NATIVE)
     set(_vu0_native_flag --vu0-native)
 endif()
 if(PS2R_SLY2_MEM_WINDOW)
     set(_mem_window_flag --mem-window)
 endif()
-# The pinned outputs: MANIFEST.vu0_native.sha256 = the default build (--vu0-native --mem-window);
-# MANIFEST.sha256 = the all-classic emission (--no-vu0-native --no-mem-window), the historical oracle.
+if(PS2R_SLY2_ZERO_FOLD)
+    set(_zero_fold_flag --zero-fold)
+endif()
+# The pinned outputs: MANIFEST.vu0_native.sha256 = the DEFAULT build (--vu0-native --mem-window --zero-fold
+# --no-inline-leaves); MANIFEST.sha256 = the all-classic emission (every one of the four off), the historical oracle.
 # Any other combination has no pin (the check is skipped with a notice).
 set(_manifest_name "")
-if(PS2R_SLY2_VU0_NATIVE AND PS2R_SLY2_MEM_WINDOW)
+if(PS2R_SLY2_VU0_NATIVE AND PS2R_SLY2_MEM_WINDOW AND PS2R_SLY2_ZERO_FOLD AND NOT PS2R_SLY2_INLINE_LEAVES)
     set(_manifest_name MANIFEST.vu0_native.sha256)
-elseif(NOT PS2R_SLY2_VU0_NATIVE AND NOT PS2R_SLY2_MEM_WINDOW)
+elseif(NOT PS2R_SLY2_VU0_NATIVE AND NOT PS2R_SLY2_MEM_WINDOW AND NOT PS2R_SLY2_ZERO_FOLD AND NOT PS2R_SLY2_INLINE_LEAVES)
     set(_manifest_name MANIFEST.sha256)
 else()
-    message(STATUS "games/scus_97316_sly2_band_of_thieves: no manifest pins vu0_native=${PS2R_SLY2_VU0_NATIVE} mem_window=${PS2R_SLY2_MEM_WINDOW}; the manifest check is skipped")
+    message(STATUS "games/scus_97316_sly2_band_of_thieves: no manifest pins vu0_native=${PS2R_SLY2_VU0_NATIVE} mem_window=${PS2R_SLY2_MEM_WINDOW} zero_fold=${PS2R_SLY2_ZERO_FOLD} inline_leaves=${PS2R_SLY2_INLINE_LEAVES}; the manifest check is skipped")
 endif()
 set(_gen "${PS2R_RECOMP_GEN_DIR}")
 set(_cwd "${CMAKE_CURRENT_BINARY_DIR}/tool_cwd")   # the tool writes logs/ and looks for stub files in its cwd
@@ -91,7 +110,7 @@ add_custom_command(
             --input "${PS2R_TITLE_ELF}"
             --output-header "${_gen}/recompiled.h" --output-cpp "${_gen}/recompiled.cpp"
             --shards ${PS2R_SLY2_RECOMP_SHARDS} --init-parts ${PS2R_SLY2_RECOMP_SHARDS}
-            --direct-calls --no-legacy-title-stubs --yield-backedges ${_vu0_native_flag} ${_mem_window_flag}
+            --direct-calls --no-legacy-title-stubs --yield-backedges ${_vu0_native_flag} ${_mem_window_flag} ${_zero_fold_flag} ${_inline_leaves_flag}
     # The continuation post-pass (C++ port of continuations.py; ContinuationsToolMatchesPython below
     # checks they agree).
     COMMAND ps2r_continuations "${_gen}" --audits "${CMAKE_SOURCE_DIR}/tools/recompiler_v2/continuation_audits.json"

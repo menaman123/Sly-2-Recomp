@@ -1,5 +1,7 @@
 #include "games/scus_97316_sly2_band_of_thieves/hle/leg_verify_slot.h"
 
+#include "engine/ee/sched/ee_run_token.h"
+
 #include <SDL.h>
 
 #include <chrono>
@@ -196,6 +198,8 @@ void LegVerifySlot::VerifyStep(CpuContext& ctx) {
     park_.boundaries = boundary + 1;
     text_watch_.OnBoundary(park_.boundaries);
     park_.NoteBoundaryWall();
+    // ee_frame_cpu_us= (every boundary, every mode): every guest thread's CPU summed -- the EE unit's per-frame CPU.
+    play_.clock_census.NoteFrameCpuAt(EeRunToken::Instance().TotalCpuNs());
     // Clock census (wall-locked boundaries only): this boundary and the domain tick it completed at.
     if (core_.sequencer.WallLocked()) {
         play_.clock_census.NoteBoundary(core_.domain.DomainTick(), core_.sequencer.FastForwardFields());

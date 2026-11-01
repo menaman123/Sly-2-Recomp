@@ -65,6 +65,24 @@ mixed combinations have no pin (the check is skipped with a notice). The report 
 bodies, 72351 exact entries, 2 restartable wait thunks). The gate: the lane rows (nat2_gate defaults =
 baseline) and the Paris hub rows must be the classic emission's.
 
+## `--zero-fold` (CMake `PS2R_SLY2_ZERO_FOLD`, default ON since STAGE PERF-1)
+
+Adds `--zero-fold`: every rvalue read of `$zero` in a generated body (`ctx.cpuRegs.GPR.r[0].<view>[k]`) becomes a
+typed literal 0 (shard post-pass `Recompiler::rewrite_zero_fold_file`: 82,020 reads folded, 8 writes kept -- the
+four `dsra32`-form pairs `r[0].SD[0] = ...; r[0].UD[0] = 0;`, the only `$zero` writes in the emission, adjacent, no
+read between, so the register reads 0 at every read site). The continuation tools' restartable-wait-thunk match
+accepts both spellings (still 2 restartable wait thunks). Under `--mem-window` the common TU's shadow call stack is
+also ONE `thread_local` object (`EeShadowStack`; the two old names are macros, every other emitted line unchanged):
+one TLS address resolution per dispatch instead of up to four.
+
+## `--inline-leaves` (CMake `PS2R_SLY2_INLINE_LEAVES`, default OFF)
+
+Adds `--inline-leaves`: a JAL whose constant target is a trivial leaf (one block, <= 8 whitelisted straight-line
+instructions, `jr $ra`) is emitted as `if (g_recomp_fn_hooked[id]) recomp_hooked_dispatch(..); else { <the callee's
+instructions in place> }` (2,556 sites over 208 leaves on this ELF; e.g. the identity getter 0x2564b8 = 22 % of all
+calls on the lanes). Measured neutral on the Paris hub and a +14 % EE-CPU regression on hub_ep3 (the +1 MB of text
+costs more instruction-cache misses than the predicted calls it removes), so it is OFF; kept for a smaller bound.
+
 ## Re-recording the manifest
 
 When the generator or its flags change, the build fails the manifest check. Regenerate, review the diff,
