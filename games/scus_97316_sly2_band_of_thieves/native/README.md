@@ -30,6 +30,13 @@ engine's existing seams. This is NOT the decompilation: the game's recompiled EE
    mem/audio/frames/domain_tick/syscall_count/gs_draws; only `env_ps2` and `env_hash` may move
    (mem.mhash hashes guest RAM only: engine/core/verify/verify_host.cpp). The gate:
    `~/ra-orch/evidence/nat-harness/nat_gate.sh BIN [--set title.native.<unit>=on ...]`.
+   STAGE FIX-2 (2026-11-01, music track) RE-RECORDED the boot rows: the engine's IOP clock now keeps its
+   frame base with a forced advance past the next boundary's ceiling (`iop.frame_base_follows_skips`,
+   default on), so the IOP no longer sits dark for the ~54 boundaries after boot's 989snd bank load (the
+   dark window that keyed off every level's music streams): no pad `mem=c30e736339a1` / pad
+   `mem=3fc18d5e7bdb`, `audio=931fbdc8ad54`, `syscall_count=2153334`; frames/domain_tick/gs_draws unchanged.
+   `--set iop.frame_base_follows_skips=off` reproduces the old rows byte for byte (the oracle arm). The
+   run.meta row `iop_clock_skips=follow=:skips=:skipped_frames=:max_skip_us=` counts the skips.
 5. **It counts.** Every path reports to `NativeCensus` (served natively / fallen back to the model,
    per unit, plus an optional detail string); LegCensus writes run.meta `native=` from it:
    `native=vu1=on:734612/0:images=12,gif=off:0/0,...;any=on`.
