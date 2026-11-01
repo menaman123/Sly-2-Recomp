@@ -44,6 +44,27 @@ CTC2 / VCALLMS / syscall / control flow / block end). The shards differ textuall
 same way from a `--vu0-native` generation. The report line is unchanged (6575 bodies, 72351 exact entries).
 The two settings must be run-equivalent: the determinism lane's mem/audio/frames hashes are the gate.
 
+## `--mem-window` (CMake `PS2R_SLY2_MEM_WINDOW`, default ON since STAGE PERF-1; OFF = the classic emission, the oracle)
+
+Adds `--mem-window` to the command above (STAGE PERF-1, track ee). Every generated body is emitted as
+`void FUN_x(CpuContext& PS2R_RECOMP_RESTRICT ctx, uint32_t addr)` -- the restrict qualifier states what is
+true of the engine: guest RAM and the scratchpad never overlap a `CpuContext`, so a guest store (a char-typed
+store through the RAM base, which the compiler must otherwise assume may alias anything) cannot change a
+guest register, and the compiler keeps register values in host registers across it. Every other path that
+changes the running context (a syscall, an interrupt dispatch, a yield point) is a call the body passes `ctx`
+to, which the compiler treats as a clobber. The prologue gains one inert local,
+`const memory::Window _mw = memory::window();` (the two inline bases of `FastMem`, read once per body), and a
+shard post-pass (`Recompiler::rewrite_memory_window_file`) rewrites every `memory::read<T>(..)` /
+`memory::write<T>(..)` / `memory::read_quad(..)` / `memory::write_quad(..)` site in the shard to the `Window`
+overload of `engine/ee/recomp_abi/host_app/memory.h` -- the same arms (main RAM, scratchpad, slow path) in the
+same order as `FastMem::Read/Write/ReadQuad/WriteQuad`, so the bytes the game reads and writes are the classic
+form's. The continuation tools accept both signatures and strip the `_mw` prologue token (the entry-switch
+audits are unchanged). Manifests: `MANIFEST.vu0_native.sha256` pins the DEFAULT build (`--vu0-native
+--mem-window`); `MANIFEST.sha256` pins the all-classic emission (`--no-vu0-native --no-mem-window`); the two
+mixed combinations have no pin (the check is skipped with a notice). The report line is unchanged (6575
+bodies, 72351 exact entries, 2 restartable wait thunks). The gate: the lane rows (nat2_gate defaults =
+baseline) and the Paris hub rows must be the classic emission's.
+
 ## Re-recording the manifest
 
 When the generator or its flags change, the build fails the manifest check. Regenerate, review the diff,

@@ -23,11 +23,31 @@ set(PS2R_SLY2_RECOMP_SHARDS 32 CACHE STRING "ps2r_recompiler_v2 --shards / --ini
 # and MANIFEST.vu0_native.sha256 (on). Default ON since STAGE NATIVE-2 (2026-10-31): the lane gate and the
 # Paris play lane pass with it (worker track); OFF = the scalar emission, kept as the oracle.
 option(PS2R_SLY2_VU0_NATIVE "Recompile the title with ps2r_recompiler_v2 --vu0-native" ON)
+# --mem-window (STAGE PERF-1, track ee): every generated body takes `CpuContext& PS2R_RECOMP_RESTRICT ctx`
+# (guest RAM never overlaps the register file) and reads the two inline memory bases once into a local
+# `memory::Window` that every load/store in the body goes through (host_app/memory.h: the same arms in
+# the same order as FastMem's, the same slow path) -- the compiler then keeps guest registers and the
+# bases in host registers across guest stores. Default ON; OFF = the classic emission, the oracle
+# (`--set`-free: a build-time choice, so the lane gate + Paris rows prove it, see ../native/README.md rule 4).
+option(PS2R_SLY2_MEM_WINDOW "Recompile the title with ps2r_recompiler_v2 --mem-window" ON)
 set(_vu0_native_flag --no-vu0-native)
-set(_manifest_name MANIFEST.sha256)
+set(_mem_window_flag --no-mem-window)
 if(PS2R_SLY2_VU0_NATIVE)
     set(_vu0_native_flag --vu0-native)
+endif()
+if(PS2R_SLY2_MEM_WINDOW)
+    set(_mem_window_flag --mem-window)
+endif()
+# The pinned outputs: MANIFEST.vu0_native.sha256 = the default build (--vu0-native --mem-window);
+# MANIFEST.sha256 = the all-classic emission (--no-vu0-native --no-mem-window), the historical oracle.
+# Any other combination has no pin (the check is skipped with a notice).
+set(_manifest_name "")
+if(PS2R_SLY2_VU0_NATIVE AND PS2R_SLY2_MEM_WINDOW)
     set(_manifest_name MANIFEST.vu0_native.sha256)
+elseif(NOT PS2R_SLY2_VU0_NATIVE AND NOT PS2R_SLY2_MEM_WINDOW)
+    set(_manifest_name MANIFEST.sha256)
+else()
+    message(STATUS "games/scus_97316_sly2_band_of_thieves: no manifest pins vu0_native=${PS2R_SLY2_VU0_NATIVE} mem_window=${PS2R_SLY2_MEM_WINDOW}; the manifest check is skipped")
 endif()
 set(_gen "${PS2R_RECOMP_GEN_DIR}")
 set(_cwd "${CMAKE_CURRENT_BINARY_DIR}/tool_cwd")   # the tool writes logs/ and looks for stub files in its cwd
@@ -71,7 +91,7 @@ add_custom_command(
             --input "${PS2R_TITLE_ELF}"
             --output-header "${_gen}/recompiled.h" --output-cpp "${_gen}/recompiled.cpp"
             --shards ${PS2R_SLY2_RECOMP_SHARDS} --init-parts ${PS2R_SLY2_RECOMP_SHARDS}
-            --direct-calls --no-legacy-title-stubs --yield-backedges ${_vu0_native_flag}
+            --direct-calls --no-legacy-title-stubs --yield-backedges ${_vu0_native_flag} ${_mem_window_flag}
     # The continuation post-pass (C++ port of continuations.py; ContinuationsToolMatchesPython below
     # checks they agree).
     COMMAND ps2r_continuations "${_gen}" --audits "${CMAKE_SOURCE_DIR}/tools/recompiler_v2/continuation_audits.json"
@@ -92,7 +112,7 @@ set_tests_properties(ContinuationsToolMatchesPython PROPERTIES TIMEOUT 120 LABEL
 #   (cd ${_gen} && shasum -a 256 recompiled.h recompiled.cpp continuations.h recompiled_shard_*.cpp) > recomp/MANIFEST.sha256
 set(_manifest "${CMAKE_CURRENT_SOURCE_DIR}/${_manifest_name}")
 set(_verify_stamp "")
-if(EXISTS "${_manifest}")
+if(_manifest_name AND EXISTS "${_manifest}")
     set(_stamp "${CMAKE_CURRENT_BINARY_DIR}/manifest.verified")
     if(PS2R_RECOMP_CHECK_MANIFEST)
         set(_strict ON)
