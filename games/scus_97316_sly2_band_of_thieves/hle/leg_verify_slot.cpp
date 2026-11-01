@@ -179,6 +179,7 @@ void LegVerifySlot::VerifyStep(CpuContext& ctx) {
     HarnessVerbs(park_.boundaries);
     if (play_.session) {
         if (const int scale = play_.session->TakeScaleRequest()) gs_.scale_request.store(scale, std::memory_order_relaxed);
+        if (const uint64_t out = play_.session->TakePresentOutputRequest()) gs_.present_output_request.store(out, std::memory_order_relaxed);
         if (frame_limit) frame_limit->Apply(play_.session->FrameLimitSetting());
         if (motion_blur) motion_blur->Set(play_.session->MotionBlurSetting());
     }

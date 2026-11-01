@@ -229,7 +229,9 @@ void LegCensus::WriteGs(ps2r::verify::RunMeta* meta) {
         meta->Set("gl_version", gs.video.GlVersion());
         meta->Set("gs_window", std::to_string(gs.video.WindowW()) + "x" + std::to_string(gs.video.WindowH()) +
                                    ":rebinds=" + std::to_string(gs.video.Rebinds()) +
-                                   ":output_frames=" + std::to_string(gs.video.OutputFrames()));
+                                   ":output_frames=" + std::to_string(gs.video.OutputFrames()) +
+                                   ":present_output=" + std::to_string(gs.video.PresentOutputW()) + "x" +
+                                   std::to_string(gs.video.PresentOutputH()));
         if (gs.consumer) {
             const ps2r::gs::DrawIrQueueConsumer::Counters& c = gs.consumer->Count();
             meta->Set("gs_consumer", "draws=" + std::to_string(c.draws) + ":jobs=" + std::to_string(c.jobs) +

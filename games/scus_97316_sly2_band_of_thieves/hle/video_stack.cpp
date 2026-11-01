@@ -269,7 +269,20 @@ void VideoStack::OnWindowResized(int w, int h) {
     if (!be_ || w <= 0 || h <= 0) return;
     window_w_ = w;
     window_h_ = h;
-    be_->SetWindowSize(w, h);
+    ApplyCaptureSize();
+}
+
+void VideoStack::SetPresentOutput(int w, int h) {
+    if (!be_) return;
+    present_w_ = w > 0 && h > 0 ? w : 0;
+    present_h_ = w > 0 && h > 0 ? h : 0;
+    if (scanout_) scanout_->SetPresentOutput(present_w_, present_h_);
+    ApplyCaptureSize();
+}
+
+void VideoStack::ApplyCaptureSize() {
+    if (present_w_ > 0 && present_h_ > 0) be_->SetWindowSize(present_w_, present_h_);
+    else be_->SetWindowSize(window_w_, window_h_);
 }
 
 void VideoStack::Shutdown() {

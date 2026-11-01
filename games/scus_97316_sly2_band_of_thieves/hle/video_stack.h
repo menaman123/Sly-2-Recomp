@@ -120,12 +120,20 @@ public:
     void OnWindowResized(int w, int h);
     int WindowW() const { return window_w_; }
     int WindowH() const { return window_h_; }
+    // The host picture (consumer thread, between frames): the present draws the display quad LINEAR into
+    // {0,0,w,h} -- the rect the picture occupies in the session window's drawable -- and the device's capture
+    // takes that size (ScanoutComposer::SetPresentOutput), so a scaled target reaches the window at the window's
+    // resolution. 0,0 = off: the CRTC raster capture (headless, the harness rows).
+    void SetPresentOutput(int w, int h);
+    int PresentOutputW() const { return present_w_; }
+    int PresentOutputH() const { return present_h_; }
 
 private:
     bool CreateContext(const VideoConfig& video, const char* title);
     bool CreateMetal(const VideoConfig& video);
     void BuildScene(int scale, gs::VramImage& vram);
     void PresentWindow();   // the device's swap callback (consumer thread)
+    void ApplyCaptureSize();   // the device's present capture: the host picture when set, else the CRTC raster
 
     platform::Window win_;
     platform::GlContext ctx_;
@@ -140,7 +148,8 @@ private:
     std::string renderer_name_;
     std::thread::id current_thread_{};
     uint64_t rebinds_ = 0;
-    int window_w_ = 0, window_h_ = 0;
+    int window_w_ = 0, window_h_ = 0;        // the CRTC raster (SetWindow jobs)
+    int present_w_ = 0, present_h_ = 0;      // the host picture (SetPresentOutput); 0 = off
 
     gs::VramLayout layout_{};   // EMPTY: every query answers false (plain GS)
     gs::VramImage* vram_ = nullptr;

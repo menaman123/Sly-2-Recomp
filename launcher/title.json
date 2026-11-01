@@ -126,6 +126,28 @@
             ]
           },
           {
+            "key": "video.scale",
+            "label": "Internal resolution",
+            "kind": "choice",
+            "default": "1",
+            "first_run": "0",
+            "help": "How finely the game is drawn. 1x is the PlayStation 2's own picture, blocky on a large window; 2x to 4x draw it that many times finer; Window matches the window's own resolution (up to 4x). A new game folder starts on Window.",
+            "choices": [
+              { "value": "0", "label": "Window" },
+              { "value": "1", "label": "1x" },
+              { "value": "2", "label": "2x" },
+              { "value": "3", "label": "3x" },
+              { "value": "4", "label": "4x" }
+            ]
+          },
+          {
+            "key": "video.hidpi",
+            "label": "Sharp on high-resolution displays",
+            "kind": "switch",
+            "default": "off",
+            "help": "Draws the window at the display's own pixels on a Retina or scaled screen, so Window and the finer settings show every pixel. Sharper; may cost a little smoothness. Applies when the game starts."
+          },
+          {
             "key": "video.backend",
             "label": "Graphics",
             "kind": "choice",

@@ -46,6 +46,7 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
         live_input = std::make_unique<PlatformInput>(PlatformInput::SettingsFrom(cfg, exe_dir));
         live_input->SetCameraInvert(cfg.input.invert_camera_x, cfg.input.invert_camera_y);
         session = std::make_unique<ps2r::app::SessionRuntime>(live_input.get());
+        session->SetHighDpi(cfg.video.hidpi);
         std::string err;
         if (!session->Open(cfg.audio.volume, audio.audio_sink.Running(), /*recording=*/false, std::string(), err, cfg.paths.mc_dir)) {
             std::fprintf(stderr, "nativeee: session window: %s\n", err.c_str());
