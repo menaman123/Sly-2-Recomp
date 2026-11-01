@@ -130,10 +130,12 @@ endif()
 
 # The engine's VU semantic flags for the generated bodies (engine/vu/CMakeLists.txt + the run-time
 # builder's command line: -O2 -fno-strict-aliasing -fwrapv; GNU adds -ffp-contract=off -frounding-math).
+# STAGE PERF-1: no stack protector on the generated bodies (every local array is a fixed VR_reg; the
+# canary was a load / compare per block function call, 24 of the main renderer's functions carried one).
 if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-    set(_vu_flags /w /O2 /clang:-fno-strict-aliasing /clang:-fwrapv /bigobj)
+    set(_vu_flags /w /O2 /GS- /clang:-fno-strict-aliasing /clang:-fwrapv /bigobj)
 else()
-    set(_vu_flags -w -O2 -fno-strict-aliasing -fwrapv)
+    set(_vu_flags -w -O2 -fno-strict-aliasing -fwrapv -fno-stack-protector)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         list(APPEND _vu_flags -ffp-contract=off -frounding-math)
     endif()

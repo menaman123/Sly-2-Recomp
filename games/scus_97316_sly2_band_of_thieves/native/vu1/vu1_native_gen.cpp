@@ -2,7 +2,7 @@
 //
 //   vu1_native_gen --corpus <dir> [--corpus <dir>]... --out <gen dir> [--chain 0|1] [--mac-acc 0|1]
 //                  [--region-blocks N] [--region-ops N] [--region-taken 0|1] [--store-back-inline 0|1]
-//                  [--cycle-local 0|1] [--entry-clamp 0|1] [--images <images.txt>]
+//                  [--cycle-local 0|1] [--entry-clamp 0|1] [--cluster-ops N] [--clamp-mask 0|1] [--images <images.txt>]
 //                  [--programs <disc_programs.txt>]
 //
 // CONTENT IDENTITY (--programs, STAGE NATIVE-2): the disc's VU programs (extract_images.py over the ELF's
@@ -87,7 +87,7 @@ int Usage() {
     std::fprintf(stderr,
                  "usage: vu1_native_gen --corpus <dir>... --out <gen dir> [--images <images.txt>]\n"
                  "                      [--chain 0|1] [--mac-acc 0|1] [--region-blocks N] [--region-ops N] [--region-taken 0|1]\n"
-                 "                      [--store-back-inline 0|1] [--cycle-local 0|1] [--entry-clamp 0|1]\n");
+                 "                      [--store-back-inline 0|1] [--cycle-local 0|1] [--entry-clamp 0|1] [--cluster-ops N] [--clamp-mask 0|1]\n");
     return 2;
 }
 
@@ -113,6 +113,8 @@ bool Parse(int argc, char** argv, Args* a) {
         else if (s == "--store-back-inline") { if (!next(&v)) return false; a->region.store_back_inline = std::atoi(v.c_str()) != 0; }
         else if (s == "--cycle-local") { if (!next(&v)) return false; a->region.cycle_local = std::atoi(v.c_str()) != 0; }
         else if (s == "--entry-clamp") { if (!next(&v)) return false; a->region.entry_clamp = std::atoi(v.c_str()) != 0; }
+        else if (s == "--cluster-ops") { if (!next(&v)) return false; a->region.cluster_ops = std::atoi(v.c_str()); }
+        else if (s == "--clamp-mask") { if (!next(&v)) return false; a->region.clamp_mask = std::atoi(v.c_str()) != 0; }
         else return false;
     }
     return !a->corpus.empty() && !a->out.empty();
