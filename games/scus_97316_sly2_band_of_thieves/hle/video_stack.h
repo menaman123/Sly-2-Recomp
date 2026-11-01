@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -60,6 +61,18 @@ public:
     // Apple-silicon-class device present); the headless / dump lanes keep GL, so every frame-hash
     // gate taken on the GL arm stays comparable across hosts.
     bool Create(const VideoConfig& video, const char* title, gs::VramImage& vram, bool play = false);
+    // The Metal arm's diagnostic / A-B settings (LegKnobs), applied by Create when Metal is chosen.
+    struct MetalOptions {
+        bool gpu_timing = false;
+        std::optional<uint32_t> commit_draws;
+        bool hw_depth = false;
+        bool exact_arms = true;
+        bool private_rt = true;
+    };
+    void SetMetalOptions(const MetalOptions& o) { metal_options_ = o; }
+    // The Metal arm's per-frame / per-pass statistics as run.meta rows (gpu_frame= / gpu_pass=); the
+    // GL arm (or no device) yields "off". After the run (the device's command buffers completed).
+    void GpuRows(std::string* gpu_frame, std::string* gpu_pass) const;
     void Shutdown();
     bool Active() const { return pipe_ != nullptr; }
 
@@ -121,6 +134,7 @@ private:
     std::unique_ptr<render::MetalDevice> metal_;
 #endif
     render::Backend* be_ = nullptr;   // gl_ or *metal_
+    MetalOptions metal_options_;
     bool metal_active_ = false;
     bool backend_auto_ = false;
     std::string renderer_name_;

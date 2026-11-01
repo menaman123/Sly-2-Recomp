@@ -79,6 +79,13 @@ LegKnobs LegKnobs::FromEnvironment() {
     k.gs_capture = Text(std::getenv("NATIVEEE_GS_CAPTURE"));
     if (const char* env = std::getenv("NATIVEEE_GS_CONSUMER_LEVERS")) k.gs_consumer_levers = std::string(env) != "0";
     if (const char* env = std::getenv("NATIVEEE_GL_SHADER_BLEND")) k.gl_shader_blend = std::string(env) == "1";
+    if (const char* env = std::getenv("NATIVEEE_GPU_TIMING")) k.gpu_timing = std::string(env) == "1";
+    if (const char* env = std::getenv("NATIVEEE_METAL_COMMIT_DRAWS")) k.metal_commit_draws = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
+    if (const char* env = std::getenv("NATIVEEE_METAL_HW_DEPTH")) k.metal_hw_depth = std::string(env) == "1";
+    if (const char* env = std::getenv("NATIVEEE_METAL_EXACT_ARMS")) k.metal_exact_arms = std::string(env) != "0";
+    if (const char* env = std::getenv("NATIVEEE_METAL_PRIVATE_RT")) k.metal_private_rt = std::string(env) != "0";
+    if (const char* env = std::getenv("NATIVEEE_FRAME_HASH_FULL")) k.frame_hash_full = std::string(env) == "1";
+    if (const char* env = std::getenv("NATIVEEE_NATIVE_GRAB")) k.native_grab = std::string(env) == "1";
     if (const char* env = std::getenv("NATIVEEE_GS_SKIP_DEPTH")) k.gs_skip_depth = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
     if (const char* env = std::getenv("NATIVEEE_GS_QUEUE_STAGE")) k.gs_queue_stage = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
     if (const char* env = std::getenv("NATIVEEE_TEX_DUMP")) {

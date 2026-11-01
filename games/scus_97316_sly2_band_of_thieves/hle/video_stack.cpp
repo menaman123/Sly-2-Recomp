@@ -2,6 +2,9 @@
 
 #include <SDL.h>
 
+#include <algorithm>
+#include <cstdio>
+
 #include "engine/core/log/log.h"
 
 namespace ps2r::title::sly2 {
@@ -77,9 +80,17 @@ bool VideoStack::CreateContext(const VideoConfig& video, const char* title) {
 
 // video.backend=metal: the Metal device (no window, no context; any thread may drive it).
 bool VideoStack::CreateMetal(const VideoConfig& video) {
-    (void)video;
+
 #if defined(PS2R_HAS_METAL)
-    metal_ = std::make_unique<render::MetalDevice>();
+    render::MetalDeviceSettings ms;
+    ms.gpu_timing = metal_options_.gpu_timing;
+    if (metal_options_.commit_draws) ms.commit_draws = *metal_options_.commit_draws;
+    // video.metal_hw_depth (the rasterizer's depth: HSR / early-Z) or the fragment-written depth; the
+    // NATIVEEE_METAL_HW_DEPTH env knob forces the rasterizer's for an A/B.
+    ms.shader_depth = !(video.metal_hw_depth || metal_options_.hw_depth);
+    ms.exact_arms = metal_options_.exact_arms;
+    ms.private_attachments = metal_options_.private_rt;
+    metal_ = std::make_unique<render::MetalDevice>(ms);
     if (!metal_->Init([this] { PresentWindow(); })) {
         PS2R_LOG(HOST, Warn, "video: MetalDevice::Init failed (stub present)");
         metal_.reset();
@@ -163,6 +174,95 @@ void VideoStack::PresentWindow() {
     }
     if (swap_hidden_ && !metal_active_) win_.Swap();
     else if (be_) be_->FlushCommands();
+}
+
+namespace {
+// p50 / p95 / max of a per-frame series, as "p50/p95/max" with `div` applied (ms from ns, KB from bytes).
+template <typename T>
+std::string Quantiles(std::vector<T> v, double div, bool p95) {
+    if (v.empty()) return "0/0/0";
+    std::sort(v.begin(), v.end());
+    auto fmt = [&](T x) {
+        char b[32];
+        if (div == 1.0) std::snprintf(b, sizeof b, "%llu", static_cast<unsigned long long>(x));
+        else std::snprintf(b, sizeof b, "%.2f", static_cast<double>(x) / div);
+        return std::string(b);
+    };
+    const T p50 = v[v.size() / 2];
+    const T p95v = v[std::min(v.size() - 1, (v.size() * 95) / 100)];
+    const T mx = v.back();
+    return p95 ? fmt(p50) + "/" + fmt(p95v) + "/" + fmt(mx) : fmt(p50) + "/" + fmt(mx);
+}
+}  // namespace
+
+void VideoStack::GpuRows(std::string* gpu_frame, std::string* gpu_pass) const {
+    if (gpu_frame) *gpu_frame = "off";
+    if (gpu_pass) *gpu_pass = "off";
+#if defined(PS2R_HAS_METAL)
+    if (!metal_active_ || !metal_) return;
+    const std::vector<render::MetalFrameStats> frames = metal_->FrameStats();
+    if (gpu_frame && !frames.empty()) {
+        std::vector<uint64_t> gpu, span, dc, pb, fb, tb, up, rb, rbk, cp, sb, cl, gw, fr, vx, bl, fi;
+        uint64_t gw_sum = 0;
+        for (const render::MetalFrameStats& f : frames) {
+            gpu.push_back(f.gpu_ns); span.push_back(f.gpu_span_ns); fi.push_back(f.frag_invocations);
+            dc.push_back(f.draw_calls); pb.push_back(f.program_binds); fb.push_back(f.framebuffer_binds);
+            tb.push_back(f.texture_binds); up.push_back(f.upload_bytes); rb.push_back(f.readbacks); rbk.push_back(f.readback_bytes);
+            cp.push_back(f.copies); sb.push_back(f.submits); cl.push_back(f.clears); gw.push_back(f.gpu_wait_ns); gw_sum += f.gpu_wait_ns;
+            fr.push_back(f.pass_frag_ns); vx.push_back(f.pass_vtx_ns); bl.push_back(f.pass_blit_ns);
+        }
+        const double ms = 1e6, kb = 1024.0;
+        std::string r = "frames=" + std::to_string(frames.size()) + ":gpu_ms=" + Quantiles(gpu, ms, true) +
+                        ":gpu_span_ms=" + Quantiles(span, ms, true) +
+                        ":draw_calls=" + Quantiles(dc, 1.0, false) + ":pipeline_switches=" + Quantiles(pb, 1.0, false) +
+                        ":rt_passes=" + Quantiles(fb, 1.0, false) + ":tex_binds=" + Quantiles(tb, 1.0, false) +
+                        ":upload_kb=" + Quantiles(up, kb, false) + ":readbacks=" + Quantiles(rb, 1.0, false) +
+                        ":readback_kb=" + Quantiles(rbk, kb, false) + ":copies=" + Quantiles(cp, 1.0, false) +
+                        ":submits=" + Quantiles(sb, 1.0, false) + ":clears=" + Quantiles(cl, 1.0, false) +
+                        ":gpu_wait_ms=" + Quantiles(gw, ms, true) + "/sum" + std::to_string(gw_sum / 1000000u);
+        if (metal_->GpuTimingActive())
+            r += ":frag_ms=" + Quantiles(fr, ms, true) + ":vtx_ms=" + Quantiles(vx, ms, true) + ":blit_ms=" + Quantiles(bl, ms, true) +
+                 ":frag_minv=" + Quantiles(fi, 1e6, true);
+        *gpu_frame = r;
+    }
+    if (gpu_pass && metal_->GpuTimingActive()) {
+        std::vector<render::MetalPassStats> ps = metal_->PassStats();
+        std::sort(ps.begin(), ps.end(), [](const render::MetalPassStats& a, const render::MetalPassStats& b) {
+            return a.frag_ns + a.vtx_ns > b.frag_ns + b.vtx_ns;
+        });
+        const double nf = frames.empty() ? 1.0 : static_cast<double>(frames.size());
+        std::string r = "frames=" + std::to_string(frames.size()) + ":unsampled=" + std::to_string(metal_->PassesUnsampled());
+        size_t shown = 0;
+        for (const render::MetalPassStats& p : ps) {
+            if (shown++ >= 14) break;
+            std::string name;
+            if (p.kind == 2) name = "present";
+            else if (p.kind == 3) name = "blit";
+            else if (p.kind == 1) name = "fullscreen";
+            else {
+                name = "surf" + std::to_string(p.surface);
+                if (cache_) cache_->ForEach([&](const gs::RenderTarget& t) {
+                    if (t.views.color.id == p.surface) {
+                        char b[16];
+                        std::snprintf(b, sizeof b, "fbp%x", t.identity.fbp);
+                        name = b;
+                    } else if (t.views.alt16.id == p.surface) {
+                        char b[20];
+                        std::snprintf(b, sizeof b, "fbp%x.alt16", t.identity.fbp);
+                        name = b;
+                    }
+                });
+            }
+            char b[220];
+            // frag_minv = fragment invocations per frame (millions); gfrag_s = invocations / fragment-stage span (the achieved fill).
+            std::snprintf(b, sizeof b, ",%s:%ux%u:passes=%.1f:draws=%.0f:frag_ms=%.2f:vtx_ms=%.2f:frag_minv=%.1f:gfrag_s=%.2f",
+                          name.c_str(), p.width, p.height, p.passes / nf, p.draws / nf, p.frag_ns / 1e6 / nf, p.vtx_ns / 1e6 / nf,
+                          p.frag_invocations / 1e6 / nf, p.frag_ns ? static_cast<double>(p.frag_invocations) / static_cast<double>(p.frag_ns) : 0.0);
+            r += b;
+        }
+        *gpu_pass = r;
+    }
+#endif
 }
 
 void VideoStack::OnWindowResized(int w, int h) {
