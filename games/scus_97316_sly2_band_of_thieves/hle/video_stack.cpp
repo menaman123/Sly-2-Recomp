@@ -198,16 +198,18 @@ void VideoStack::GpuRows(std::string* gpu_frame, std::string* gpu_pass) const {
     if (!metal_active_ || !metal_) return;
     const std::vector<render::MetalFrameStats> frames = metal_->FrameStats();
     if (gpu_frame && !frames.empty()) {
-        std::vector<uint64_t> gpu, dc, pb, fb, tb, up, rb, rbk, cp, sb, cl, gw, fr, vx, bl;
+        std::vector<uint64_t> gpu, span, dc, pb, fb, tb, up, rb, rbk, cp, sb, cl, gw, fr, vx, bl, fi;
         uint64_t gw_sum = 0;
         for (const render::MetalFrameStats& f : frames) {
-            gpu.push_back(f.gpu_ns); dc.push_back(f.draw_calls); pb.push_back(f.program_binds); fb.push_back(f.framebuffer_binds);
+            gpu.push_back(f.gpu_ns); span.push_back(f.gpu_span_ns); fi.push_back(f.frag_invocations);
+            dc.push_back(f.draw_calls); pb.push_back(f.program_binds); fb.push_back(f.framebuffer_binds);
             tb.push_back(f.texture_binds); up.push_back(f.upload_bytes); rb.push_back(f.readbacks); rbk.push_back(f.readback_bytes);
             cp.push_back(f.copies); sb.push_back(f.submits); cl.push_back(f.clears); gw.push_back(f.gpu_wait_ns); gw_sum += f.gpu_wait_ns;
             fr.push_back(f.pass_frag_ns); vx.push_back(f.pass_vtx_ns); bl.push_back(f.pass_blit_ns);
         }
         const double ms = 1e6, kb = 1024.0;
         std::string r = "frames=" + std::to_string(frames.size()) + ":gpu_ms=" + Quantiles(gpu, ms, true) +
+                        ":gpu_span_ms=" + Quantiles(span, ms, true) +
                         ":draw_calls=" + Quantiles(dc, 1.0, false) + ":pipeline_switches=" + Quantiles(pb, 1.0, false) +
                         ":rt_passes=" + Quantiles(fb, 1.0, false) + ":tex_binds=" + Quantiles(tb, 1.0, false) +
                         ":upload_kb=" + Quantiles(up, kb, false) + ":readbacks=" + Quantiles(rb, 1.0, false) +
@@ -215,7 +217,8 @@ void VideoStack::GpuRows(std::string* gpu_frame, std::string* gpu_pass) const {
                         ":submits=" + Quantiles(sb, 1.0, false) + ":clears=" + Quantiles(cl, 1.0, false) +
                         ":gpu_wait_ms=" + Quantiles(gw, ms, true) + "/sum" + std::to_string(gw_sum / 1000000u);
         if (metal_->GpuTimingActive())
-            r += ":frag_ms=" + Quantiles(fr, ms, true) + ":vtx_ms=" + Quantiles(vx, ms, true) + ":blit_ms=" + Quantiles(bl, ms, true);
+            r += ":frag_ms=" + Quantiles(fr, ms, true) + ":vtx_ms=" + Quantiles(vx, ms, true) + ":blit_ms=" + Quantiles(bl, ms, true) +
+                 ":frag_minv=" + Quantiles(fi, 1e6, true);
         *gpu_frame = r;
     }
     if (gpu_pass && metal_->GpuTimingActive()) {
@@ -246,9 +249,11 @@ void VideoStack::GpuRows(std::string* gpu_frame, std::string* gpu_pass) const {
                     }
                 });
             }
-            char b[160];
-            std::snprintf(b, sizeof b, ",%s:%ux%u:passes=%.1f:draws=%.0f:frag_ms=%.2f:vtx_ms=%.2f", name.c_str(), p.width, p.height,
-                          p.passes / nf, p.draws / nf, p.frag_ns / 1e6 / nf, p.vtx_ns / 1e6 / nf);
+            char b[220];
+            // frag_minv = fragment invocations per frame (millions); gfrag_s = invocations / fragment-stage span (the achieved fill).
+            std::snprintf(b, sizeof b, ",%s:%ux%u:passes=%.1f:draws=%.0f:frag_ms=%.2f:vtx_ms=%.2f:frag_minv=%.1f:gfrag_s=%.2f",
+                          name.c_str(), p.width, p.height, p.passes / nf, p.draws / nf, p.frag_ns / 1e6 / nf, p.vtx_ns / 1e6 / nf,
+                          p.frag_invocations / 1e6 / nf, p.frag_ns ? static_cast<double>(p.frag_invocations) / static_cast<double>(p.frag_ns) : 0.0);
             r += b;
         }
         *gpu_pass = r;
