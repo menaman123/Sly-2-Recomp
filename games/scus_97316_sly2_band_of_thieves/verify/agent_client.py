@@ -88,7 +88,9 @@ class AgentClient:
 def start_game(binary, name, sock, root, extra, env_extra=None, log=None):
     """Starts nativeee headless with the control plane on `sock`; harness lanes under root/name/.
     Returns the Popen. The caller deletes root/name.dump (never holds a PPM: DUMP_FROM far away)."""
-    iso = os.environ.get("ISO", "/Users/antmenaz/Downloads/Sly 2 - Band of Thieves.iso")
+    iso = os.environ.get("ISO")
+    if not iso:
+        sys.exit("agent_client: set ISO to the disc image path (NTSC-U SCUS_973.16)")
     for d in (name, name + ".mc", name + ".dump"):
         subprocess.run(["rm", "-rf", os.path.join(root, d)], check=False)
     os.makedirs(os.path.join(root, name + ".mc"), exist_ok=True)

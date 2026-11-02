@@ -14,7 +14,7 @@ from agent_client import connect, start_game, uptime  # noqa: E402
 bin_, S, end = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 root = os.path.expanduser("~/recomp-agent-data/scus_97316/cache/control")
 states = os.path.expanduser("~/recomp-agent-data/scus_97316/savestates")
-ev = os.path.expanduser("~/ra-orch/evidence/control/isrdiff")
+ev = os.path.expanduser(os.environ.get("RA_ISRDIFF_EVIDENCE", "~/recomp-agent-data/scus_97316/evidence/isrdiff"))
 os.makedirs(ev, exist_ok=True)
 state_path = os.path.join(states, "isr_%d.ps2st" % S)
 

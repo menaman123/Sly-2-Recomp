@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""closure_check.py -- the checkable meaning of "all parts native" for Sly 2 (STAGE NATIVE-2, ctest Sly2_NativeClosure).
+"""closure_check.py -- the checkable meaning of "all parts native" for Sly 2 (ctest Sly2_NativeClosure).
 
 Re-derives, from the disc (or the ELF alone), the finite set of inputs the game can hand to each PS2 unit the native
 module serves, and FAILS when one of them has no native path:
@@ -437,7 +437,8 @@ def main(argv=None):
                 if a.full:
                     try:
                         import numpy  # noqa: F401
-                        sys.path.insert(0, os.path.expanduser("~/ra-orch/evidence/nat2-enum"))
+                        # an optional numpy-based scanner (sigscan.py) next to this script or on $SLY2_SIGSCAN_DIR
+                        sys.path.insert(0, os.environ.get("SLY2_SIGSCAN_DIR", os.path.dirname(os.path.abspath(__file__))))
                         import sigscan
                         runs = [x for x in sigscan.vu_runs(out) if sigscan.vu_run_plausible(out, x[0], x[1])[0]]
                         mpg = sigscan.mpg_candidates(out)

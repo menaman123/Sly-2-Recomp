@@ -7,7 +7,7 @@ session.quit (the census). Run B: a fresh process, state.load of A's file at fra
 same RAM hash, session.quit (the --frames cap counts the output SEGMENT's boundaries after a live restore). Then cmp_legs.py compares the
 harness lanes (frames.fhash per presented frame, audio.ahash per 6-boundary window, mem.mhash per 60) on absolute
 positions over [S, END]. Prints the verdict; deletes the savestate and the dumps (game data), keeps the lanes (hashes)
-under ~/ra-orch/evidence/control/state_proof/ (RA_PROOF_EVIDENCE=<dir> and RA_PROOF_CACHE=<dir> override the
+under ~/recomp-agent-data/scus_97316/evidence/state_proof/ (RA_PROOF_EVIDENCE=<dir> and RA_PROOF_CACHE=<dir> override the
 evidence and the run/dump roots; the savestate file is named proof_<SAVE_AT>.ps2st under the data store).
 Prints the uninterrupted run's `state.save:` line (frame, engine boundary, yield_remaining) and the restored run's
 `state.load:` line (sections, yield_restores) from the game logs: the YLDP section's seat is visible there."""
@@ -27,13 +27,13 @@ save_at = int(sys.argv[2]) if len(sys.argv) > 2 else 2000
 end = int(sys.argv[3]) if len(sys.argv) > 3 else 3000
 root = os.path.expanduser(os.environ.get("RA_PROOF_CACHE", "~/recomp-agent-data/scus_97316/cache/control"))
 states = os.path.expanduser("~/recomp-agent-data/scus_97316/savestates")
-evidence = os.path.expanduser(os.environ.get("RA_PROOF_EVIDENCE", "~/ra-orch/evidence/control/state_proof"))
+evidence = os.path.expanduser(os.environ.get("RA_PROOF_EVIDENCE", "~/recomp-agent-data/scus_97316/evidence/state_proof"))
 os.makedirs(states, exist_ok=True)
 shutil.rmtree(evidence, ignore_errors=True)
 os.makedirs(evidence)
 state_path = os.path.join(states, "proof_%d.ps2st" % save_at)
 here = os.path.dirname(os.path.abspath(__file__))
-cmp_legs = os.path.expanduser("~/ra-orch/evidence/control/cmp_legs.py")
+cmp_legs = os.path.expanduser(os.environ.get("RA_CMP_LEGS", os.path.join(here, "cmp_legs.py")))
 
 
 def ram_sha256(c):
