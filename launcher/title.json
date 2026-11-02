@@ -176,7 +176,7 @@
             "label": "Vertical sync",
             "kind": "switch",
             "default": "off",
-            "help": "Waits for the display between pictures so none is torn.",
+            "help": "Waits for the display between pictures so none is torn. Your button presses reach the screen later (about two extra frames) and the game can feel sluggish: leave it off unless the picture tears.",
             "locked_by": { "key": "video.frame_cap", "value": "off", "help": "Off while the frame rate is not capped." }
           },
           {
