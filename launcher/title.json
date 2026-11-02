@@ -193,6 +193,13 @@
             ]
           },
           {
+            "key": "video.fps_overlay",
+            "label": "FPS counter",
+            "kind": "switch",
+            "default": "on",
+            "help": "The pictures shown per second, the frame time and a short history of recent frames, in the top-right corner of the game window."
+          },
+          {
             "key": "ui.perf_overlay",
             "label": "Frame counter",
             "kind": "switch",

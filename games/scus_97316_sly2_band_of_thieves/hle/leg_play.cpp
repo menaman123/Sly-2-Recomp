@@ -36,7 +36,23 @@ ps2r::render::TextureFilter FilterOf(ps2r::TextureFilterSel f) {
 
 }  // namespace
 
-LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& core, LegGs& gs, LegAudio& audio)
+namespace {
+// The FPS counter's colours in this title's spirit: a deep night-blue outline, gold labels, the
+// panel a translucent navy with a gold rim (the fps figure itself is green / amber / red by rate).
+// Colours only -- the glyphs are the engine's own (app/gui/fps_glyphs.inc), no asset of the disc.
+ps2r::app::FpsOverlayTheme FpsOverlayPalette() {
+    ps2r::app::FpsOverlayTheme t;
+    auto rgba = [](uint32_t r, uint32_t g, uint32_t b, uint32_t a) { return (a << 24) | (b << 16) | (g << 8) | r; };
+    t.outline = rgba(12, 22, 56, 232);
+    t.label = rgba(242, 197, 74, 255);
+    t.panel = rgba(14, 30, 72, 150);
+    t.panel_border = rgba(242, 197, 74, 120);
+    t.spark_frame = rgba(120, 170, 255, 140);
+    return t;
+}
+}  // namespace
+
+LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs& knobs, LegCore& core, LegGs& gs, LegAudio& audio)
     : cfg_(cfg), audio_(audio) {
     if (core.play_mode && gs.video_live) {
         std::string exe_err;
@@ -69,6 +85,11 @@ LegPlay::LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& co
                 std::fprintf(stderr, "nativeee: settings: %s=%s not saved: %s\n", key.c_str(), value.c_str(), err.c_str());
             }
         }, [] { return ps2r::ConfigStore::ReadAll(); });
+        // The FPS counter (video.fps_overlay, default on): a leg with a harness armed (--harness-out) seeds
+        // it off so the lanes' presented frames stay as recorded, unless NATIVEEE_FPS_OVERLAY=1 asks for it
+        // (the cost lane). Its colours are this title's palette; the glyphs the engine's.
+        session->ConfigureFpsOverlay(cfg.video.fps_overlay && (cfg.harness.out_dir.empty() || knobs.fps_overlay_forced),
+                                     FpsOverlayPalette());
         // Display page rows are seeded from video.*; the internal scale applies live (LegGs::scale_request).
         static_assert(static_cast<int>(ps2r::FrameCap::Off) == 0 && static_cast<int>(ps2r::FrameCap::Hz30) == 1 &&
                       static_cast<int>(ps2r::FrameCap::Hz60) == 2);
