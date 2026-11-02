@@ -79,8 +79,7 @@ bool VideoStack::CreateContext(const VideoConfig& video, const char* title) {
 }
 
 // video.backend=metal: the Metal device (no window, no context; any thread may drive it).
-bool VideoStack::CreateMetal(const VideoConfig& video) {
-
+bool VideoStack::CreateMetal([[maybe_unused]] const VideoConfig& video) {
 #if defined(PS2R_HAS_METAL)
     render::MetalDeviceSettings ms;
     ms.gpu_timing = metal_options_.gpu_timing;
