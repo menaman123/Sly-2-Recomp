@@ -1,7 +1,7 @@
 // snd_rpc_protocol.h -- the 989snd EE <-> IOP RPC protocol as Sly 2 (SCUS_973.16) uses it.
 //
 // Facts, not game bytes (derived from the title's 989snd_Library image and the lane's RPC census,
-// ~/ra-orch/notes/nat-iop-spu.md "STEP 1 CENSUS"; evidence/nat-iop-spu/snd989_rpc_handlers.txt):
+// the handler census of the recompiled module's dispatcher):
 //
 //   * Two SIF RPC servers, both registered by 989snd itself: 0x123456 (the command server; every reply
 //     is 12 bytes) and 0x123457 (the bank-load server; reply 4 bytes).

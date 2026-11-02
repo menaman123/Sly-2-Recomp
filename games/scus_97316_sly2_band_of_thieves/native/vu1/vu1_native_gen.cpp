@@ -5,7 +5,7 @@
 //                  [--cycle-local 0|1] [--entry-clamp 0|1] [--cluster-ops N] [--clamp-mask 0|1] [--images <images.txt>]
 //                  [--programs <disc_programs.txt>]
 //
-// CONTENT IDENTITY (--programs, STAGE NATIVE-2): the disc's VU programs (extract_images.py over the ELF's
+// CONTENT IDENTITY (--programs): the disc's VU programs (extract_images.py over the ELF's
 // .vutext: id, size, bytes at the load address) are the authority. Every corpus case is assigned to the
 // program whose bytes equal its micro memory's prefix (longest match); the cases of one program -- however
 // many whole-memory RESIDUE variants they carry -- yield ONE TU named by the CONTENT hash (VuImageHash::Fast
@@ -131,7 +131,7 @@ int Usage() {
 
 bool Parse(int argc, char** argv, Args* a) {
     a->region.chain = true;  // the recorded policy of the title's generated code (the engine's default engine.vu1_aot_chain=on)
-    // STAGE PERF-1: profile-guided clusters of 160 ops (the corpus replay is the profile; the engine's run-time
+    // Profile-guided clusters of 160 ops (the corpus replay is the profile; the engine's run-time
     // builder has no profile and keeps blocks=1). Paris bench: 3.49 -> 3.22 ns/bundle (-8 %); caps 96 / 256 / 512
     // measured 3.17-3.69 / 3.25-3.43 / 3.25-3.28 -- 160 the most stable of the three rounds.
     a->region.cluster_ops = 160;

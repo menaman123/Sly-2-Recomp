@@ -63,7 +63,7 @@ ROWS = {
     "qol.fast_forward": ("4", None),
     "fixes.look_rest_seconds": ("on", None),
     "fixes.skid_mark_init": ("on", None),
-    "mods.enabled": ("on", None),   # fingerprint-excluded (STAGE FIX-2): judged through run.meta mods_enabled=
+    "mods.enabled": ("on", None),   # fingerprint-excluded: judged through run.meta mods_enabled=
     "paths.user_data": ("<folder>/data", None),
 }
 # Rows judged by a key other than env_ps2 (paths.* are not in the fingerprint).

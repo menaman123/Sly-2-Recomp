@@ -15,7 +15,7 @@ Rows: E seq mod addr n|r a0 a1 a2 a3 sp ra t_us tid depth / X seq mod addr n|r v
       I seq lib:idx a0 a1 a2 a3 t_us depth / J seq lib:idx v0 t_us.
 --ignore-regs ADDR:REGS   do not compare the named entry registers (a0..a3,sp,ra) of calls to ADDR (hex)
                           -- for a callee that reads fewer arguments than the recompiled caller left in
-                          a2/a3 (register-file leftovers, nat2-snd.md); `*:ra` ignores $ra everywhere
+                          a2/a3 (register-file leftovers); `*:ra` ignores $ra everywhere
 --ignore-imports LIB:IDX  do not compare the named import's registers (e.g. libsd:10 a2/a3 leftovers): the
                           row must still be there, only its register columns are skipped
 --guest-arity FILE        `<addr-hex> <n>` lines: compare only a0..a(n-1) at the entry of guest function
@@ -58,7 +58,7 @@ IMPORT_ARITY = {
     'cdvdman:4': 1, 'cdvdman:6': 4, 'cdvdman:8': 0, 'cdvdman:10': 2, 'cdvdman:11': 1, 'cdvdman:12': 0, 'cdvdman:13': 1,
     'cdvdman:14': 2, 'cdvdman:15': 0, 'cdvdman:37': 1, 'cdvdman:39': 0, 'cdvdman:75': 1,
     'modload:17': 2, 'modload:18': 3,
-    # sysclib 1.04 (engine/iop/hle/sysclib/sysclib_module.cpp kOrdinals), usbd 1.01, ioman 1.04, loadcore:12 (lgaud track)
+    # sysclib 1.04 (engine/iop/hle/sysclib/sysclib_module.cpp kOrdinals), usbd 1.01, ioman 1.04, loadcore:12
     'sysclib:7': 1, 'sysclib:12': 3, 'sysclib:13': 3, 'sysclib:14': 3, 'sysclib:16': 3, 'sysclib:17': 2, 'sysclib:20': 2,
     'sysclib:22': 2, 'sysclib:23': 2, 'sysclib:27': 1, 'sysclib:29': 3, 'sysclib:34': 2, 'sysclib:36': 3, 'sysclib:40': 3,
     'usbd:4': 1, 'usbd:5': 1, 'usbd:6': 3, 'usbd:7': 2, 'usbd:8': 1, 'usbd:9': 2, 'usbd:10': 1, 'usbd:11': 4, 'usbd:12': 2,

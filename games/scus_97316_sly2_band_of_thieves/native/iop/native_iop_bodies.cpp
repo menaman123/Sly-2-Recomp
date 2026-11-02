@@ -1,4 +1,4 @@
-// native_iop_bodies.cpp -- the registry of native bodies: one line per module track. Each track's TU adds
+// native_iop_bodies.cpp -- the registry of native bodies: one line per module. Each module's TU adds
 // its bodies to its module (`Add(addr, body, name)`); the frame installs them under title.native.iopsys and
 // the NATIVEEE_IOP_NATIVE filter. Merge rule: append a line, never reorder.
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/native_iop_frame.h"
@@ -16,11 +16,11 @@ void RegisterNativeIopBodies(NativeIopFrame& frame) {
     Snd989Lock::Register(frame.Snd989());
     // iopsys: spiop's tray-poll thread in the step form (the first coroutine-free native thread; the lane proof).
     SpiopTrayThread::Register(frame.Spiop());
-    // snd989 track: the 989snd_Library bodies (native/iop/snd989/).
+    // snd989: the 989snd_Library bodies (native/iop/snd989/).
     RegisterSnd989Natives(frame.Snd989());
-    // spiop track (iop/spiop/README.md): the streaming module, 69 of 98 functions.
+    // spiop (iop/spiop/README.md): the streaming module, 69 of 98 functions.
     RegisterSpiopNatives(frame.Spiop());
-    // lgaud track: lgAud (native_lgaud.cpp) + FILEIO_service (native_fileio.cpp).
+    // lgaud: lgAud (native_lgaud.cpp) + FILEIO_service (native_fileio.cpp).
     RegisterLgaudNatives(frame.Lgaud());
     RegisterFileioNatives(frame.Fileio());
 }

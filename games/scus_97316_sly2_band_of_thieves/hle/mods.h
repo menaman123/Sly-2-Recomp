@@ -1,4 +1,4 @@
-// Mods: the testing aids behind mods.enabled (STAGE FIX-2, mods track) -- the level select and the skip
+// Mods: the testing aids behind mods.enabled -- the level select and the skip
 // cutscene, each an act on the GAME'S OWN machinery at a frame boundary (nothing is short-circuited):
 //
 //   LEVEL SELECT (Warp): the game's loader FUN_0020e890 runs once per frame from main and acts when the

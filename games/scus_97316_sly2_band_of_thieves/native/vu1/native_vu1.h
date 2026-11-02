@@ -1,4 +1,4 @@
-// native_vu1.h -- Sly 2's VU1 microprograms as NATIVE host code (STAGE NATIVE, title.native.vu1).
+// native_vu1.h -- Sly 2's VU1 microprograms as NATIVE host code (title.native.vu1).
 //
 // The engine models VU1 per kick: a tier (cached / block / interpreter) walks the microprogram's
 // bundles. This title uses a FIXED set of microprogram images (native/vu1/images.txt), so their native
@@ -18,7 +18,7 @@
 // the table (a miss) falls back to the engine's model (the block tier, proven == the interpreter) and is
 // counted (NativeCensus::Fallback + the per-image miss list in the row's detail).
 //
-// CONTENT IDENTITY (STAGE NATIVE-2): the engine keys a program by the hash of the WHOLE 16 KB micro memory,
+// CONTENT IDENTITY: the engine keys a program by the hash of the WHOLE 16 KB micro memory,
 // which carries the residue of earlier uploads, so one disc program had up to three identities and an unseen
 // residue combination was a miss. The table (native_vu1_table.h) now keys each program by the hash of its own
 // bytes (the `size` the disc's ELF uploads at VU address 0: native/vu1/extract_images.py, disc_programs.txt);

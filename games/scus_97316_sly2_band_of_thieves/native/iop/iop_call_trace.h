@@ -1,5 +1,5 @@
 // iop_call_trace.h -- IopCallTrace: the per-call trace of the hosted IOP modules' guest functions and their
-// library imports (NATIVEEE_IOP_TRACE=<file>) -- the module tracks' per-function oracle.
+// library imports (NATIVEEE_IOP_TRACE=<file>) -- the per-function oracle for a native body.
 //
 // Bound on the seam's two hooks (iop_seam::trace / iop_seam::import_trace, engine/iop/abi/host_app/iop_seam.h):
 // every guest function entry/exit of every `--seam` module and every `import_call` entry/exit, with the IOP

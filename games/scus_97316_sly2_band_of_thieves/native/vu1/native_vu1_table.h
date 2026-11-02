@@ -1,7 +1,7 @@
 // native_vu1_table.h -- the table the build-time generator (vu1_native_gen) emits into
 // <build>/generated/games/scus_97316_sly2_band_of_thieves/native/vu1/vu1_native_images.cpp: one row per
 // native VU1 microprogram of the title, keyed by its CONTENT hash (VuImageHash::Fast over the program's
-// `size` bytes at VU address 0 -- the bytes the disc's ELF uploads; STAGE NATIVE-2) naming the exports table
+// `size` bytes at VU address 0 -- the bytes the disc's ELF uploads) naming the exports table
 // of its generated TU (engine/vu/vu1_aot/vu1_aot_exports.h). A kicked image is identified by hashing its
 // first `size` bytes (NativeVu1::Identify) whatever residue the rest of the 16 KB carries. (A row with
 // size 16384 is a whole-image row of the legacy per-image mode.) Without a corpus at build time the table

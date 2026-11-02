@@ -1,7 +1,7 @@
 // snd989_rpc.cpp -- the 0x123456 RPC face: the dispatcher (fn_3497c), the batch (fn_34880), the external-command
 // dispatch (fn_344c4 / fn_3318c / fn_33148) and the hot shims + bodies the lanes exercise (fno 26 bank-sound-is-valid,
 // 90 movie push, 91 movie read position, 9 group volume, the lookups). Ported from the recompiled 989snd_Library.
-// THE REPLY BUFFER IS STATE (nat2-snd.md): the dispatcher never writes the result word; a shim with a value stores it
+// THE REPLY BUFFER IS STATE: the dispatcher never writes the result word; a shim with a value stores it
 // at *g[kResultPtr]; the batch advances kResultPtr by 4 per record and steps back 4 at its end.
 #include "games/scus_97316_sly2_band_of_thieves/native/iop/snd989/snd989_bodies.h"
 

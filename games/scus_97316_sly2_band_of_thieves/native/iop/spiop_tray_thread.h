@@ -5,7 +5,7 @@
 //     while (ctx[0x00] == 0) {                       // the module's shutdown flag
 //         sema = ctx[0x30];                          // the disc semaphore (-1 = none)
 //         if (sema >= 0) WaitSema(sema);             // park 1
-//         tray = 0; if (sceCdTrayReq(2, &tray)) ctx[0x2c] = tray;   // op 0x0c's reply word (nat2-snd.md)
+//         tray = 0; if (sceCdTrayReq(2, &tray)) ctx[0x2c] = tray;   // op 0x0c's reply word
 //         if (sema >= 0) SignalSema(sema);
 //         DelayThread(100000);                       // park 2: every 100 ms
 //     }

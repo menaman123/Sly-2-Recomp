@@ -27,7 +27,7 @@ LegMtvu::LegMtvu(const ps2r::Config& cfg, const TitleProfile& title, const LegKn
     // NATIVEEE_MTVU=1|0 forces the worker on or off in every mode; =1 under the deterministic profile checks
     // the worker's frames against the inline path.
     const bool mtvu_wanted = knobs.mtvu_set ? knobs.mtvu_on : (cfg.engine.mtvu && core.play_mode);
-    // STAGE NATIVE: title.native.vu1 -- the registry of the build-time generated microprograms, filled on
+    // title.native.vu1 -- the registry of the build-time generated microprograms, filled on
     // every VU1 unit that may kick (the inline unit now, the worker's below before it starts).
     const bool native_vu1_on = NativeKnobs::From(cfg).vu1;
     if (native_vu1_on) {

@@ -33,7 +33,7 @@ continuations: 6575 bodies, 72351 exact entries, 2 restartable wait thunks
 The output is deterministic: a run from a different working directory and input path produces identical
 files. There are no "Unhandled OP Code" sites in the shards.
 
-## `--vu0-native` (CMake `PS2R_SLY2_VU0_NATIVE`, default ON since STAGE NATIVE-2; OFF = the scalar emission, the oracle)
+## `--vu0-native` (CMake `PS2R_SLY2_VU0_NATIVE`, default ON; OFF = the scalar emission, the oracle)
 
 Adds `--vu0-native` to the command above: every COP2 (VU0 macro-mode) FMAC op is emitted through the host
 vector kernels of `engine/ee/recomp_abi/host_app/vu0_native.h` (NEON / SSE2 / scalar; the bit-for-bit twins
@@ -44,9 +44,9 @@ CTC2 / VCALLMS / syscall / control flow / block end). The shards differ textuall
 same way from a `--vu0-native` generation. The report line is unchanged (6575 bodies, 72351 exact entries).
 The two settings must be run-equivalent: the determinism lane's mem/audio/frames hashes are the gate.
 
-## `--mem-window` (CMake `PS2R_SLY2_MEM_WINDOW`, default ON since STAGE PERF-1; OFF = the classic emission, the oracle)
+## `--mem-window` (CMake `PS2R_SLY2_MEM_WINDOW`, default ON; OFF = the classic emission, the oracle)
 
-Adds `--mem-window` to the command above (STAGE PERF-1, track ee). Every generated body is emitted as
+Adds `--mem-window` to the command above. Every generated body is emitted as
 `void FUN_x(CpuContext& PS2R_RECOMP_RESTRICT ctx, uint32_t addr)` -- the restrict qualifier states what is
 true of the engine: guest RAM and the scratchpad never overlap a `CpuContext`, so a guest store (a char-typed
 store through the RAM base, which the compiler must otherwise assume may alias anything) cannot change a
@@ -65,7 +65,7 @@ mixed combinations have no pin (the check is skipped with a notice). The report 
 bodies, 72351 exact entries, 2 restartable wait thunks). The gate: the lane rows (nat2_gate defaults =
 baseline) and the Paris hub rows must be the classic emission's.
 
-## `--zero-fold` (CMake `PS2R_SLY2_ZERO_FOLD`, default ON since STAGE PERF-1)
+## `--zero-fold` (CMake `PS2R_SLY2_ZERO_FOLD`, default ON)
 
 Adds `--zero-fold`: every rvalue read of `$zero` in a generated body (`ctx.cpuRegs.GPR.r[0].<view>[k]`) becomes a
 typed literal 0 (shard post-pass `Recompiler::rewrite_zero_fold_file`: 82,020 reads folded, 8 writes kept -- the

@@ -16,24 +16,24 @@ if(NOT TARGET ps2r_recompiler_v2)
 endif()
 
 set(PS2R_SLY2_RECOMP_SHARDS 32 CACHE STRING "ps2r_recompiler_v2 --shards / --init-parts for this title (TitleProfile::recomp.shard_count)")
-# --vu0-native (STAGE NATIVE, track gs-vu0): the COP2 (VU0 macro-mode) FMAC ops are emitted through the
+# --vu0-native: the COP2 (VU0 macro-mode) FMAC ops are emitted through the
 # host vector kernels of engine/ee/recomp_abi/host_app/vu0_native.h (NEON / SSE2 / scalar, bit-identical
 # to the scalar VR_reg operators) with the MAC/STATUS flag commit folded over each straight-line run.
 # A BUILD-time choice (the shards differ), so each setting has its own manifest: MANIFEST.sha256 (off)
-# and MANIFEST.vu0_native.sha256 (on). Default ON since STAGE NATIVE-2 (2026-10-31): the lane gate and the
-# Paris play lane pass with it (worker track); OFF = the scalar emission, kept as the oracle.
+# and MANIFEST.vu0_native.sha256 (on). Default ON since 2026-10-31: the lane gate and the
+# Paris play lane pass with it; OFF = the scalar emission, kept as the oracle.
 option(PS2R_SLY2_VU0_NATIVE "Recompile the title with ps2r_recompiler_v2 --vu0-native" ON)
-# --mem-window (STAGE PERF-1, track ee): every generated body takes `CpuContext& PS2R_RECOMP_RESTRICT ctx`
+# --mem-window: every generated body takes `CpuContext& PS2R_RECOMP_RESTRICT ctx`
 # (guest RAM never overlaps the register file) and reads the two inline memory bases once into a local
 # `memory::Window` that every load/store in the body goes through (host_app/memory.h: the same arms in
 # the same order as FastMem's, the same slow path) -- the compiler then keeps guest registers and the
 # bases in host registers across guest stores. Default ON; OFF = the classic emission, the oracle
 # (`--set`-free: a build-time choice, so the lane gate + Paris rows prove it, see ../native/README.md rule 4).
 option(PS2R_SLY2_MEM_WINDOW "Recompile the title with ps2r_recompiler_v2 --mem-window" ON)
-# --zero-fold (STAGE PERF-1, track ee): every read of $zero emitted as a typed literal 0 (the emission never
+# --zero-fold: every read of $zero emitted as a typed literal 0 (the emission never
 # writes $zero except the adjacent dsra32 pair), so the compiler deletes the load and the `+ 0` it fed.
 option(PS2R_SLY2_ZERO_FOLD "Recompile the title with ps2r_recompiler_v2 --zero-fold" ON)
-# --inline-leaves (STAGE PERF-1, track ee): a JAL to a trivial straight-line leaf (<= 8 whitelisted instructions,
+# --inline-leaves: a JAL to a trivial straight-line leaf (<= 8 whitelisted instructions,
 # `jr $ra`) is emitted in place behind the callee's hooked[] byte -- the raw dispatch (table, probe, shadow push/pop,
 # trace flag, indirect call) is skipped for the ~22 % of all calls that are one-liner getters/setters; a hooked body
 # still takes the classic dispatch. DEFAULT OFF: measured on the M4 (A/B ab_mw123, headless MTVU=1, 3 rounds, load

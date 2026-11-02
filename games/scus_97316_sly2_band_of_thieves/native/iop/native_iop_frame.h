@@ -1,5 +1,5 @@
 // native_iop_frame.h -- NativeIopFrame: the four hosted modules as NativeIopModule objects, the knob, the
-// filter, the trace and the census -- what hle/boot_leg.cpp installs and the module tracks plug into.
+// filter, the trace and the census -- what hle/boot_leg.cpp installs and the native modules plug into.
 //
 //   title.native.iopsys (Config, default off, fingerprinted): when on, every admitted native body is
 //     installed into its module's seam slot (NativeIopModule::Install); off = the recompiled bodies run
@@ -7,7 +7,7 @@
 //   NATIVEEE_IOP_NATIVE=<spec>: the per-function admission (NativeIopFilter) for bisecting on the lane.
 //   NATIVEEE_IOP_TRACE=<file>: the call trace (IopCallTrace), on whether or not the knob is.
 //
-// The module tracks register their bodies in RegisterNativeIopBodies() (native_iop_bodies.cpp: one line per
+// The native modules register their bodies in RegisterNativeIopBodies() (native_iop_bodies.cpp: one line per
 // module -- `RegisterSnd989(frame.Snd989())` ...), each body `Add()`ed by the address of the recompiled
 // function it replaces. The census row `native_iop=` lists every module as
 // `<id>:<native fns>/<total>:<native calls>/<recompiled calls>`; the goal state reads N/0 on every lane.
@@ -74,7 +74,7 @@ private:
     int installed_ = 0;
 };
 
-// native_iop_bodies.cpp: the module tracks' registrations (each adds its module's bodies to the frame).
+// native_iop_bodies.cpp: the registrations (each adds its module's bodies to the frame).
 void RegisterNativeIopBodies(NativeIopFrame& frame);
 
 }  // namespace ps2r::title::sly2

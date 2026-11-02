@@ -1,5 +1,5 @@
 # games/scus_97316_sly2_band_of_thieves/native/vu1/images.txt -- the AUTHORITATIVE list of Sly 2's VU1
-# microprograms (STAGE NATIVE-2: CONTENT identity). One row per PROGRAM: <content hash, 16 hex> then facts.
+# microprograms (CONTENT identity). One row per PROGRAM: <content hash, 16 hex> then facts.
 # content hash = VuImageHash::Fast over the program's bytes at their VU load addresses (0..size), the key of
 # native_vu1_table.h; a kicked image is identified by hashing its first `size` bytes whatever residue the rest
 # of the 16 KB micro memory carries (native_vu1.h). Hashes, sizes, addresses and counts only -- never the bytes.

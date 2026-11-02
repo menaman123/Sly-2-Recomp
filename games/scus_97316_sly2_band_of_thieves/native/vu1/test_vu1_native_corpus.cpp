@@ -7,7 +7,7 @@
 // the code the title ships.
 //
 //   test_vu1_native_corpus <corpus dir>... [--caps]      (77 = no corpus given / none readable)
-//   test_vu1_native_corpus <corpus dir>... --bench N      (STAGE PERF-1) the kick microbenchmark of the LINKED
+//   test_vu1_native_corpus <corpus dir>... --bench N      the kick microbenchmark of the LINKED
 //                                                        code: every case in corpus order (the capture order = the
 //                                                        game's kick sequence) replayed on ONE unit in rotation, N
 //                                                        rounds, only Execute timed (registers / data memory

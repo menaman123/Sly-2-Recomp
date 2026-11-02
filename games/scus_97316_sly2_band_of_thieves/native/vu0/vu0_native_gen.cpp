@@ -1,5 +1,5 @@
 // vu0_native_gen -- BUILD-TIME generator of Sly 2's VU0 microprograms as native C++
-// (STAGE NATIVE, track gs-vu0). Reads the title ELF, takes the VU0 program image the
+// Reads the title ELF, takes the VU0 program image the
 // game uploads (the .vutext bytes at a known vaddr: an ADDRESS, title data that may be
 // named), decodes each requested entry with the engine's ONE decoder, and emits one
 // host function per STRAIGHT-LINE program -- the exact transliteration of the cached /

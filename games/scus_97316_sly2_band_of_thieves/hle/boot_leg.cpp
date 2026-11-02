@@ -162,7 +162,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     LegTrace trace(knobs, disc, title.serial);
     LegCensus census(LegCensus::Phases{cfg, host, title, core, gs, devices, mtvu, dma_ipu, interrupts, vif_irq, services, audio, play, saves,
                                        iop, pad, image, text_watch, park, trace});
-    // STAGE NATIVE: the title.native.* switches (native/README.md). Each native path's installer takes
+    // The title.native.* switches (native/README.md). Each native path's installer takes
     // `native_knobs` and its seam's owner here, after the devices exist and before the census; off (the
     // default) = the engine's modelled path everywhere. The census row names what is on and what served.
     const NativeKnobs native_knobs = NativeKnobs::From(cfg);

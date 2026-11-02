@@ -14,7 +14,7 @@ target_include_directories(ps2r_title_hle PUBLIC ${CMAKE_SOURCE_DIR})
 target_compile_options(ps2r_title_hle PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ps2r_title_hle PUBLIC ps2r_title_api)   # the TitleProfile contract
 
-# STAGE NATIVE: the title's native paths (../native: ps2r_title_native -- the title.native.* knobs, the per-unit
+# The title's native paths (../native: ps2r_title_native -- the title.native.* knobs, the per-unit
 # census, the portable SIMD surface, and the per-unit native paths). Always configured so a no-disc build (CI,
 # the Windows lane) compiles the portable core; the per-unit TUs that need the recompiled code / build-time
 # generated data are guarded inside native/CMakeLists.txt. Linked into the play composition below.

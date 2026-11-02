@@ -32,7 +32,7 @@ step form that calls the callees as they are would be exact on these lanes but n
 form is the lock pre-acquisition protocol (poll the semaphore; return `Park::Sema` when it would block; on resume
 hand the callee a `{tid, sid}` token its `WaitSema` site consumes instead of waiting), which needs the token
 honoured at every nested site: the three spiop sites above plus snd989's fn_42f58 and fn_4c1ac (the voice-table
-lock) -- the snd989 track's bodies. Until then the coroutine form stays (exact; ~3.7 ms per 600 boot frames, ~20 ms
+lock) -- the native 989snd bodies. Until then the coroutine form stays (exact; ~3.7 ms per 600 boot frames, ~20 ms
 per 900 hub frames at 3.27 us per switch).
 
 Rules learned here (beside README.md's loop): the original's frame is mirrored (same `$sp` move, the same

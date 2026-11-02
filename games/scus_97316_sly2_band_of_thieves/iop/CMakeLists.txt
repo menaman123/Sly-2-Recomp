@@ -11,7 +11,7 @@
 # ps2r_iop_recompiler relocates each to its base, wraps it in namespace iop_<id> and routes every library
 # import through the engine's IopLibraryTable. Bases are in iop_modules.h (all below the sysmem heap at
 # 0x60000). Each module's MANIFEST.sha256 pins the generated output; nothing generated is committed.
-# --seam (STAGE NATIVE-3): every function is a recompiled body + an iop_func_<addr> wrapper through
+# --seam: every function is a recompiled body + an iop_func_<addr> wrapper through
 # iop_seam::Call over the module's slot table (engine/iop/abi/host_app/iop_seam.h) -- the per-function
 # port seam native/iop/ installs host bodies into; a slot left empty runs the recompiled body (the oracle).
 if(NOT PS2R_TITLE_EMBEDDED_AVAILABLE)

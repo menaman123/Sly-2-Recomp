@@ -14,7 +14,7 @@
 // microprograms are verified in the background, then compiled to native code and installed. The builder
 // is declared before the cache so it outlives it.
 //
-// STAGE NATIVE (title.native.vu1): NativeVu1 (native/vu1/native_vu1.h) fills the live unit's AOT registry
+// title.native.vu1: NativeVu1 (native/vu1/native_vu1.h) fills the live unit's AOT registry
 // from the table generated at build time -- the title's microprograms run as code compiled into the
 // binary; no cache, no builder, no compiler. LegDevices selected the AOT tier for it before the worker
 // copied the settings; the registry is filled before the worker starts.

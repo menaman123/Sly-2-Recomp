@@ -12,7 +12,7 @@
 // (the leg's end) -- derived facts only (templates, counts, hashes, function addresses): no
 // packet bytes.
 //
-// This is the native GIF path's SPECIFICATION INPUT (step 1 of ~/ra-orch/notes/nat-gif.md): the
+// This is the native GIF path's SPECIFICATION INPUT: the
 // shapes that cover the quadwords are the ones a native builder is written for; everything else
 // falls back to the parser.
 #pragma once

@@ -1,5 +1,5 @@
 // snd989_lock.h -- the 989snd global lock as native bodies: the shared service every native 989snd
-// body takes before touching the driver's state (nat2-snd.md's "two locks").
+// body takes before touching the driver's state (the "two locks" of native/snd/README.md).
 //
 // The recompiled module keeps the lock in its own RAM (989snd_Library at 0x33000; the words below are
 // its .bss as the IRX laid them, read off the generated TU):

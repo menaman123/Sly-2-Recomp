@@ -1,7 +1,7 @@
 // native_iop_module.h -- NativeIopModule: a hosted IOP module of this title implemented, function by
 // function, in host C++ over the module's OWN IOP RAM image.
 //
-// THE FRAME (STAGE NATIVE-3, native/iop/README.md). The four title modules the hosted IOP still runs as
+// THE FRAME (native/iop/README.md). The four title modules the hosted IOP still runs as
 // recompiled MIPS (FILEIO_service, lgAud, 989snd_Library, spiop) are generated with the per-function seam
 // (`ps2r_iop_recompiler --seam`: engine/iop/abi/host_app/iop_seam.h): every guest function is reached
 // through its slot in the module's `iop_fn_slots[]` table -- a JAL site, a JR/JALR, a thread entry, an RPC
@@ -10,14 +10,14 @@
 //   * the module's export table, thread entries, RPC registrations, timer handlers need NO re-registration:
 //     the hosted kernel (IopKernel + thbase/thsemap/thevent/sifcmd/timrman) keeps every record; only the
 //     BODY at an address is swapped;
-//   * the module's RAM region stays allocated and IS its state (the snd track's rule: exact by construction
+//   * the module's RAM region stays allocated and IS its state (the rule: exact by construction
 //     over the module's RAM layout) -- a native body and the recompiled body are interchangeable at any
 //     call, and the recompiled body is the fallback and the oracle;
 //   * a module is ported one function at a time: each candidate is `Add()`ed by address; `Install()` puts
 //     the admitted ones (NativeIopFilter: the NATIVEEE_IOP_NATIVE spec, for bisecting on the lane) into the
 //     slots; the census reads `native_iop=<id>:<native fns>/<total>:<native calls>/<recompiled calls>`.
 //
-// A module track derives (or just fills) a NativeIopModule: `Add(0x42f58, &Thunk<Snd989, &Snd989::Lock>,
+// A native module derives (or just fills) a NativeIopModule: `Add(0x42f58, &Thunk<Snd989, &Snd989::Lock>,
 // "lock")`. The body gets the IopContext (a0-a3 in gpr[4..7], the result goes to gpr[2]) and `self`.
 // Services (kernel calls, imports, other guest functions, the module's RAM words): iop_services.h.
 #pragma once

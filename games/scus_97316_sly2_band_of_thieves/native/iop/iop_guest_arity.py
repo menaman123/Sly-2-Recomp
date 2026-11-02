@@ -47,7 +47,7 @@ IMPORT_ARITY = {
     'cdvdman:4': 1, 'cdvdman:6': 4, 'cdvdman:8': 0, 'cdvdman:10': 2, 'cdvdman:11': 1, 'cdvdman:12': 0, 'cdvdman:13': 1,
     'cdvdman:14': 2, 'cdvdman:15': 0, 'cdvdman:37': 1, 'cdvdman:39': 0, 'cdvdman:75': 1,
     'modload:17': 2, 'modload:18': 3,
-    # sysclib 1.04 (engine/iop/hle/sysclib/sysclib_module.cpp kOrdinals), usbd 1.01, ioman 1.04, loadcore:12 (lgaud track)
+    # sysclib 1.04 (engine/iop/hle/sysclib/sysclib_module.cpp kOrdinals), usbd 1.01, ioman 1.04, loadcore:12
     'sysclib:7': 1, 'sysclib:12': 3, 'sysclib:13': 3, 'sysclib:14': 3, 'sysclib:16': 3, 'sysclib:17': 2, 'sysclib:20': 2,
     'sysclib:22': 2, 'sysclib:23': 2, 'sysclib:27': 1, 'sysclib:29': 3, 'sysclib:34': 2, 'sysclib:36': 3, 'sysclib:40': 3,
     'usbd:4': 1, 'usbd:5': 1, 'usbd:6': 3, 'usbd:7': 2, 'usbd:8': 1, 'usbd:9': 2, 'usbd:10': 1, 'usbd:11': 4, 'usbd:12': 2,
