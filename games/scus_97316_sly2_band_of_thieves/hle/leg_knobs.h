@@ -84,6 +84,10 @@ struct LegKnobs {
     // NATIVEEE_AUDIO_DUMP_SOURCE=mixer (and always headless) the mixer's output per boundary.
     std::optional<std::string> audio_dump;
     bool audio_dump_mixer = false;
+    // NATIVEEE_AUDIO_DUMP_MIXER=<file.wav>: the mixer's output per boundary as a second wav, alongside the device dump.
+    std::optional<std::string> audio_dump_mixer_path;
+    // NATIVEEE_AUDIO_RATE=legacy: the device ring's per-push rate controller (the A/B arm; hle/leg_audio.h).
+    bool audio_rate_legacy = false;
     // NATIVEEE_SPU_TRACE=<file.txt>: the SPU voice model's event record (engine VoiceTrace: key-on/off with the
     // programmed registers, loop ends, transfers, unmodelled services, a per-second level census per voice).
     std::optional<std::string> spu_trace;

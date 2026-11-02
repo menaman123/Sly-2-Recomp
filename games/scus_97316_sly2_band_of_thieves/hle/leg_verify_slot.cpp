@@ -357,6 +357,7 @@ void LegVerifySlot::JoinLadder() {
     if (audio_.audio_sink.Running()) audio_.audio_sink.Close();
     audio_.audio_ring.SetPullTap(nullptr, nullptr);   // safe: Close waited for the device callback
     audio_.audio_dump.Close();
+    audio_.mixer_dump.Close();
     note("audio_close");
 }
 

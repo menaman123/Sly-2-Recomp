@@ -435,6 +435,16 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
                                         ":stretch=" + std::to_string(audio.stretch.FramesIn()) + "/" + std::to_string(audio.stretch.FramesOut()) +
                                         ":lead=" + std::to_string(audio.audio_ring.LeadQuanta())
                                   : std::string("none"));
+    // The device ring's rate controller (hle/leg_audio.h): the per-push fill / ratio / interval distributions,
+    // and with a harness out dir the per-push record as audio_ring.csv.
+    {
+        std::string row = audio.RingCensus();
+        if (row != "none" && !p_.cfg.harness.out_dir.empty()) {
+            const std::string csv = p_.cfg.harness.out_dir + "/audio_ring.csv";
+            row += audio.WriteRingCsv(csv) ? ";csv=" + csv : ";csv=unwritable";
+        }
+        meta->Set("audio_ring", row);
+    }
     meta->Set("audio_mixed", "pumps=" + std::to_string(p_.services.mixer.Pumps()) + ":frames=" + std::to_string(p_.services.mixer.FramesMixed()) +
                                  ":interp=" + (ps2r::sound::Voice::Gaussian() ? "gaussian" : "linear") +
                                  ":pump=" + (ps2r::sound::SpuCore::FastMix() ? "voice_major" : "sample_major") +
