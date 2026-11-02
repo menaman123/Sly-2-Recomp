@@ -30,7 +30,7 @@
 
 namespace ps2r::title::sly2 {
 namespace {
-// frame_budget= (PERF1 stress track): the per-unit ms PER FRAME derived from rows this census already wrote --
+// frame_budget=: the per-unit ms PER FRAME derived from rows this census already wrote --
 // `key=value[:...]` text is searched for `needle` and the number after it read. No counter of its own.
 double RowNumber(const std::string& text, const std::string& row, const std::string& needle) {
     const size_t line = text.find("\n" + row + "=");
@@ -62,15 +62,15 @@ void LegCensus::Write() {
     if (p_.native_vif) meta->Set("native_vif", p_.native_vif());
     if (p_.native_detail) p_.native_detail();
     if (p_.native_iop) p_.native_iop(meta);
-    // STAGE NATIVE: which title.native.* paths are on and what each served natively / fell back
+    // Which title.native.* paths are on and what each served natively / fell back
     // (native/native_census.h grammar).
     meta->Set("native", NativeCensus::Instance().Row(p_.native));
     p_.text_watch.Report(p_.host);   // text_watch= / text_watch_pages= (NATIVEEE_WATCH=text only)
     WriteFrameBudget(meta);
 }
 
-// frame_budget= : THE PER-UNIT FRAME-TIME BUDGET ROW (PERF1). Every unit's time per frame boundary in ms, read back from
-// the rows above so the table other tracks quote is one line: ee = the EE thread's CPU (ee_cpu_ms total), worker = the MTVU
+// frame_budget= : THE PER-UNIT FRAME-TIME BUDGET ROW. Every unit's time per frame boundary in ms, read back from
+// the rows above so the summary table is one line: ee = the EE thread's CPU (ee_cpu_ms total), worker = the MTVU
 // worker's busy time (mtvu worker_ns), drain = the GIF drain thread (mtvu drain_ns), consumer = the GS consumer thread's own
 // time (gs_queue consumer_ms_per_frame), gpu_sum = gs_backend gpu_ms (the SUM of command-buffer spans: over-counts when
 // buffers overlap -- a bound, not a measurement; the gpu_frame= span row is the GPU's), slept = the pacer's sleep (pace
@@ -465,7 +465,7 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
         meta->Set("clock_field_hz", cc.FieldHzSeries().empty() ? std::string("none") : cc.FieldHzSeries());
         meta->Set("clock_render_fps", cc.RenderFpsSeries().empty() ? std::string("none") : cc.RenderFpsSeries());
         meta->Set("clock_ee_cpu_ms", cc.EeCpuMsSeries().empty() ? std::string("none") : cc.EeCpuMsSeries());
-        // ee_frame_cpu_us= (STAGE PERF-1, track ee): the EE unit's budget row -- the game thread's CPU per
+        // ee_frame_cpu_us=: the EE unit's budget row -- the game thread's CPU per
         // boundary as a distribution (p50 / p95 / p99 / max us, and the boundary index of the max): the worst
         // frame the EE produced on this lane, independent of the host's load.
         meta->Set("ee_frame_cpu_us", cc.FrameCpuRow());
@@ -559,7 +559,7 @@ void LegCensus::WriteVu1(ps2r::verify::RunMeta* meta) {
     // Under MTVU the worker's unit is the live VU1 (the inline unit's counters stay 0).
     const bool worker = static_cast<bool>(p_.mtvu.mtvu);
     VuUnit& live_vu1 = p_.mtvu.LiveVu1();
-    // STAGE NATIVE: the native VU1 counters into the `native=` row (served = kicks run through the generated
+    // The native VU1 counters into the `native=` row (served = kicks run through the generated
     // code's registry, fallback = kicks of an image the table does not hold).
     if (p_.mtvu.native_vu1) p_.mtvu.native_vu1->Publish(live_vu1);
     // block_ns= / block_ns_per_bundle= : the block tier's wall time inside its runs (the AOT tier's native

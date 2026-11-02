@@ -1,4 +1,4 @@
-# games/scus_97316_sly2_band_of_thieves/native/vu0 -- Sly 2's VU0 microprograms as host code (track gs-vu0).
+# games/scus_97316_sly2_band_of_thieves/native/vu0 -- Sly 2's VU0 microprograms as host code.
 #
 # vu0_native_gen (built here, links the engine's ps2r_vu for the ONE decoder + the stall / flag
 # pipelines it folds) reads the title ELF's VU0 program image -- the bytes the game uploads to VU0

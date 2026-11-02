@@ -55,7 +55,7 @@ LegDevices::LegDevices(const ps2r::Config& cfg, const TitleProfile& title, const
                                                                        : VuTierMode::Cached;
         if (knobs.vu1_mode) mode = tier_of(*knobs.vu1_mode, mode);
         vu1.dispatch().settings().vu1_mode = mode;
-        // STAGE NATIVE: title.native.vu1 selects the AOT tier whatever the mode above says (its registry is
+        // title.native.vu1 selects the AOT tier whatever the mode above says (its registry is
         // the build-time generated table, filled by LegMtvu; a miss runs the tier's fallback = the block tier).
         if (NativeKnobs::From(cfg).vu1) NativeVu1::Select(vu1.dispatch().settings());
         // diag.vu1_lockstep: compare the tier against the interpreter at every kick.

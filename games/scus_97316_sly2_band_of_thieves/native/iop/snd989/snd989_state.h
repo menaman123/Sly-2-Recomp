@@ -1,4 +1,4 @@
-// snd989_state.h -- named views of the 989snd_Library module's globals the native bodies touch (STAGE NATIVE-3).
+// snd989_state.h -- named views of the 989snd_Library module's globals the native bodies touch.
 //
 // 989snd keeps its state in its own .data/.bss (IOP RAM 0x50000..0x59e88: every body addresses it from
 // `lui $x, 5` / `lui $x, 6`) and in heap blocks it allocates. A native body reads and writes THE SAME WORDS

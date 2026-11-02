@@ -1,5 +1,5 @@
 # games/scus_97316_sly2_band_of_thieves/native/vu1 -- Sly 2's VU1 microprograms as NATIVE host code,
-# generated at BUILD time (STAGE NATIVE, title.native.vu1). native_vu1.h states the design.
+# generated at BUILD time (title.native.vu1). native_vu1.h states the design.
 #
 # Inputs
 #   NATIVEEE_VU1_CORPUS   ;-separated directories of Vu1Case records (the engine's kick capture format:
@@ -28,7 +28,7 @@ set(_vu1_corpus_default "$ENV{NATIVEEE_VU1_CORPUS}")
 set(NATIVEEE_VU1_CORPUS "${_vu1_corpus_default}" CACHE STRING
     "VU1 kick corpus directories (Vu1Case records; game data outside the repository) the native VU1 code is generated from")
 set(PS2R_SLY2_VU1_NATIVE_CHAIN 1 CACHE STRING "vu1_native_gen --chain (block chaining with guaranteed tail calls; 0 for a compiler without musttail)")
-# STAGE PERF-1: extra generator policy arguments for an A/B of the generated shape (e.g. "--mac-acc;1" or
+# Extra generator policy arguments for an A/B of the generated shape (e.g. "--mac-acc;1" or
 # "--store-back-inline;0"; a ;-separated list). Non-empty = a non-default policy: the MANIFEST check is skipped
 # (it is recorded for the default policy). The shipped build leaves it empty.
 set(PS2R_SLY2_VU1_NATIVE_GEN_ARGS "" CACHE STRING "vu1_native_gen extra policy arguments (;-separated; empty = the recorded default policy)")
@@ -130,7 +130,7 @@ endif()
 
 # The engine's VU semantic flags for the generated bodies (engine/vu/CMakeLists.txt + the run-time
 # builder's command line: -O2 -fno-strict-aliasing -fwrapv; GNU adds -ffp-contract=off -frounding-math).
-# STAGE PERF-1: no stack protector on the generated bodies (every local array is a fixed VR_reg; the
+# No stack protector on the generated bodies (every local array is a fixed VR_reg; the
 # canary was a load / compare per block function call, 24 of the main renderer's functions carried one).
 if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     set(_vu_flags /w /O2 /GS- /clang:-fno-strict-aliasing /clang:-fwrapv /bigobj)

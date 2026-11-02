@@ -1,6 +1,6 @@
 # `games/scus_97316_sly2_band_of_thieves/native/` -- Sly 2's native paths
 
-STAGE NATIVE: the PS2 subsystems the engine still MODELS every frame (the VU1 microprograms, the
+The PS2 subsystems the engine still MODELS every frame (the VU1 microprograms, the
 GIF packet -> DrawIR parse, VIF unpack + DMAC chain walks, the hosted IOP + SPU2 driver path, VU0
 macro mode, the GS register state) are replaced, **for Sly 2's specific use of each unit**, by native
 host code living HERE -- in the title tree, outside the engine submodule -- and selected through the
@@ -12,13 +12,13 @@ engine's existing seams. This is NOT the decompilation: the game's recompiled EE
    general. A VU1 kick handler serves the microprogram images Sly 2 uploads (keyed by image hash +
    MSCAL entry); a GIF builder serves the packet shapes Sly 2 kicks; an IOP server answers the SIF
    RPC ids Sly 2's EE client calls. Anything else is handed back to the engine.
-2. **It plugs into an engine seam** (the inventory with file:line is in ~/ra-orch/notes/nat-harness.md
-   `## READY: seam inventory`): the VU1 AOT image registry / the kick dispatch, `DrawIrSink`, the VIF
+2. **It plugs into an engine seam** (the seam inventory, with file:line, is kept with the
+   design notes): the VU1 AOT image registry / the kick dispatch, `DrawIrSink`, the VIF
    unpack span, the DMAC chain walker, the IOP module table, the SPU2 driver, the recompiler's COP2
    emit. No engine model is deleted or edited into a title-specific shape: the engine's generic model
    is **the fallback and the oracle**.
 3. **It is behind a Config knob `title.native.<unit>`** (`vu1|gif|vif|dmac|iop|spu|gs|vu0`; bool), read
-   ONLY through `native_knobs.h` (`NativeKnobs::From(cfg)`). Since STAGE NATIVE-2 (2026-10-31) `vu1`, `gif`,
+   ONLY through `native_knobs.h` (`NativeKnobs::From(cfg)`). Since 2026-10-31 `vu1`, `gif`,
    `vif`, `dmac`, `vu0` default ON (each proved with zero fallbacks on the lane and the Paris play lane;
    `--set title.native.<unit>=off` = the modelled path, the oracle); `iop`, `spu`, `gs` default off. The
    keys are in the engine's fingerprint, so a NON-DEFAULT value shows in run.meta `env_ps2` / `env_hash`;
@@ -29,8 +29,8 @@ engine's existing seams. This is NOT the decompilation: the game's recompiled EE
    `syscall_count=2153418`, `gs_draws=585846`. With the knob ON the run reproduces the SAME
    mem/audio/frames/domain_tick/syscall_count/gs_draws; only `env_ps2` and `env_hash` may move
    (mem.mhash hashes guest RAM only: engine/core/verify/verify_host.cpp). The gate:
-   `~/ra-orch/evidence/nat-harness/nat_gate.sh BIN [--set title.native.<unit>=on ...]`.
-   STAGE FIX-2 (2026-11-01, music track) RE-RECORDED the boot rows: the engine's IOP clock now keeps its
+   the deterministic lane at 600 frames, no pad and boot.pad, `--set title.native.<unit>=on` vs the baseline rows.
+   2026-11-01: the boot rows were RE-RECORDED: the engine's IOP clock now keeps its
    frame base with a forced advance past the next boundary's ceiling (`iop.frame_base_follows_skips`,
    default on), so the IOP no longer sits dark for the ~54 boundaries after boot's 989snd bank load (the
    dark window that keyed off every level's music streams): no pad `mem=c30e736339a1` / pad
@@ -58,7 +58,7 @@ engine's existing seams. This is NOT the decompilation: the game's recompiled EE
 | `native_knobs.{h,cpp}` | `NativeKnobs::From(const Config&)` -- the eight `title.native.*` switches; `NativeUnit` |
 | `native_census.{h,cpp}` | `NativeCensus::Instance()` -- per-unit served/fallback counters; `Row()` = run.meta `native=` |
 | `native_simd.{h,cpp}` | the portable `Vec4f` (NEON / SSE2 / scalar) |
-| `native_<unit>.{h,cpp}` | one per track: `vu1`, `gif`, `vif` + `dmac`, `iop` + `spu`, `gs` + `vu0` -- the native paths themselves |
+| `native_<unit>.{h,cpp}` | one per unit: `vu1`, `gif`, `vif` + `dmac`, `iop` + `spu`, `gs` + `vu0` -- the native paths themselves |
 | `vu0/` | `title.native.vu0`: the seven VU0 microprograms the game's VCALLMS sites start (0x0 / 0x10 / 0x60 / 0xf0 / 0x120 / 0x150 / 0x1c0) as host bodies GENERATED AT BUILD TIME from the ELF's VU0 image by `vu0_native_gen` (pinned by `vu0/MANIFEST.sha256`); `native_vu0.{h,cpp}` installs the `VuTierDispatch::SetVu0Hook` body (fingerprint-gated, the cached tier is the fallback); `test_sly2_vu0_native` = the oracle (cached == interp == native on random register files). The COP2 inline ops are the recompiler's `--vu0-native` (`recomp/CMakeLists.txt` `PS2R_SLY2_VU0_NATIVE`, `recomp/INVOCATION.md`) |
 
 Install order: `boot_leg.cpp` RunLeg builds `NativeKnobs` from `cfg` after the devices exist and
@@ -70,4 +70,4 @@ path declines a shape (`NativeCensus::Fallback`).
 
 59.8 % GIF parse -> DrawIR, 26.9 % VU1 (cached tier), 11.9 % the game's recompiled code, 1.0 % VIF,
 0.4 % IOP/SPU; gif_sink 30.2M kicks / 40.7M packed words / 24.5M image qw, 2.17M draws, 734.6M VU1
-bundles. `~/ra-orch/evidence/nat-harness/nat_profile.sh BIN frames [knobs]` reproduces the breakdown.
+bundles. Sampling the headless run (macOS `sample`, 1 ms, past the boot screens) over the same frames reproduces the breakdown.

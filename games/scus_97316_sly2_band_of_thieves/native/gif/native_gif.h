@@ -12,7 +12,7 @@
 // order are the parser's exactly (gif_equiv proves it on recorded packets; the lane's hashes on
 // the game).
 //
-// What it serves (the census of ~/ra-orch/notes/nat-gif.md, the shapes covering the quadwords):
+// What it serves (the packet-shape census, gif_shape_census.h -- the shapes covering the quadwords):
 //   PACKED tags whose descriptors are in the decoded set {PRIM RGBAQ ST UV XYZF2 XYZ2 FOG XYZF3
 //     XYZ3 NOP} or A+D -- the VU1 programs' XGKICK geometry (the cel programs' {ST RGBAQ NOP XYZF2}
 //     / {ST NOP RGBAQ XYZF2} rows = 63 % of the lane's quadwords, the ink {A+D XYZF2 XYZF2} pairs,

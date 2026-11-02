@@ -99,7 +99,7 @@ private:
     void WritePlay(ps2r::verify::RunMeta* meta);
     void WriteDevices(ps2r::verify::RunMeta* meta);
     void WriteVu1(ps2r::verify::RunMeta* meta);
-    void WriteFrameBudget(ps2r::verify::RunMeta* meta);   // frame_budget= (PERF1): per-unit ms per frame from the rows above
+    void WriteFrameBudget(ps2r::verify::RunMeta* meta);   // frame_budget=: per-unit ms per frame from the rows above
 
     Phases p_;
 };

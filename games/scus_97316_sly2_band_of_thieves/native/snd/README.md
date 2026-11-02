@@ -1,4 +1,4 @@
-# native/snd -- Sly 2's native sound driver (989snd + spiop), STAGE NATIVE-2 track `snd`
+# native/snd -- Sly 2's native sound driver (989snd + spiop)
 
 The IOP's sound stack in Sly 2 is SCEA's **989snd_Library** (v3.01, exports `snd989` v1.08) plus Sucker Punch's
 **spiop** streaming module, both embedded in the ELF and recompiled at build time (`iop/`). The EE drives them
@@ -31,7 +31,7 @@ path that remains hosted (its tick does ~130k libsd ops per 900 frames).
    a void shim (fno 90) leaves the previous caller's word, and the EE copies 12 bytes of the buffer. The batch
    shim (fn_34880) advances `result_ptr` by 4 per record and steps back 4 at the end. The native server answers
    THROUGH THE MODULE'S BUFFER (`g[0x5063c]`): it stores only when the shim would, writes the terminator, copies
-   the first 12 bytes -- so hosted and native answers interleave exactly. (This was the iop-spu track's unexplained
+   the first 12 bytes -- so hosted and native answers interleave exactly. (This was the earlier native RPC server's unexplained
    2-byte EE RAM delta at 0x443844: fno 90's reply carried the last fno-91 word in the hosted arm.)
 2. **The kernel pass.** A hosted round trip is `SifRpcBridge::RunOnRpcThread -> DriveUntil`: one
    `IopKernel::Dispatch()` pass at the current IOP clock, which fires the due hard-timer beat (989snd's 240 Hz tick
@@ -60,7 +60,7 @@ cannot read; a batch is dry-checked first so a declined batch is forwarded whole
   Z6TAIL.DUP); the nine IOP modules are in the ELF's `.irx` section 0x472200..0x4e5e40 (TITLE_INPUTS.sha256);
   lgAud, 989snd_Library, spiop (+ IOPRP300's FILEIO) are recompiled at build time, MANIFEST-pinned. The code
   input of the unit is closed by construction.
-- The EE's 989snd traffic (tools in ~/ra-orch/evidence/nat2-snd/tools/ee_snd_rpc_closure.py over the ELF): the
+- The EE's 989snd traffic (a static closure over the ELF's RPC call sites): the
   two wrappers 0x2325e0 (sync) and 0x232838 (queued as a batch record when the batch flag 0x2c4684 is set) have
   30 call sites with fno = $a0: **0x123456 fnos {0, 6, 8, 9, 10, 11, 19, 20, 21, 22, 23, 24, 25, 26, 33, 34, 54,
   59, 60, 61, 62, 64, 76, 90, 91, 92, 104} + 77 (the flush, 0x232bf8) = 28; 0x123457 {3}** (0x231fb0). The lanes
@@ -113,4 +113,4 @@ pieces that port carries unchanged.
 ## Portability
 
 No POSIX, no `_WIN32` / `__APPLE__`; the engine's types only. `tools/ci/win_cross_smoke.sh --tu-dir native/snd`
-compiles both TUs for x86_64-pc-windows-msvc (SUMMARY in ~/ra-orch/evidence/nat2-snd/).
+compiles both TUs for x86_64-pc-windows-msvc.

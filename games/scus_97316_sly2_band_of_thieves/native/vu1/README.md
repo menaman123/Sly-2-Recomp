@@ -1,4 +1,4 @@
-# `native/vu1/` -- Sly 2's VU1 microprograms as native host code (STAGE NATIVE, `title.native.vu1`)
+# `native/vu1/` -- Sly 2's VU1 microprograms as native host code (`title.native.vu1`)
 
 The engine models VU1 per kick: a tier (cached / block / interpreter, `engine/vu/tiers/`) walks the
 microprogram's bundles -- 61-77 % of the EE thread's CPU on the boot lane with everything modelled
@@ -26,7 +26,7 @@ registry is the contract the engine's generator was built for -- block functions
 block loop (JR / JALR targets, the E bit, the cycle cap, the NOP sled, XTOP yields stay the loop's), so
 every rule the interpreter has is kept op for op and the corpus / lockstep oracles apply unchanged.
 
-## Verified (2026-10-30, build ~/ra-orch/wt/sly-nat-vu1-build; details in ~/ra-orch/notes/nat-vu1.md)
+## Verified (2026-10-30)
 
 - The lane (det_lane.sh 600, no pad + boot.pad): knob OFF = the stage baseline; knob ON = mem / audio /
   frames / domain_tick / syscall_count / gs_draws identical, env_ps2 + `title.native.vu1=on;` (the
@@ -41,7 +41,7 @@ every rule the interpreter has is kept op for op and the corpus / lockstep oracl
   -- the block loop, the MAC-flag materialise, the XGKICK copy 2 %, the AOT tier's steady-clock pair 2 % --
   are small).
 
-## The generated shape (STAGE PERF-1, 2026-11-01; details in ~/ra-orch/notes/perf-worker.md)
+## The generated shape (2026-11-01)
 
 `vu1_native_gen`'s policy row (`vu1_native_images.txt`): `blocks=1:ops=48:taken=1:chain=1:mac_acc=1:sb_inline=1:cycle_local=1:
 entry_clamp=0:cluster_ops=160:clamp_mask=1`. What each buys (the engine's `Vu1AotRegionPolicy`, `engine/vu/vu1_aot/`):

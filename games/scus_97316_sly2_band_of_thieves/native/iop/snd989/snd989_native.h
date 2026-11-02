@@ -1,4 +1,4 @@
-// snd989_native.h -- the native 989snd_Library bodies' registration on the frame (STAGE NATIVE-3, track snd989).
+// snd989_native.h -- the native 989snd_Library bodies' registration on the frame.
 //
 // The recompiled module (iop/snd989, ps2r_iop_recompiler --seam) carries one seam slot per function; the frame
 // (native/iop/native_iop_frame.h, knob title.native.iopsys, admission NATIVEEE_IOP_NATIVE=all|none|snd989[:addr,..])

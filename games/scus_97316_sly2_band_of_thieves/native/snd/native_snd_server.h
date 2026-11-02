@@ -8,7 +8,7 @@
 // way (FRAME dispatch completes a round trip inside the EE's sceSifCallRpc).
 //
 // EXACTNESS RULES (what makes a natively served round trip byte-identical in EE RAM, SPU state and the
-// libsd op stream to the module's own answer; notes/nat2-snd.md 11:08 for the evidence):
+// libsd op stream to the module's own answer):
 //   1. THE REPLY BUFFER IS STATE. 989snd answers every 0x123456 call from ONE IOP buffer {-1, result,
 //      -1}; its dispatcher never writes the result word -- only a shim that has a value stores it, a void
 //      shim leaves the previous caller's word in place, and the EE copies 12 bytes of that buffer. The

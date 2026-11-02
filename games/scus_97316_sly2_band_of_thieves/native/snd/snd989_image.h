@@ -2,7 +2,7 @@
 // "snd989" v1.08, recompiled at base 0x33000: iop/iop_modules.h) that the native sound driver relies on.
 //
 // Every number is an OFFSET or a RULE read off the module's disassembly (the build-time recompiled C++ is
-// the same bytes; the evidence trail is ~/ra-orch/notes/nat2-snd.md). No game bytes live here.
+// the same bytes). No game bytes live here.
 //
 // WHY the native driver needs the image's layout at all: 989snd keeps its state in its own .data/.bss
 // (IOP RAM 0x50000..0x59e88) and in heap blocks it allocates; while the hosted module still owns part

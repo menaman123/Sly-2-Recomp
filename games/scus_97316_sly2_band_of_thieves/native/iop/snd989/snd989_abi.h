@@ -1,4 +1,4 @@
-// snd989_abi.h -- how a native 989snd body sits in the recompiled module's seat (STAGE NATIVE-3, track snd989).
+// snd989_abi.h -- how a native 989snd body sits in the recompiled module's seat.
 //
 // A ported function is a host body installed in the module's per-function seam (iop_seam::InstallPlain through
 // NativeIopModule::Add, native/iop/native_iop_module.h): it receives the SAME IopContext the recompiled body would (args in $a0..$a3 and the caller's stack from

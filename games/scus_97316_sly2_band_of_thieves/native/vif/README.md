@@ -1,4 +1,4 @@
-# `native/vif/` -- Sly 2's VIF1 stream on the title's native path (tracks `vif` + `dmac`; NATIVE-2 `worker`)
+# `native/vif/` -- Sly 2's VIF1 stream on the title's native path (`title.native.vif` + `title.native.dmac`)
 
 The engine models a VIF1 chain kick as `ChainWalker::WalkVifChain` (the DMAtag walk) feeding every span to
 `Vif::ProcessData` (the whole-span VIFcode parser `VifFastSpan` + the word latch, `VifUnpack` with its NEON
@@ -25,7 +25,7 @@ display list. This directory executes it in the title through two engine seams:
 **Where the VU1 and GIF native paths meet.** The unpack destination IS VU1 data memory (`VuUnit::state().data`,
 the quadword layout the microprograms read: one 16-byte vector per quadword at `(addr + TOPS) & 0x3FF`); a native
 VU1 kick handler reads it with no second copy. The MSCAL goes through `Vif::ExecuteCommand` -> `Vif::KickVu1`
-(the double-buffer swap, `SetVifTop`, `VuUnit::Execute`) -> `VuTierDispatch` -- the VU1 track's hook is reached
+(the double-buffer swap, `SetVifTop`, `VuUnit::Execute`) -> `VuTierDispatch` -- the native VU1 path's hook is reached
 unchanged. DIRECT (PATH2) payloads reach the GIF arbiter as one packet per DIRECT, where `NativeGif` takes them.
 MPG writes VU1 micro memory through `VuUnit::WriteMicroMem` (the generation bump the VU1 registry keys on).
 

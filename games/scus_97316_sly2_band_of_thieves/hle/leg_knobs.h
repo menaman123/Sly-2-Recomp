@@ -61,11 +61,11 @@ struct LegKnobs {
     bool yield_spin_gate_set = false;
     bool yield_spin_gate_on = false;
     // NATIVEEE_EE_YIELD_PROGRESS=0: the yield point's progress gate off (EeYieldPoint header: every trip of a
-    // non-scheduling thread parks a wall field, the pre-FIX-2 Play schedule; the DMAC's prompt trip off too).
+    // non-scheduling thread parks a wall field, the earlier Play schedule; the DMAC's prompt trip off too).
     // Under the spin gate only; the deterministic profile pins the spin gate off, so the lanes never see it.
     bool yield_progress_gate = true;
     // NATIVEEE_MIXER_FAST=0: the SPU mixer's sample-major pump (the oracle) instead of the voice-major one
-    // (SpuCore::SetFastMix; PERF-1 io track). Output-identical by construction; default on.
+    // (SpuCore::SetFastMix). Output-identical by construction; default on.
     bool mixer_fast = true;
     // NATIVEEE_MEM_LANE=1|0: force the harness mem lane (a 34 MB guest-RAM hash every 60 boundaries, ~40 ms
     // on the boundary thread). Default: on headless, off in play.
