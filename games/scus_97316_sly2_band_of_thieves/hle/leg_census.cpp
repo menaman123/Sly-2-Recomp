@@ -397,6 +397,9 @@ void LegCensus::WritePlay(ps2r::verify::RunMeta* meta) {
         meta->Set("input_sources", play.live_input->Sources());
     }
     if (play.session) meta->Set("session_presents", std::to_string(play.session->Presents()));
+    // The FPS counter (video.fps_overlay): on/off and its own draw cost on the main thread.
+    if (play.session)
+        meta->Set("fps_overlay", std::string(play.session->FpsOverlayState() ? "on" : "off") + ":" + play.session->FpsOverlayCensus());
     // The frame trains (frame_timeline.h): the per-lane gap statistics and, with a harness out dir, the
     // full record as present_times.csv (verify/judge_smooth.py).
     if (play.session) {

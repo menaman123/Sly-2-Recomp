@@ -64,6 +64,10 @@ struct LegKnobs {
     // non-scheduling thread parks a wall field, the pre-FIX-2 Play schedule; the DMAC's prompt trip off too).
     // Under the spin gate only; the deterministic profile pins the spin gate off, so the lanes never see it.
     bool yield_progress_gate = true;
+    // NATIVEEE_FPS_OVERLAY=1: draw the FPS counter (video.fps_overlay) on a leg with a harness armed too
+    // (the play composition seeds it off there), to measure its cost on a lane (run.meta fps_overlay= row).
+    // It is on the window's present quad only; the GS frame the harness hashes never carries it.
+    bool fps_overlay_forced = false;
     // NATIVEEE_MIXER_FAST=0: the SPU mixer's sample-major pump (the oracle) instead of the voice-major one
     // (SpuCore::SetFastMix; PERF-1 io track). Output-identical by construction; default on.
     bool mixer_fast = true;

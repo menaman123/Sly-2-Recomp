@@ -28,7 +28,7 @@ namespace ps2r::title::sly2 {
 
 class LegPlay {
 public:
-    LegPlay(const ps2r::Config& cfg, const TitleProfile& title, LegCore& core, LegGs& gs, LegAudio& audio);
+    LegPlay(const ps2r::Config& cfg, const TitleProfile& title, const LegKnobs& knobs, LegCore& core, LegGs& gs, LegAudio& audio);
     LegPlay(const LegPlay&) = delete;
     LegPlay& operator=(const LegPlay&) = delete;
 

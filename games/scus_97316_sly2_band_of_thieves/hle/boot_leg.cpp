@@ -148,7 +148,7 @@ int RunLeg(const Config& cfg, ps2r::verify::VerifyHost& host, ps2r::verify::Fram
     WarpTool warp(knobs.warp ? knobs.warp->c_str() : nullptr, cfg.paths.mc_dir, title_dir);
     if (auto* meta = host.Meta()) meta->Set("warp", warp.Census());
     if (warp.Requested() && !warp.Applied()) return 2;
-    LegPlay play(cfg, title, core, gs, audio);
+    LegPlay play(cfg, title, knobs, core, gs, audio);
     if (play.Failed()) return 2;
     LegIop iop(cfg, knobs, core, devices, mtvu, interrupts, disc, services);
     LegSaves saves(cfg, host, title, core, gs, devices, mtvu, services, iop, play, g_build_id);
