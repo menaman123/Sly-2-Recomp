@@ -27,7 +27,7 @@ public:
     uint64_t Skipped() const { return skipped_; }
 
 private:
-    std::atomic<bool> on_{true};
+    std::atomic<bool> on_{false};   // video.motion_blur's default (boot_leg sets the configured value)
     uint64_t skipped_ = 0;
 };
 
