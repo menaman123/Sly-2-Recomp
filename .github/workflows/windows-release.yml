@@ -10,7 +10,8 @@
 # the zip.
 #
 # The code is regenerated at build time from two disc files, checked out from a private repository holding
-# SCUS_973.16 and IOPRP300.IMG side by side at its root. Secrets (Settings -> Secrets and variables -> Actions):
+# SCUS_973.16 and IOPRP300.IMG side by side at its root, with vu1-corpus.tar.xz (the VU1 kick corpus the native
+# VU1 host code is generated from; tar of the boot/ hub/ w1/ w2/ w3/ capture directories). Secrets (Settings -> Secrets and variables -> Actions):
 #   SLY2_GAME_FILES_REPO    owner/name of that repository
 #   SLY2_GAME_FILES_TOKEN   a fine-grained token with read access to its contents
 #
@@ -74,6 +75,27 @@ jobs:
           "GAME_BUILD=$env:RUNNER_TEMP\build-game" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           Write-Host "SCUS_973.16 ok ($got)"
 
+      # The native VU1 host code is generated at build time from the VU1 kick corpus (games/.../native/vu1:
+      # NATIVEEE_VU1_CORPUS). Without it the table is empty and VU1 runs on the engine's model -- a release
+      # never ships that way: the corpus archive (boot/ hub/ w1/ w2/ w3/ of Vu1Case records; game data) sits
+      # in the private repository next to the disc files.
+      - name: The VU1 kick corpus (private repository) for the native VU1 code
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:GITHUB_WORKSPACE "game-files\vu1-corpus.tar.xz"
+          if (-not (Test-Path $archive)) {
+            Write-Host "::error::the private repository has no vu1-corpus.tar.xz at its root: the release would run VU1 on the engine's model instead of native host code"
+            exit 1
+          }
+          $dir = Join-Path $env:RUNNER_TEMP "vu1-corpus"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          tar -xf $archive -C $dir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $dirs = @("boot", "hub", "w1", "w2", "w3") | ForEach-Object { (Join-Path $dir $_) -replace '\\', '/' }
+          foreach ($d in $dirs) { if (-not (Test-Path $d)) { Write-Host "::error::vu1-corpus.tar.xz has no $d"; exit 1 } }
+          "VU1_CORPUS=$($dirs -join ';')" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Write-Host "VU1 corpus: $((Get-ChildItem -Recurse -File $dir).Count) cases"
+
       - name: Python 3.12 (the clang-cl shim and the generators run under `python`)
         uses: actions/setup-python@v5
         with:
@@ -102,8 +124,12 @@ jobs:
         env:
           VCPKG_ROOT: ${{ github.workspace }}\vcpkg
         run: |
-          cmake -S engine --preset windows-clang-cl-release -B "$env:GAME_BUILD" -DPS2R_GAMES_DIR="${{ github.workspace }}\games" -DNATIVEEE_DISC= "-DNATIVEEE_TITLE_ELF=$env:ELF" -DPS2R_SIMD=ON 2>&1 | Tee-Object -FilePath configure.log
+          cmake -S engine --preset windows-clang-cl-release -B "$env:GAME_BUILD" -DPS2R_GAMES_DIR="${{ github.workspace }}\games" -DNATIVEEE_DISC= "-DNATIVEEE_TITLE_ELF=$env:ELF" "-DNATIVEEE_VU1_CORPUS=$env:VU1_CORPUS" -DPS2R_SIMD=ON 2>&1 | Tee-Object -FilePath configure.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Select-String -Path configure.log -SimpleMatch -Quiet "carries an EMPTY table") {
+            Write-Host "::error::the native VU1 table is empty (no corpus reached the configure): VU1 would run on the engine's model"
+            exit 1
+          }
       - name: vcpkg binary cache (save)
         if: always()
         uses: actions/cache/save@v4
