@@ -79,8 +79,14 @@ jobs:
       # NATIVEEE_VU1_CORPUS). Without it the table is empty and VU1 runs on the engine's model -- a release
       # never ships that way: the corpus archive (boot/ hub/ w1/ w2/ w3/ of Vu1Case records; game data) sits
       # in the private repository next to the disc files.
+      - name: Python 3.12 (the clang-cl shim and the generators run under `python`)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Unpacked with Python's tarfile: the runner's tar.exe hung on the .xz archive for 5.5 hours.
       - name: The VU1 kick corpus (private repository) for the native VU1 code
         shell: pwsh
+        timeout-minutes: 15
         run: |
           $archive = Join-Path $env:GITHUB_WORKSPACE "game-files\vu1-corpus.tar.xz"
           if (-not (Test-Path $archive)) {
@@ -89,17 +95,13 @@ jobs:
           }
           $dir = Join-Path $env:RUNNER_TEMP "vu1-corpus"
           New-Item -ItemType Directory -Force $dir | Out-Null
-          tar -xf $archive -C $dir
+          python -c "import sys, tarfile; tarfile.open(sys.argv[1]).extractall(sys.argv[2], filter='data')" $archive $dir
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $dirs = @("boot", "hub", "w1", "w2", "w3") | ForEach-Object { (Join-Path $dir $_) -replace '\\', '/' }
           foreach ($d in $dirs) { if (-not (Test-Path $d)) { Write-Host "::error::vu1-corpus.tar.xz has no $d"; exit 1 } }
           "VU1_CORPUS=$($dirs -join ';')" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           Write-Host "VU1 corpus: $((Get-ChildItem -Recurse -File $dir).Count) cases"
 
-      - name: Python 3.12 (the clang-cl shim and the generators run under `python`)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - name: vcpkg at the manifest's builtin-baseline
         shell: pwsh
         run: |
